@@ -1,0 +1,6 @@
+venv
+ComponentUpdateLog.txt
+*.cywrk
+*-backups
+fp-info-cache
+*.lck
