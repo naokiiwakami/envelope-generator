@@ -56,12 +56,13 @@ extern void adc_change_channel(uint32_t adc_channel);
 extern uint32_t adc_run();
 
 // DAC
+extern void InitializeDac(uint16_t index);
 extern void UpdateDac(uint16_t index, uint16_t value);
 
 extern void put_string(const char* message);
 extern void put_hex(const void *data, size_t size);
 
-extern void InitAnalog3();
+extern void InitializeAnalog3();
 extern void SignIn();
 extern void HandleCanRxMessage(const stm32_can_message_t *message);
 

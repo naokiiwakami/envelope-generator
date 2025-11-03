@@ -56,9 +56,36 @@ uint32_t adc_run()
   return value;
 }
 
+#define MCP47X6_COMMAND_WRITE_VOLATILE 0b010
+
+// DAC ladder voltage reference
+#define MCP47X6_VREF_VDD    0b00 // VDD, unbuffered
+#define MCP47X6_VREF_PIN_UB 0x10 // Vref pin, unbuffered
+#define MCP47X6_VREF_PIN    0x11 // Vref pin, buffered
+
+/**
+ * Initializes MCP4726 ADC
+ */
+void InitializeDac(uint16_t index)
+{
+  uint8_t data[3];
+  uint8_t command = 0b010; // write volatile memory
+  uint8_t vref = MCP47X6_VREF_VDD;
+  uint8_t pd = 0b00;  // not power down
+  uint8_t g = 0b0; // gain of 1
+  data[0] = (command << 5) | (vref << 3) | (pd << 1) | g;
+  data[1] = 0;
+  data[2] = 0;
+
+  uint16_t address = 0b1100000 + index;  // MCP4726Ax, x = index
+  if (HAL_I2C_Master_Transmit(&hi2c1, address << 1, data, 3, 1000) != HAL_OK) {
+    Error_Handler();
+  }
+}
+
 void UpdateDac(uint16_t index, uint16_t value)
 {
-  uint16_t address = 0b1100000 + index; // MCP4726A0 for CV depth or A1 for CV offset
+  uint16_t address = 0b1100000 + index; // MCP4726Ax, x = index
   uint8_t data[2];
   data[0] = value >> 12;
   data[1] = (value >> 4) & 0xff;

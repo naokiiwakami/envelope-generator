@@ -34,7 +34,7 @@ uint32_t q_head = 0;
 uint32_t q_tail = 0;
 uint8_t q_full = 0;
 
-static analog3::Analog3 *a3 = nullptr;
+analog3::Analog3 *a3 = nullptr;
 
 static void IncorporateString(analog3::Property *prop, const void *data, uint8_t len) {
   size_t data_len = std::min(static_cast<size_t>(len),
@@ -268,7 +268,7 @@ uint32_t SetUpModuleUid() {
   return uid;
 }
 
-void InitAnalog3() {
+void InitializeAnalog3() {
   uint32_t uid = SetUpModuleUid();
   char module_name[A3_MAX_CONFIG_DATA_LENGTH];
   LoadString(ADDR_MODULE_NAME, module_name, sizeof(module_name));

@@ -75,7 +75,26 @@ class HwController {
 };
 
 /**
- * Analog3 module.
+ * Analog3 module specific message handler.
+ *
+ * An abstract class used by injecting the Analog3 component to run module specific
+ * A3 message handling.
+ */
+class Analog3;
+class MessageHandler {
+ private:
+  Analog3 *a3_ = nullptr;
+
+ public:
+  virtual ~MessageHandler() = default;
+
+  virtual void Handle(const CanRxMessage& message) = 0;
+
+  friend Analog3;
+};
+
+/**
+ * Analog3 component.
  */
 class Analog3 {
  private:
@@ -89,6 +108,8 @@ class Analog3 {
   HwController *hw_controller_;
 
   Stream stream_;
+
+  MessageHandler *message_handler_;
 
  public:
   Analog3(uint32_t uid, uint16_t module_type, const char *name, HwController *can_handler);
@@ -124,6 +145,11 @@ class Analog3 {
 
   const HwController& GetHwController() {
     return *hw_controller_;
+  }
+
+  void InjectMessageHandler(MessageHandler *handler) {
+    handler->a3_  = this;
+    message_handler_ = handler;
   }
 
   void SignIn();

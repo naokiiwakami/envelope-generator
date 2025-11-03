@@ -26,6 +26,7 @@
 #include "analog3/stm32impl.h"
 #include "analog3/storage.h"
 #include "analog3/tasks.h"
+#include "envelope_generator.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -122,7 +123,8 @@ int main(void)
   HAL_TIM_PWM_Start(&htim14, TIM_CHANNEL_1);
   HAL_ADCEx_Calibration_Start(&hadc1);
 
-  InitAnalog3();
+  InitializeAnalog3();
+  InitializeEnvelopeGenerator();
 
   HAL_Delay(10);
   put_string("\r\nAnalog3 Envelope Generator\r\n");

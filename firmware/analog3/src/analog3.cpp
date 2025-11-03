@@ -19,7 +19,8 @@ Analog3::Analog3(uint32_t uid, uint16_t module_type, const char *name, HwControl
     name_ { name },
     properties_ { },
     hw_controller_(can_handler),
-    stream_ { } {
+    stream_ { },
+    message_handler_(nullptr) {
   if (name_.size() > A3_MAX_CONFIG_DATA_LENGTH) {
     name_.resize(A3_MAX_CONFIG_DATA_LENGTH);
   }
@@ -55,6 +56,9 @@ void Analog3::NotifyId() {
 }
 
 void Analog3::HandleRxMessage(const CanRxMessage& message) {
+  if (message_handler_ != nullptr) {
+    message_handler_->Handle(message);
+  }
   if (message.IsExtended()) {
     // TODO: Handle an extension frame
     return;
