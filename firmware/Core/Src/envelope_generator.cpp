@@ -25,18 +25,18 @@ class EnvelopeGenerator {
   ~EnvelopeGenerator() = default;
 
   void Initialize() {
-    InitializeDac(dac_index_);
+    InitializeMcp47x6Dac(dac_index_, MCP47X6_VRL_VDD, MCP47X6_PD_NORMAL, MCP47X6_GAIN_1X);
     GateOff();
   }
 
   void GateOn(uint16_t velocity) {
     value_ = velocity;
-    UpdateDac(dac_index_, value_);
+    UpdateMcp47x6Dac(dac_index_, value_);
   }
 
   void GateOff() {
     value_ = 0;
-    UpdateDac(dac_index_, value_);
+    UpdateMcp47x6Dac(dac_index_, value_);
   }
 };
 
