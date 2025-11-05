@@ -51,7 +51,6 @@ extern uint32_t q_tail;
 extern uint8_t q_full;
 
 // ADC
-extern uint16_t adc_results[4];
 extern void adc_change_channel(uint32_t adc_channel);
 extern uint32_t adc_run();
 

@@ -36,7 +36,10 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define ADC_INDEX_A 0
+#define ADC_INDEX_D 1
+#define ADC_INDEX_S 2
+#define ADC_INDEX_R 3
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -53,11 +56,23 @@ FDCAN_HandleTypeDef hfdcan1;
 I2C_HandleTypeDef hi2c1;
 
 TIM_HandleTypeDef htim1;
-TIM_HandleTypeDef htim14;
 
 UART_HandleTypeDef huart1;
 
 /* USER CODE BEGIN PV */
+uint16_t adc_value;
+uint8_t adc_channel_index = 0;
+const uint32_t adc_channels[] = {
+  ADC_CHANNEL_0, // PA0, A
+  ADC_CHANNEL_1, // PA1, D
+  ADC_CHANNEL_2, // PA2, S
+  ADC_CHANNEL_3, // PA3, R
+  ADC_CHANNEL_4, // PA4, Dangling
+  ADC_CHANNEL_5, // PA5, Gate A
+  ADC_CHANNEL_6, // PA6, Gate B
+};
+
+uint16_t adc_results[7];  // Stores the 4 channel readings
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -69,7 +84,6 @@ static void MX_FDCAN1_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_USART1_UART_Init(void);
-static void MX_TIM14_Init(void);
 static void MX_FLASH_Init(void);
 /* USER CODE BEGIN PFP */
 
@@ -115,12 +129,11 @@ int main(void)
   MX_I2C1_Init();
   MX_TIM1_Init();
   MX_USART1_UART_Init();
-  MX_TIM14_Init();
   MX_FLASH_Init();
   /* USER CODE BEGIN 2 */
   InitializeStorage();
 
-  HAL_TIM_PWM_Start(&htim14, TIM_CHANNEL_1);
+  // HAL_TIM_PWM_Start(&htim14, TIM_CHANNEL_1);
   HAL_ADCEx_Calibration_Start(&hadc1);
 
   InitializeAnalog3();
@@ -131,6 +144,8 @@ int main(void)
 
   HAL_Delay(20);
 
+  HAL_TIM_Base_Start_IT(&htim1);
+
   // The module is ready to run. Signing into the A3 network.
   SignIn();
   /* USER CODE END 2 */
@@ -140,17 +155,17 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
-    if (q_head != q_tail || q_full)
-    {
+
+    /* USER CODE BEGIN 3 */
+    if (q_head != q_tail || q_full) {
       stm32_can_message_t *message = &message_queue[q_tail];
       HandleCanRxMessage(message);
       __disable_irq();
       q_tail = (q_tail + 1) % MESSAGE_QUEUE_SIZE;
-      q_full =0;
+      q_full = 0;
       __enable_irq();
     }
     CheckForTask();
-    /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
 }
@@ -438,37 +453,6 @@ static void MX_TIM1_Init(void)
 }
 
 /**
-  * @brief TIM14 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_TIM14_Init(void)
-{
-
-  /* USER CODE BEGIN TIM14_Init 0 */
-
-  /* USER CODE END TIM14_Init 0 */
-
-  /* USER CODE BEGIN TIM14_Init 1 */
-
-  /* USER CODE END TIM14_Init 1 */
-  htim14.Instance = TIM14;
-  htim14.Init.Prescaler = 1;
-  htim14.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim14.Init.Period = 65535;
-  htim14.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim14.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim14) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN TIM14_Init 2 */
-
-  /* USER CODE END TIM14_Init 2 */
-
-}
-
-/**
   * @brief USART1 Initialization Function
   * @param None
   * @retval None
@@ -545,15 +529,15 @@ static void MX_GPIO_Init(void)
   /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOB_CLK_ENABLE();
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, A3_IND_RED_Pin|A3_IND_BLUE_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, DEBUG_OUT_Pin|A3_IND_RED_Pin|A3_IND_BLUE_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : A3_IND_RED_Pin A3_IND_BLUE_Pin */
-  GPIO_InitStruct.Pin = A3_IND_RED_Pin|A3_IND_BLUE_Pin;
+  /*Configure GPIO pins : DEBUG_OUT_Pin A3_IND_RED_Pin A3_IND_BLUE_Pin */
+  GPIO_InitStruct.Pin = DEBUG_OUT_Pin|A3_IND_RED_Pin|A3_IND_BLUE_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -605,6 +589,49 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
       q_head = (q_head + 1) % MESSAGE_QUEUE_SIZE;
       q_full = q_head == q_tail;
     }
+  }
+}
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+  HAL_GPIO_WritePin(DEBUG_OUT_GPIO_Port, DEBUG_OUT_Pin, !HAL_GPIO_ReadPin(DEBUG_OUT_GPIO_Port, DEBUG_OUT_Pin));
+  UpdateEnvelopeGenerator();
+  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)&adc_value, 1);
+}
+
+static uint32_t count = 0;
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
+{
+  if (hadc->Instance == ADC1)
+  {
+    // Save result
+    adc_results[adc_channel_index] = adc_value;
+
+    if (count++ % 10000 == 0) {
+      put_string("adc complete values");
+      for (int i = 0; i < 4; ++i) {
+        put_hex(&adc_results[i], sizeof(uint16_t));
+      }
+      put_string("\r\n");
+    }
+
+    switch (adc_channel_index) {
+    case ADC_INDEX_A:
+      break;
+    case ADC_INDEX_D:
+      break;
+    case ADC_INDEX_S:
+      break;
+    case ADC_INDEX_R:
+      SetReleaseTime(adc_value);
+      break;
+    }
+
+    // Update channel index
+    adc_channel_index = (adc_channel_index + 1) % 4;
+
+    // Reconfigure ADC to next channel
+    adc_change_channel(adc_channels[adc_channel_index]);
   }
 }
 /* USER CODE END 4 */

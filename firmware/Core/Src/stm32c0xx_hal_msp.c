@@ -113,9 +113,11 @@ void HAL_ADC_MspInit(ADC_HandleTypeDef* hadc)
     PA2     ------> ADC1_IN2
     PA3     ------> ADC1_IN3
     PA4     ------> ADC1_IN4
+    PA5     ------> ADC1_IN5
+    PA6     ------> ADC1_IN6
     */
     GPIO_InitStruct.Pin = ADC_A_Pin|ADC_D_Pin|ADC_S_Pin|ADC_R_Pin
-                          |ADC_DANGLING_Pin;
+                          |ADC_DANGLING_Pin|ADC_GATE_1_Pin|ADC_GATE_2_Pin;
     GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
@@ -171,9 +173,11 @@ void HAL_ADC_MspDeInit(ADC_HandleTypeDef* hadc)
     PA2     ------> ADC1_IN2
     PA3     ------> ADC1_IN3
     PA4     ------> ADC1_IN4
+    PA5     ------> ADC1_IN5
+    PA6     ------> ADC1_IN6
     */
     HAL_GPIO_DeInit(GPIOA, ADC_A_Pin|ADC_D_Pin|ADC_S_Pin|ADC_R_Pin
-                          |ADC_DANGLING_Pin);
+                          |ADC_DANGLING_Pin|ADC_GATE_1_Pin|ADC_GATE_2_Pin);
 
     /* ADC1 DMA DeInit */
     HAL_DMA_DeInit(hadc->DMA_Handle);
@@ -375,17 +379,7 @@ void HAL_TIM_Base_MspInit(TIM_HandleTypeDef* htim_base)
     /* USER CODE BEGIN TIM1_MspInit 1 */
 
     /* USER CODE END TIM1_MspInit 1 */
-  }
-  else if(htim_base->Instance==TIM14)
-  {
-    /* USER CODE BEGIN TIM14_MspInit 0 */
 
-    /* USER CODE END TIM14_MspInit 0 */
-    /* Peripheral clock enable */
-    __HAL_RCC_TIM14_CLK_ENABLE();
-    /* USER CODE BEGIN TIM14_MspInit 1 */
-
-    /* USER CODE END TIM14_MspInit 1 */
   }
 
 }
@@ -411,17 +405,6 @@ void HAL_TIM_Base_MspDeInit(TIM_HandleTypeDef* htim_base)
     /* USER CODE BEGIN TIM1_MspDeInit 1 */
 
     /* USER CODE END TIM1_MspDeInit 1 */
-  }
-  else if(htim_base->Instance==TIM14)
-  {
-    /* USER CODE BEGIN TIM14_MspDeInit 0 */
-
-    /* USER CODE END TIM14_MspDeInit 0 */
-    /* Peripheral clock disable */
-    __HAL_RCC_TIM14_CLK_DISABLE();
-    /* USER CODE BEGIN TIM14_MspDeInit 1 */
-
-    /* USER CODE END TIM14_MspDeInit 1 */
   }
 
 }

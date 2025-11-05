@@ -78,6 +78,8 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define DEBUG_OUT_Pin GPIO_PIN_9
+#define DEBUG_OUT_GPIO_Port GPIOB
 #define ADC_A_Pin GPIO_PIN_0
 #define ADC_A_GPIO_Port GPIOA
 #define ADC_D_Pin GPIO_PIN_1
@@ -88,6 +90,10 @@ void Error_Handler(void);
 #define ADC_R_GPIO_Port GPIOA
 #define ADC_DANGLING_Pin GPIO_PIN_4
 #define ADC_DANGLING_GPIO_Port GPIOA
+#define ADC_GATE_1_Pin GPIO_PIN_5
+#define ADC_GATE_1_GPIO_Port GPIOA
+#define ADC_GATE_2_Pin GPIO_PIN_6
+#define ADC_GATE_2_GPIO_Port GPIOA
 #define A3_IND_RED_Pin GPIO_PIN_1
 #define A3_IND_RED_GPIO_Port GPIOB
 #define A3_IND_BLUE_Pin GPIO_PIN_2

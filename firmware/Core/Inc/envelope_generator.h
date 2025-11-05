@@ -14,6 +14,7 @@ extern "C" {
 
 extern void InitializeEnvelopeGenerator();
 extern void UpdateEnvelopeGenerator();
+extern void SetReleaseTime(uint16_t release_time);
 
 #ifdef __cplusplus
 }
