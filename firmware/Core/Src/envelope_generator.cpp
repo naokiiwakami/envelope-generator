@@ -102,10 +102,13 @@ class EnvelopeGenerator {
 
   void Initialize() {
     InitializeMcp47x6Dac(dac_index_, MCP47X6_VRL_VDD, MCP47X6_PD_NORMAL, MCP47X6_GAIN_1X);
-    GateOff();
+    GateOff(0);
   }
 
-  void GateOn(uint16_t velocity) {
+  void GateOn(uint16_t velocity, uint32_t voice_id) {
+    if (voice_id != (uint32_t)dac_index_ - 1) {
+      return;
+    }
     uint32_t level = ((uint32_t)velocity * (uint32_t)velocity) >> 16;
     target_value_ = level * 1.2;
     peak_value_ = level;
@@ -113,7 +116,10 @@ class EnvelopeGenerator {
     UpdateValue = UpdateAttack;
   }
 
-  void GateOff() {
+  void GateOff(uint32_t voice_id) {
+    if (voice_id != (uint32_t)dac_index_ - 1) {
+      return;
+    }
     target_value_ = 0;
     phase_ = Phase::RELEASED;
     UpdateValue = UpdateRelease;
@@ -187,14 +193,14 @@ class EgMessageHandler : public MessageHandler {
       if (index < 6) {
         uint16_t velocity = (data[index] << 8) + data[index + 1];
         index += 2;
-        eg_voice_0.GateOn(velocity);
+        eg_voice_0.GateOn(velocity, voice_id);
         put_string("gate on ");
         put_hex(&velocity, sizeof(velocity));
         put_string("\r\n");
       }
       break;
     case A3_VOICE_MSG_GATE_OFF:
-      eg_voice_0.GateOff();
+      eg_voice_0.GateOff(voice_id);
       put_string("gate off\r\n");
       break;
     }

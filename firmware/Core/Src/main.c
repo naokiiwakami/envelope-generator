@@ -597,26 +597,17 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
   // HAL_GPIO_WritePin(DEBUG_OUT_GPIO_Port, DEBUG_OUT_Pin, !HAL_GPIO_ReadPin(DEBUG_OUT_GPIO_Port, DEBUG_OUT_Pin));
   UpdateEnvelopeGenerator();
-  if (++fraction % 16000 == 0) {
+  if (++fraction % 16 == 0) {
     HAL_ADC_Start_DMA(&hadc1, (uint32_t*)&adc_value, 1);
   }
 }
 
-static uint32_t count = 0;
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 {
   if (hadc->Instance == ADC1)
   {
     // Save result
     adc_results[adc_channel_index] = adc_value;
-
-    if (count++ % 10000 == 0) {
-      put_string("adc complete values");
-      for (int i = 0; i < 4; ++i) {
-        put_hex(&adc_results[i], sizeof(uint16_t));
-      }
-      put_string("\r\n");
-    }
 
     switch (adc_channel_index) {
     case ADC_INDEX_A:
@@ -651,6 +642,10 @@ void Error_Handler(void)
   /* USER CODE BEGIN Error_Handler_Debug */
   /* User can add his own implementation to report the HAL error return state */
   __disable_irq();
+  put_string("An error encountered!!\r\n");
+#ifdef DEBUG
+  put_string(error_message);
+#endif
   while (1)
   {
   }
