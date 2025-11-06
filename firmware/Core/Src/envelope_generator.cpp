@@ -16,22 +16,71 @@ extern analog3::Analog3 *a3;
 
 namespace analog3 {
 
+struct EnvelopeGeneratorParams {
+  uint16_t attack_time_param = 0;
+  uint16_t decay_time_param = 0;
+  uint16_t sustain_level_param = 0;
+  uint16_t release_time_param = 0;
+
+  uint32_t attack_ratio = 0;
+  uint32_t decay_ratio = 0;
+  uint32_t sustain_level = 0xffff;
+  uint32_t release_ratio = 0;
+
+  const float kDeltaT = 1.25e-4;
+
+  void SetAttackTime(uint16_t new_attack_time) {
+    uint16_t rounded_attack_time = (new_attack_time >> 6) << 6;
+    if (rounded_attack_time == attack_time_param) {
+      return;
+    }
+
+    attack_time_param = rounded_attack_time;
+    float ratio = expf(-kDeltaT / expf(rounded_attack_time * 0.00015 - 7.5));
+    attack_ratio = (uint32_t)(ratio * 65536);
+  }
+
+  void SetDecayTime(uint16_t new_decay_time) {
+    uint16_t rounded_decay_time = (new_decay_time >> 6) << 6;
+    if (rounded_decay_time == decay_time_param) {
+      return;
+    }
+
+    decay_time_param = rounded_decay_time;
+    float ratio = expf(-kDeltaT / expf(rounded_decay_time * 0.00015 - 7.5));
+    decay_ratio = (uint32_t)(ratio * 65536);
+  }
+
+  void SetSustainLevel(uint16_t new_sustain_level) {
+    uint16_t rounded_sustain_level = (new_sustain_level >> 6) << 6;
+    if (rounded_sustain_level == sustain_level_param) {
+      return;
+    }
+    sustain_level_param = rounded_sustain_level;
+    sustain_level = ((uint32_t)rounded_sustain_level * (uint32_t)rounded_sustain_level) >> 16;
+  }
+
+  void SetReleaseTime(uint16_t new_release_time) {
+    uint16_t rounded_release_time = (new_release_time >> 6) << 6;
+    if (rounded_release_time == release_time_param) {
+      return;
+    }
+
+    release_time_param = rounded_release_time;
+    float ratio = expf(-kDeltaT / expf(rounded_release_time * 0.000115 - 4.6));
+    release_ratio = (uint32_t)(ratio * 65536);
+  }
+};
+
 class EnvelopeGenerator {
  private:
   uint16_t dac_index_;
 
   uint32_t current_value_ = 0;
   uint32_t target_value_ = 0;
-  uint32_t switch_value_ = 0;
+  uint32_t peak_value_ = 0;
 
-  uint16_t attack_time_ = 0;
-  uint16_t decay_time_ = 0;
-  uint16_t sustain_level_ = 0xffff;
-  uint16_t release_time_ = 0;
-
-  uint32_t attack_ratio_ = 0;
-  uint32_t decay_ratio_ = 0;
-  uint32_t release_ratio_ = 0;
+  const EnvelopeGeneratorParams &params_;
 
   enum class Phase {
     ATTACKING,
@@ -43,7 +92,11 @@ class EnvelopeGenerator {
   void (*UpdateValue)(EnvelopeGenerator *instance) = UpdateRelease;
 
  public:
-  EnvelopeGenerator(uint16_t dac_index) : dac_index_(dac_index) {}
+  EnvelopeGenerator(uint16_t dac_index, const EnvelopeGeneratorParams &params)
+      :
+      dac_index_(dac_index),
+      params_ { params } {
+  }
   EnvelopeGenerator() = delete;
   ~EnvelopeGenerator() = default;
 
@@ -53,9 +106,9 @@ class EnvelopeGenerator {
   }
 
   void GateOn(uint16_t velocity) {
-    uint32_t level = (velocity * velocity) >> 16;
+    uint32_t level = ((uint32_t)velocity * (uint32_t)velocity) >> 16;
     target_value_ = level * 1.2;
-    switch_value_ = level;
+    peak_value_ = level;
     phase_ = Phase::ATTACKING;
     UpdateValue = UpdateAttack;
   }
@@ -71,45 +124,44 @@ class EnvelopeGenerator {
     UpdateMcp47x6Dac(dac_index_, current_value_);
   }
 
-  inline uint16_t GetReleaseTime() const { return release_time_; }
-
-  void SetReleaseTime(uint16_t release_time) {
-    release_time_ = release_time;
-    float ratio = expf(-1.e-3 / expf(release_time * 0.000115 - 4.6));
-    release_ratio_ = (uint32_t)(ratio * 65536);
-    // release_ratio_ = 59989;
-  }
-
  private:
   static void UpdateAttack(EnvelopeGenerator *self) {
     uint32_t diff = self->target_value_ - self->current_value_;
-    diff *= self->attack_ratio_;
+    diff *= self->params_.attack_ratio;
     diff >>= 16;
     self->current_value_ = self->target_value_ - diff;
-    if (self->current_value_ >= self->switch_value_) {
-      self->current_value_ = self->switch_value_;
-      self->target_value_ = (self->switch_value_ * self->sustain_level_) >> 16;
+    if (self->current_value_ >= self->peak_value_) {
+      self->current_value_ = self->peak_value_;
       self->phase_ = Phase::SUSTAINING;
       self->UpdateValue = UpdateDecay;
     }
   }
 
   static void UpdateDecay(EnvelopeGenerator *self) {
-    uint32_t diff = self->current_value_ - self->target_value_;
-    diff *= self->decay_ratio_;
-    diff >>= 16;
-    self->current_value_ = self->target_value_ + diff;
+    self->target_value_ = (self->peak_value_ * self->params_.sustain_level) >> 16;
+    if (self->current_value_ > self->target_value_ ) {
+      uint32_t diff = self->current_value_ - self->target_value_;
+      diff *= self->params_.decay_ratio;
+      diff >>= 16;
+      self->current_value_ = self->target_value_ + diff;
+    } else {
+      uint32_t diff = self->target_value_ - self->current_value_;
+      diff *= self->params_.decay_ratio;
+      diff >>= 16;
+      self->current_value_ = self->target_value_ - diff;
+    }
   }
 
   static void UpdateRelease(EnvelopeGenerator *self) {
     uint32_t diff = self->current_value_ - self->target_value_;
-    diff *= self->release_ratio_;
+    diff *= self->params_.release_ratio;
     diff >>= 16;
     self->current_value_ = diff;
   }
 };
 
-static EnvelopeGenerator eg_voice_0{1};
+static EnvelopeGeneratorParams eg_params{};
+static EnvelopeGenerator eg_voice_0{1, eg_params};
 
 class EgMessageHandler : public MessageHandler {
  public:
@@ -154,9 +206,10 @@ class EgMessageHandler : public MessageHandler {
 
 static analog3::EgMessageHandler message_handler;
 
+// C API for the main program
+
 void InitializeEnvelopeGenerator() {
   analog3::eg_voice_0.Initialize();
-  analog3::eg_voice_0.SetReleaseTime(16384);
   a3->InjectMessageHandler(&message_handler);
 }
 
@@ -164,11 +217,18 @@ void UpdateEnvelopeGenerator() {
   analog3::eg_voice_0.Update();
 }
 
+void SetAttackTime(uint16_t attack_time) {
+  analog3::eg_params.SetAttackTime(attack_time);
+}
+
+void SetDecayTime(uint16_t decay_time) {
+  analog3::eg_params.SetDecayTime(decay_time);
+}
+
+void SetSustainLevel(uint16_t sustain_level) {
+  analog3::eg_params.SetSustainLevel(sustain_level);
+}
+
 void SetReleaseTime(uint16_t release_time) {
-  uint16_t rounded_release_time = (release_time >> 6) << 6;
-  auto current_release_time = analog3::eg_voice_0.GetReleaseTime();
-  if (rounded_release_time == current_release_time) {
-    return;
-  }
-  analog3::eg_voice_0.SetReleaseTime(rounded_release_time);
+  analog3::eg_params.SetReleaseTime(release_time);
 }

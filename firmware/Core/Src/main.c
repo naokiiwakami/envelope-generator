@@ -426,7 +426,7 @@ static void MX_TIM1_Init(void)
   htim1.Instance = TIM1;
   htim1.Init.Prescaler = 0;
   htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = 48000;
+  htim1.Init.Period = 6000;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -592,11 +592,14 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
   }
 }
 
+static uint32_t fraction = 0;
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
-  HAL_GPIO_WritePin(DEBUG_OUT_GPIO_Port, DEBUG_OUT_Pin, !HAL_GPIO_ReadPin(DEBUG_OUT_GPIO_Port, DEBUG_OUT_Pin));
+  // HAL_GPIO_WritePin(DEBUG_OUT_GPIO_Port, DEBUG_OUT_Pin, !HAL_GPIO_ReadPin(DEBUG_OUT_GPIO_Port, DEBUG_OUT_Pin));
   UpdateEnvelopeGenerator();
-  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)&adc_value, 1);
+  if (++fraction % 16000 == 0) {
+    HAL_ADC_Start_DMA(&hadc1, (uint32_t*)&adc_value, 1);
+  }
 }
 
 static uint32_t count = 0;
@@ -617,10 +620,13 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 
     switch (adc_channel_index) {
     case ADC_INDEX_A:
+      SetAttackTime(adc_value);
       break;
     case ADC_INDEX_D:
+      SetDecayTime(adc_value);
       break;
     case ADC_INDEX_S:
+      SetSustainLevel(adc_value);
       break;
     case ADC_INDEX_R:
       SetReleaseTime(adc_value);
