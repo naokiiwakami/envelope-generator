@@ -39,7 +39,7 @@ struct EnvelopeGeneratorParams {
 
     attack_time_param = rounded_attack_time;
     double ratio = exp(-kDeltaT / exp(rounded_attack_time * 0.00015 - 7.5));
-    attack_ratio = (uint32_t)(ratio * 4294967296.0);
+    attack_ratio = (uint64_t)(ratio * 4294967296.0);
   }
 
   void SetDecayTime(uint16_t new_decay_time) {
@@ -51,7 +51,7 @@ struct EnvelopeGeneratorParams {
     decay_time_param = rounded_decay_time;
     double time_constant = exp(rounded_decay_time * 0.00015 - 7.5);
     double ratio = exp(-kDeltaT / time_constant);
-    decay_ratio = (uint32_t)(ratio * 4294967296.0);
+    decay_ratio = (uint64_t)(ratio * 4294967296.0);
   }
 
   void SetSustainLevel(uint16_t new_sustain_level) {
@@ -60,7 +60,7 @@ struct EnvelopeGeneratorParams {
       return;
     }
     sustain_level_param = rounded_sustain_level;
-    sustain_level = ((uint32_t)rounded_sustain_level * (uint32_t)rounded_sustain_level);
+    sustain_level = ((uint64_t)rounded_sustain_level * (uint64_t)rounded_sustain_level);
   }
 
   void SetReleaseTime(uint16_t new_release_time) {
@@ -71,7 +71,7 @@ struct EnvelopeGeneratorParams {
 
     release_time_param = rounded_release_time;
     double ratio = exp(-kDeltaT / exp(rounded_release_time * 0.000115 - 4.6));
-    release_ratio = (uint32_t)(ratio * 4294967296.0);
+    release_ratio = (uint64_t)(ratio * 4294967296.0);
   }
 };
 
@@ -147,7 +147,7 @@ class EnvelopeGenerator {
  private:
   void Trigger() {
     trigger_ = 0;
-    uint32_t level = ((uint32_t)velocity_ * (uint32_t)velocity_) >> 1;
+    uint64_t level = ((uint64_t)velocity_ * (uint64_t)velocity_) >> 1;
     target_value_ = level * 1.2;
     peak_value_ = level;
     phase_ = Phase::ATTACKING;
@@ -174,7 +174,7 @@ class EnvelopeGenerator {
   }
 
   static void UpdateDecay(EnvelopeGenerator *self) {
-    self->target_value_ = (self->peak_value_ * self->params_.sustain_level) >> 16;
+    self->target_value_ = (self->peak_value_ * self->params_.sustain_level) >> 32;
     if (self->current_value_ > self->target_value_ ) {
       uint64_t diff = self->current_value_ - self->target_value_;
       diff *= self->params_.decay_ratio;
