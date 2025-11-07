@@ -24,10 +24,10 @@ struct EnvelopeGeneratorParams {
   uint16_t sustain_level_param = 0;
   uint16_t release_time_param = 0;
 
-  uint32_t attack_ratio = 0;
-  uint32_t decay_ratio = 0;
-  uint32_t sustain_level = 0xffff;
-  uint32_t release_ratio = 0;
+  uint64_t attack_ratio = 0;
+  uint64_t decay_ratio = 0;
+  uint64_t sustain_level = 0xffffffff;
+  uint64_t release_ratio = 0;
 
   const float kDeltaT = 1.875e-4;
 
@@ -38,8 +38,8 @@ struct EnvelopeGeneratorParams {
     }
 
     attack_time_param = rounded_attack_time;
-    float ratio = expf(-kDeltaT / expf(rounded_attack_time * 0.00015 - 7.5));
-    attack_ratio = (uint32_t)(ratio * 65536);
+    double ratio = exp(-kDeltaT / exp(rounded_attack_time * 0.00015 - 7.5));
+    attack_ratio = (uint32_t)(ratio * 4294967296.0);
   }
 
   void SetDecayTime(uint16_t new_decay_time) {
@@ -49,8 +49,9 @@ struct EnvelopeGeneratorParams {
     }
 
     decay_time_param = rounded_decay_time;
-    float ratio = expf(-kDeltaT / expf(rounded_decay_time * 0.00015 - 7.5));
-    decay_ratio = (uint32_t)(ratio * 65536);
+    double time_constant = exp(rounded_decay_time * 0.00015 - 7.5);
+    double ratio = exp(-kDeltaT / time_constant);
+    decay_ratio = (uint32_t)(ratio * 4294967296.0);
   }
 
   void SetSustainLevel(uint16_t new_sustain_level) {
@@ -59,7 +60,7 @@ struct EnvelopeGeneratorParams {
       return;
     }
     sustain_level_param = rounded_sustain_level;
-    sustain_level = ((uint32_t)rounded_sustain_level * (uint32_t)rounded_sustain_level) >> 16;
+    sustain_level = ((uint32_t)rounded_sustain_level * (uint32_t)rounded_sustain_level);
   }
 
   void SetReleaseTime(uint16_t new_release_time) {
@@ -69,8 +70,8 @@ struct EnvelopeGeneratorParams {
     }
 
     release_time_param = rounded_release_time;
-    float ratio = expf(-kDeltaT / expf(rounded_release_time * 0.000115 - 4.6));
-    release_ratio = (uint32_t)(ratio * 65536);
+    double ratio = exp(-kDeltaT / exp(rounded_release_time * 0.000115 - 4.6));
+    release_ratio = (uint32_t)(ratio * 4294967296.0);
   }
 };
 
@@ -83,9 +84,9 @@ class EnvelopeGenerator {
   int8_t trigger_ = 0;
   uint16_t velocity_ = 0;
 
-  uint32_t current_value_ = 0;
-  uint32_t target_value_ = 0;
-  uint32_t peak_value_ = 0;
+  uint64_t current_value_ = 0;
+  uint64_t target_value_ = 0;
+  uint64_t peak_value_ = 0;
 
   const EnvelopeGeneratorParams &params_;
 
@@ -133,7 +134,7 @@ class EnvelopeGenerator {
 
   void Update() {
     HAL_GPIO_WritePin(DEBUG_OUT_GPIO_Port, DEBUG_OUT_Pin, GPIO_PIN_SET);
-    UpdateMcp47x6Dac(dac_index_, current_value_<< 1);
+    UpdateMcp47x6Dac(dac_index_, current_value_>> 15);
     HAL_GPIO_WritePin(DEBUG_OUT_GPIO_Port, DEBUG_OUT_Pin, GPIO_PIN_RESET);
     if (trigger_ > 0) {
       Trigger();
@@ -146,10 +147,9 @@ class EnvelopeGenerator {
  private:
   void Trigger() {
     trigger_ = 0;
-    uint32_t level = ((uint32_t)velocity_ * (uint32_t)velocity_) >> 17;
+    uint32_t level = ((uint32_t)velocity_ * (uint32_t)velocity_) >> 1;
     target_value_ = level * 1.2;
     peak_value_ = level;
-    current_value_ = 0;
     phase_ = Phase::ATTACKING;
     UpdateValue = UpdateAttack;
   }
@@ -162,9 +162,9 @@ class EnvelopeGenerator {
   }
 
   static void UpdateAttack(EnvelopeGenerator *self) {
-    uint32_t diff = self->target_value_ - self->current_value_;
+    uint64_t diff = self->target_value_ - self->current_value_;
     diff *= self->params_.attack_ratio;
-    diff >>= 16;
+    diff >>= 32;
     self->current_value_ = self->target_value_ - diff;
     if (self->current_value_ >= self->peak_value_) {
       self->current_value_ = self->peak_value_;
@@ -176,22 +176,22 @@ class EnvelopeGenerator {
   static void UpdateDecay(EnvelopeGenerator *self) {
     self->target_value_ = (self->peak_value_ * self->params_.sustain_level) >> 16;
     if (self->current_value_ > self->target_value_ ) {
-      uint32_t diff = self->current_value_ - self->target_value_;
+      uint64_t diff = self->current_value_ - self->target_value_;
       diff *= self->params_.decay_ratio;
-      diff >>= 16;
+      diff >>= 32;
       self->current_value_ = self->target_value_ + diff;
     } else {
-      uint32_t diff = self->target_value_ - self->current_value_;
+      uint64_t diff = self->target_value_ - self->current_value_;
       diff *= self->params_.decay_ratio;
-      diff >>= 16;
+      diff >>= 32;
       self->current_value_ = self->target_value_ - diff;
     }
   }
 
   static void UpdateRelease(EnvelopeGenerator *self) {
-    uint32_t diff = self->current_value_ - self->target_value_;
+    uint64_t diff = self->current_value_ - self->target_value_;
     diff *= self->params_.release_ratio;
-    diff >>= 16;
+    diff >>= 32;
     self->current_value_ = diff;
   }
 };
