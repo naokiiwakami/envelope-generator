@@ -76,6 +76,9 @@ class EnvelopeGenerator {
  private:
   uint16_t dac_index_;
 
+  int8_t trigger_ = 0;
+  uint16_t velocity_ = 0;
+
   uint32_t current_value_ = 0;
   uint32_t target_value_ = 0;
   uint32_t peak_value_ = 0;
@@ -109,28 +112,45 @@ class EnvelopeGenerator {
     if (voice_id != (uint32_t)dac_index_ - 1) {
       return;
     }
-    uint32_t level = ((uint32_t)velocity * (uint32_t)velocity) >> 16;
-    target_value_ = level * 1.2;
-    peak_value_ = level;
-    phase_ = Phase::ATTACKING;
-    UpdateValue = UpdateAttack;
+    velocity_ = velocity;
+    trigger_ = 1;
   }
 
   void GateOff(uint32_t voice_id) {
     if (voice_id != (uint32_t)dac_index_ - 1) {
       return;
     }
+    trigger_ = -1;
+  }
+
+  void Update() {
+    UpdateMcp47x6Dac(dac_index_, current_value_<< 1);
+    if (trigger_ > 0) {
+      Trigger();
+    } else if (trigger_ < 0) {
+      Release();
+    }
+    UpdateValue(this);
+  }
+
+ private:
+  void Trigger() {
+    trigger_ = 0;
+    uint32_t level = ((uint32_t)velocity_ * (uint32_t)velocity_) >> 17;
+    target_value_ = level * 1.2;
+    peak_value_ = level;
+    current_value_ = 0;
+    phase_ = Phase::ATTACKING;
+    UpdateValue = UpdateAttack;
+  }
+
+  void Release() {
+    trigger_ = 0;
     target_value_ = 0;
     phase_ = Phase::RELEASED;
     UpdateValue = UpdateRelease;
   }
 
-  void Update() {
-    UpdateValue(this);
-    UpdateMcp47x6Dac(dac_index_, current_value_);
-  }
-
- private:
   static void UpdateAttack(EnvelopeGenerator *self) {
     uint32_t diff = self->target_value_ - self->current_value_;
     diff *= self->params_.attack_ratio;
@@ -194,14 +214,10 @@ class EgMessageHandler : public MessageHandler {
         uint16_t velocity = (data[index] << 8) + data[index + 1];
         index += 2;
         eg_voice_0.GateOn(velocity, voice_id);
-        put_string("gate on ");
-        put_hex(&velocity, sizeof(velocity));
-        put_string("\r\n");
       }
       break;
     case A3_VOICE_MSG_GATE_OFF:
       eg_voice_0.GateOff(voice_id);
-      put_string("gate off\r\n");
       break;
     }
     return index;
