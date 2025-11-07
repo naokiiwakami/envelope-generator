@@ -7,6 +7,8 @@
 
 #include <math.h>
 
+#include "main.h"
+
 #include "analog3/analog3.h"
 #include "analog3/definitions.h"
 #include "analog3/stm32impl.h"
@@ -27,7 +29,7 @@ struct EnvelopeGeneratorParams {
   uint32_t sustain_level = 0xffff;
   uint32_t release_ratio = 0;
 
-  const float kDeltaT = 1.25e-4;
+  const float kDeltaT = 1.875e-4;
 
   void SetAttackTime(uint16_t new_attack_time) {
     uint16_t rounded_attack_time = (new_attack_time >> 6) << 6;
@@ -75,6 +77,8 @@ struct EnvelopeGeneratorParams {
 class EnvelopeGenerator {
  private:
   uint16_t dac_index_;
+  GPIO_TypeDef *gpiox_;
+  uint16_t gpio_pin_;
 
   int8_t trigger_ = 0;
   uint16_t velocity_ = 0;
@@ -95,9 +99,11 @@ class EnvelopeGenerator {
   void (*UpdateValue)(EnvelopeGenerator *instance) = UpdateRelease;
 
  public:
-  EnvelopeGenerator(uint16_t dac_index, const EnvelopeGeneratorParams &params)
+  EnvelopeGenerator(uint16_t dac_index, GPIO_TypeDef *gpiox, uint16_t gpio_pin, const EnvelopeGeneratorParams &params)
       :
       dac_index_(dac_index),
+      gpiox_(gpiox),
+      gpio_pin_(gpio_pin),
       params_ { params } {
   }
   EnvelopeGenerator() = delete;
@@ -114,6 +120,7 @@ class EnvelopeGenerator {
     }
     velocity_ = velocity;
     trigger_ = 1;
+    // HAL_GPIO_WritePin(gpiox_, gpio_pin_, GPIO_PIN_SET);
   }
 
   void GateOff(uint32_t voice_id) {
@@ -121,10 +128,13 @@ class EnvelopeGenerator {
       return;
     }
     trigger_ = -1;
+    // HAL_GPIO_WritePin(gpiox_, gpio_pin_, GPIO_PIN_RESET);
   }
 
   void Update() {
+    HAL_GPIO_WritePin(DEBUG_OUT_GPIO_Port, DEBUG_OUT_Pin, GPIO_PIN_SET);
     UpdateMcp47x6Dac(dac_index_, current_value_<< 1);
+    HAL_GPIO_WritePin(DEBUG_OUT_GPIO_Port, DEBUG_OUT_Pin, GPIO_PIN_RESET);
     if (trigger_ > 0) {
       Trigger();
     } else if (trigger_ < 0) {
@@ -186,8 +196,9 @@ class EnvelopeGenerator {
   }
 };
 
+static bool pulse = false;
 static EnvelopeGeneratorParams eg_params{};
-static EnvelopeGenerator eg_voice_0{1, eg_params};
+static EnvelopeGenerator eg_voice_0{1, IND_GATE_1_GPIO_Port, IND_GATE_1_Pin, eg_params};
 
 class EgMessageHandler : public MessageHandler {
  public:
@@ -235,8 +246,15 @@ void InitializeEnvelopeGenerator() {
   a3->InjectMessageHandler(&message_handler);
 }
 
+void NudgeEnvelopeGenerator() {
+  analog3::pulse = true;
+}
+
 void UpdateEnvelopeGenerator() {
-  analog3::eg_voice_0.Update();
+  if (analog3::pulse) {
+    analog3::eg_voice_0.Update();
+    analog3::pulse = false;
+  }
 }
 
 void SetAttackTime(uint16_t attack_time) {

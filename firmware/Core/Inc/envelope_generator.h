@@ -13,6 +13,7 @@ extern "C" {
 #endif
 
 extern void InitializeEnvelopeGenerator();
+extern void NudgeEnvelopeGenerator();
 extern void UpdateEnvelopeGenerator();
 extern void SetAttackTime(uint16_t attack_time);
 extern void SetDecayTime(uint16_t decay_time);

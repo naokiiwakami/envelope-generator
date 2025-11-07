@@ -157,6 +157,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    UpdateEnvelopeGenerator();
     if (q_head != q_tail || q_full) {
       stm32_can_message_t *message = &message_queue[q_tail];
       HandleCanRxMessage(message);
@@ -426,7 +427,7 @@ static void MX_TIM1_Init(void)
   htim1.Instance = TIM1;
   htim1.Init.Prescaler = 0;
   htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = 6000;
+  htim1.Init.Period = 9000;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -534,10 +535,13 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOA_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, DEBUG_OUT_Pin|A3_IND_RED_Pin|A3_IND_BLUE_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, DEBUG_OUT_Pin|A3_IND_RED_Pin|A3_IND_BLUE_Pin|IND_GATE_1_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : DEBUG_OUT_Pin A3_IND_RED_Pin A3_IND_BLUE_Pin */
-  GPIO_InitStruct.Pin = DEBUG_OUT_Pin|A3_IND_RED_Pin|A3_IND_BLUE_Pin;
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(IND_GATE_2_GPIO_Port, IND_GATE_2_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pins : DEBUG_OUT_Pin A3_IND_RED_Pin A3_IND_BLUE_Pin IND_GATE_1_Pin */
+  GPIO_InitStruct.Pin = DEBUG_OUT_Pin|A3_IND_RED_Pin|A3_IND_BLUE_Pin|IND_GATE_1_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -548,6 +552,13 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(USER_SW_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : IND_GATE_2_Pin */
+  GPIO_InitStruct.Pin = IND_GATE_2_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(IND_GATE_2_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : CAN_STB_Pin */
   GPIO_InitStruct.Pin = CAN_STB_Pin;
@@ -563,31 +574,36 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 {
-  if ((RxFifo0ITs & FDCAN_IT_RX_FIFO0_NEW_MESSAGE) != 0)
-  {
+  if ((RxFifo0ITs & FDCAN_IT_RX_FIFO0_NEW_MESSAGE) != 0) {
     FDCAN_RxHeaderTypeDef dummy_header;
     uint8_t dummy_data[8];
     FDCAN_RxHeaderTypeDef *rx_header;
     uint8_t *rx_data;
-    if (q_full)
-    {
-      rx_header = &dummy_header;
-      rx_data = dummy_data;
-    }
-    else
-    {
-      rx_header = &message_queue[q_head].header;
-      rx_data = message_queue[q_head].data;
-    }
-    hfdcan->ErrorCode = HAL_FDCAN_ERROR_NONE;
-    if (HAL_FDCAN_GetRxMessage(hfdcan, FDCAN_RX_FIFO0, rx_header, rx_data) != HAL_OK)
-    {
-      HandleError("Failed to receive CAN message; error=%lu", hfdcan->ErrorCode);
-    }
-    else if (!q_full)
-    {
-      q_head = (q_head + 1) % MESSAGE_QUEUE_SIZE;
-      q_full = q_head == q_tail;
+    while (HAL_FDCAN_GetRxFifoFillLevel(hfdcan, FDCAN_RX_FIFO0) > 0) {
+      if (q_full) {
+        rx_header = &dummy_header;
+        rx_data = dummy_data;
+      } else {
+        rx_header = &message_queue[q_head].header;
+        rx_data = message_queue[q_head].data;
+      }
+      hfdcan->ErrorCode = HAL_FDCAN_ERROR_NONE;
+      if (HAL_FDCAN_GetRxMessage(hfdcan, FDCAN_RX_FIFO0, rx_header, rx_data) != HAL_OK) {
+        HandleError("Failed to receive CAN message; error=%lu", hfdcan->ErrorCode);
+      } else {
+        switch (rx_header->Identifier) {
+          case 0x0101:
+            HAL_GPIO_TogglePin(IND_GATE_1_GPIO_Port, IND_GATE_1_Pin);
+            break;
+          case 0x0102:
+            HAL_GPIO_TogglePin(IND_GATE_2_GPIO_Port, IND_GATE_2_Pin);
+            break;
+        }
+        if (!q_full) {
+          q_head = (q_head + 1) % MESSAGE_QUEUE_SIZE;
+          q_full = q_head == q_tail;
+        }
+      }
     }
   }
 }
@@ -595,8 +611,7 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 static uint32_t fraction = 0;
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
-  // HAL_GPIO_WritePin(DEBUG_OUT_GPIO_Port, DEBUG_OUT_Pin, !HAL_GPIO_ReadPin(DEBUG_OUT_GPIO_Port, DEBUG_OUT_Pin));
-  UpdateEnvelopeGenerator();
+  NudgeEnvelopeGenerator();
   if (++fraction % 16 == 0) {
     HAL_ADC_Start_DMA(&hadc1, (uint32_t*)&adc_value, 1);
   }
