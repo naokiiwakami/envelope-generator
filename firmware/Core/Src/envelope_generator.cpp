@@ -33,6 +33,7 @@ struct EnvelopeGeneratorParams {
   uint64_t sustain_level = 0xffffffff;
   uint64_t release_ratio = 0;
 
+  // const float kDeltaT = 8.5333e-5;
   const float kDeltaT = 1.875e-4;
 
   void SetAttackTime(uint16_t new_attack_time) {
@@ -159,9 +160,10 @@ class EnvelopeGenerator {
   }
 
   void Update() {
-    HAL_GPIO_WritePin(DEBUG_OUT_GPIO_Port, DEBUG_OUT_Pin, GPIO_PIN_SET);
+    // HAL_GPIO_WritePin(DEBUG_OUT_GPIO_Port, DEBUG_OUT_Pin, GPIO_PIN_SET);
+    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, current_value_ >> 20);
     UpdateMcp47x6Dac(dac_index_, current_value_>> 15);
-    HAL_GPIO_WritePin(DEBUG_OUT_GPIO_Port, DEBUG_OUT_Pin, GPIO_PIN_RESET);
+    // HAL_GPIO_WritePin(DEBUG_OUT_GPIO_Port, DEBUG_OUT_Pin, GPIO_PIN_RESET);
     if (trigger_ > 0) {
       Trigger();
     } else if (trigger_ < 0) {
