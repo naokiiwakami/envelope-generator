@@ -60,6 +60,11 @@ TIM_HandleTypeDef htim1;
 UART_HandleTypeDef huart1;
 
 /* USER CODE BEGIN PV */
+volatile uint32_t events = 0;
+enum Event {
+  EVENT_CAN_RX = 0x1,
+};
+
 uint16_t adc_value;
 uint8_t adc_channel_index = 0;
 const uint32_t adc_channels[] = {
@@ -86,12 +91,49 @@ static void MX_TIM1_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_FLASH_Init(void);
 /* USER CODE BEGIN PFP */
-
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
+void ReceiveCanMessages(FDCAN_HandleTypeDef *hfdcan)
+{
+  if ((events & EVENT_CAN_RX) == 0) {
+    return;
+  }
+  __disable_irq();
+  events &= ~EVENT_CAN_RX;
+  __enable_irq();
+  FDCAN_RxHeaderTypeDef dummy_header;
+  uint8_t dummy_data[8];
+  FDCAN_RxHeaderTypeDef *rx_header;
+  uint8_t *rx_data;
+  while (HAL_FDCAN_GetRxFifoFillLevel(hfdcan, FDCAN_RX_FIFO0) > 0) {
+    if (q_full) {
+      rx_header = &dummy_header;
+      rx_data = dummy_data;
+    } else {
+      rx_header = &message_queue[q_head].header;
+      rx_data = message_queue[q_head].data;
+    }
+    hfdcan->ErrorCode = HAL_FDCAN_ERROR_NONE;
+    if (HAL_FDCAN_GetRxMessage(hfdcan, FDCAN_RX_FIFO0, rx_header, rx_data) != HAL_OK) {
+      HandleError("Failed to receive CAN message; error=%lu", hfdcan->ErrorCode);
+    } else {
+      switch (rx_header->Identifier) {
+        case 0x0101:
+          HAL_GPIO_TogglePin(IND_GATE_1_GPIO_Port, IND_GATE_1_Pin);
+          break;
+        case 0x0102:
+          HAL_GPIO_TogglePin(IND_GATE_2_GPIO_Port, IND_GATE_2_Pin);
+          break;
+      }
+      if (!q_full) {
+        q_head = (q_head + 1) % MESSAGE_QUEUE_SIZE;
+        q_full = q_head == q_tail;
+      }
+    }
+  }
+}
 /* USER CODE END 0 */
 
 /**
@@ -158,6 +200,7 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
     UpdateEnvelopeGenerator();
+    ReceiveCanMessages(&hfdcan1);
     if (q_head != q_tail || q_full) {
       stm32_can_message_t *message = &message_queue[q_tail];
       HandleCanRxMessage(message);
@@ -538,7 +581,7 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(GPIOB, DEBUG_OUT_Pin|A3_IND_RED_Pin|A3_IND_BLUE_Pin|IND_GATE_1_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(IND_GATE_2_GPIO_Port, IND_GATE_2_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, IND_SHIFT_Pin|IND_GATE_2_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pins : DEBUG_OUT_Pin A3_IND_RED_Pin A3_IND_BLUE_Pin IND_GATE_1_Pin */
   GPIO_InitStruct.Pin = DEBUG_OUT_Pin|A3_IND_RED_Pin|A3_IND_BLUE_Pin|IND_GATE_1_Pin;
@@ -553,12 +596,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(USER_SW_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : IND_GATE_2_Pin */
-  GPIO_InitStruct.Pin = IND_GATE_2_Pin;
+  /*Configure GPIO pins : IND_SHIFT_Pin IND_GATE_2_Pin */
+  GPIO_InitStruct.Pin = IND_SHIFT_Pin|IND_GATE_2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(IND_GATE_2_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pin : CAN_STB_Pin */
   GPIO_InitStruct.Pin = CAN_STB_Pin;
@@ -575,36 +618,7 @@ static void MX_GPIO_Init(void)
 void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 {
   if ((RxFifo0ITs & FDCAN_IT_RX_FIFO0_NEW_MESSAGE) != 0) {
-    FDCAN_RxHeaderTypeDef dummy_header;
-    uint8_t dummy_data[8];
-    FDCAN_RxHeaderTypeDef *rx_header;
-    uint8_t *rx_data;
-    while (HAL_FDCAN_GetRxFifoFillLevel(hfdcan, FDCAN_RX_FIFO0) > 0) {
-      if (q_full) {
-        rx_header = &dummy_header;
-        rx_data = dummy_data;
-      } else {
-        rx_header = &message_queue[q_head].header;
-        rx_data = message_queue[q_head].data;
-      }
-      hfdcan->ErrorCode = HAL_FDCAN_ERROR_NONE;
-      if (HAL_FDCAN_GetRxMessage(hfdcan, FDCAN_RX_FIFO0, rx_header, rx_data) != HAL_OK) {
-        HandleError("Failed to receive CAN message; error=%lu", hfdcan->ErrorCode);
-      } else {
-        switch (rx_header->Identifier) {
-          case 0x0101:
-            HAL_GPIO_TogglePin(IND_GATE_1_GPIO_Port, IND_GATE_1_Pin);
-            break;
-          case 0x0102:
-            HAL_GPIO_TogglePin(IND_GATE_2_GPIO_Port, IND_GATE_2_Pin);
-            break;
-        }
-        if (!q_full) {
-          q_head = (q_head + 1) % MESSAGE_QUEUE_SIZE;
-          q_full = q_head == q_tail;
-        }
-      }
-    }
+    events |= EVENT_CAN_RX;
   }
 }
 
@@ -626,16 +640,16 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 
     switch (adc_channel_index) {
     case ADC_INDEX_A:
-      SetAttackTime(adc_value);
+      SubmitTask(SetAttackTime, &adc_results[adc_channel_index]);
       break;
     case ADC_INDEX_D:
-      SetDecayTime(adc_value);
+      SubmitTask(SetDecayTime, &adc_results[adc_channel_index]);
       break;
     case ADC_INDEX_S:
-      SetSustainLevel(adc_value);
+      SubmitTask(SetSustainLevel, &adc_results[adc_channel_index]);
       break;
     case ADC_INDEX_R:
-      SetReleaseTime(adc_value);
+      SubmitTask(SetReleaseTime, &adc_results[adc_channel_index]);
       break;
     }
 

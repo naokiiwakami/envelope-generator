@@ -45,17 +45,4 @@ void CheckForTask() {
   tasks_overflow = 0;
   __enable_irq();  // exit critical section
   task.run(task.arg);
-#if 0
-  __disable_irq();  // enter critical section
-  if (task_last == task_first && !tasks_overflow) {
-    // nothing to pick up
-    __enable_irq();  // exit critical section
-    return;
-  }
-  task_t task = pending_tasks[task_first];
-  task_first = (task_first + 1) % MAX_TASKS;
-  tasks_overflow = 0;
-  __enable_irq();  // exit critical section
-  task.run(task.arg);
-#endif
 }

@@ -100,6 +100,8 @@ void Error_Handler(void);
 #define A3_IND_BLUE_GPIO_Port GPIOB
 #define USER_SW_Pin GPIO_PIN_6
 #define USER_SW_GPIO_Port GPIOC
+#define IND_SHIFT_Pin GPIO_PIN_10
+#define IND_SHIFT_GPIO_Port GPIOA
 #define IND_GATE_2_Pin GPIO_PIN_15
 #define IND_GATE_2_GPIO_Port GPIOA
 #define IND_GATE_1_Pin GPIO_PIN_3

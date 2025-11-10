@@ -15,10 +15,10 @@ extern "C" {
 extern void InitializeEnvelopeGenerator();
 extern void NudgeEnvelopeGenerator();
 extern void UpdateEnvelopeGenerator();
-extern void SetAttackTime(uint16_t attack_time);
-extern void SetDecayTime(uint16_t decay_time);
-extern void SetSustainLevel(uint16_t sustain_level);
-extern void SetReleaseTime(uint16_t release_time);
+extern void SetAttackTime(void *arg);
+extern void SetDecayTime(void *arg);
+extern void SetSustainLevel(void *arg);
+extern void SetReleaseTime(void *arg);
 
 #ifdef __cplusplus
 }

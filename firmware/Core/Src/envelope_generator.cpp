@@ -257,18 +257,18 @@ void UpdateEnvelopeGenerator() {
   }
 }
 
-void SetAttackTime(uint16_t attack_time) {
-  analog3::eg_params.SetAttackTime(attack_time);
+void SetAttackTime(void *arg) {
+  analog3::eg_params.SetAttackTime(*reinterpret_cast<uint16_t*>(arg));
 }
 
-void SetDecayTime(uint16_t decay_time) {
-  analog3::eg_params.SetDecayTime(decay_time);
+void SetDecayTime(void *arg) {
+  analog3::eg_params.SetDecayTime(*reinterpret_cast<uint16_t*>(arg));
 }
 
-void SetSustainLevel(uint16_t sustain_level) {
-  analog3::eg_params.SetSustainLevel(sustain_level);
+void SetSustainLevel(void *arg) {
+  analog3::eg_params.SetSustainLevel(*reinterpret_cast<uint16_t*>(arg));
 }
 
-void SetReleaseTime(uint16_t release_time) {
-  analog3::eg_params.SetReleaseTime(release_time);
+void SetReleaseTime(void *arg) {
+  analog3::eg_params.SetReleaseTime(*reinterpret_cast<uint16_t*>(arg));
 }
