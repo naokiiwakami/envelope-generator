@@ -15,7 +15,10 @@ extern "C" {
 extern void InitializeEnvelopeGenerator();
 extern void NudgeEnvelopeGenerator();
 extern void UpdateEnvelopeGenerator();
+
 extern void SetAttackTime(void *arg);
+extern void SetDecay0Time(void *arg);
+extern void SetSustain0Level(void *arg);
 extern void SetDecayTime(void *arg);
 extern void SetSustainLevel(void *arg);
 extern void SetReleaseTime(void *arg);

@@ -36,6 +36,40 @@ void put_hex(const void *data, size_t size)
     }
 }
 
+void InitializeSwitchState(switch_state_t *state,
+                           const GPIO_TypeDef *gpiox,
+                           uint16_t gpio_pin,
+                           void (*handle_switch_pressed)(const switch_state_t *))
+{
+  state->current_status = 0;
+  state->prev_status = 0;
+  state->debouncing = 0;
+  state->change_time = 0;
+  state->gpiox = gpiox;
+  state->gpio_pin = gpio_pin;
+  state->handle_switch_pressed = handle_switch_pressed;
+}
+
+void CheckSwitch(switch_state_t *state)
+{
+  uint32_t now = HAL_GetTick();
+  if (state->debouncing) {
+    if (now >= state->change_time + 20) {
+      state->debouncing = 0;
+    }
+    return;
+  }
+  state->current_status = HAL_GPIO_ReadPin(state->gpiox, state->gpio_pin) == 0;
+  if (state->current_status != state->prev_status) {
+    state->debouncing = 1;
+    state->change_time = now;
+  }
+  if (state->current_status) {
+    state->handle_switch_pressed(state);
+  }
+  state->prev_status = state->current_status;
+}
+
 void adc_change_channel(uint32_t adc_channel)
 {
   ADC_ChannelConfTypeDef sConfig = {0};
@@ -127,16 +161,12 @@ static void I2C_TransferConfig(I2C_HandleTypeDef *hi2c, uint16_t DevAddress, uin
 static HAL_StatusTypeDef My_I2C_Master_Transmit(I2C_HandleTypeDef *hi2c, uint16_t DevAddress, uint8_t *pData,
                                                 uint16_t Size, uint32_t Timeout)
 {
-  uint32_t tickstart;
   uint32_t xfermode;
 
   if (hi2c->State == HAL_I2C_STATE_READY)
   {
     /* Process Locked */
     __HAL_LOCK(hi2c);
-
-    /* Init tickstart for timeout management*/
-    tickstart = HAL_GetTick();
 
     if (I2C_WaitOnFlagUntilTimeout(hi2c, I2C_FLAG_BUSY, SET) != HAL_OK)
     {

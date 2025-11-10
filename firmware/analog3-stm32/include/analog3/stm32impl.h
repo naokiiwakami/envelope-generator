@@ -38,6 +38,22 @@ extern char error_message[256];
 extern "C" {
 #endif
 
+// button management
+typedef struct SwitchState {
+  uint8_t current_status;
+  uint8_t prev_status;
+  uint8_t debouncing;
+  uint32_t change_time;
+  const GPIO_TypeDef *gpiox;
+  uint16_t gpio_pin;
+  void (*handle_switch_pressed)(const struct SwitchState *);
+} switch_state_t;
+extern void InitializeSwitchState(switch_state_t *state,
+                                  const GPIO_TypeDef *gpiox,
+                                  uint16_t gpio_pin,
+                                  void (*handle_switch_pressed)(const switch_state_t *state));
+extern void CheckSwitch(switch_state_t *state);
+
 // CAN message
 #define MESSAGE_QUEUE_SIZE 16
 typedef struct _stm32_can_message {

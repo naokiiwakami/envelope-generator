@@ -50,14 +50,6 @@ extern TIM_HandleTypeDef htim14;
 
 extern UART_HandleTypeDef huart1;
 
-// button management
-typedef struct SwitchState {
-  uint8_t current_status;
-  uint8_t prev_status;
-  uint8_t debouncing;
-  uint32_t change_time;
-} switch_state_t;
-
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/
@@ -88,11 +80,13 @@ void Error_Handler(void);
 #define ADC_S_GPIO_Port GPIOA
 #define ADC_R_Pin GPIO_PIN_3
 #define ADC_R_GPIO_Port GPIOA
-#define ADC_DANGLING_Pin GPIO_PIN_4
-#define ADC_DANGLING_GPIO_Port GPIOA
-#define ADC_GATE_1_Pin GPIO_PIN_5
+#define ADC_D0_Pin GPIO_PIN_4
+#define ADC_D0_GPIO_Port GPIOA
+#define ADC_S0_Pin GPIO_PIN_5
+#define ADC_S0_GPIO_Port GPIOA
+#define ADC_GATE_1_Pin GPIO_PIN_6
 #define ADC_GATE_1_GPIO_Port GPIOA
-#define ADC_GATE_2_Pin GPIO_PIN_6
+#define ADC_GATE_2_Pin GPIO_PIN_7
 #define ADC_GATE_2_GPIO_Port GPIOA
 #define A3_IND_RED_Pin GPIO_PIN_1
 #define A3_IND_RED_GPIO_Port GPIOB

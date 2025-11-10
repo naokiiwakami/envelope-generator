@@ -20,12 +20,16 @@ namespace analog3 {
 
 struct EnvelopeGeneratorParams {
   uint16_t attack_time_param = 0;
+  uint16_t decay0_time_param = 0;
+  uint16_t sustain0_level_param = 0;
   uint16_t decay_time_param = 0;
   uint16_t sustain_level_param = 0;
   uint16_t release_time_param = 0;
 
   uint64_t attack_ratio = 0;
+  uint64_t decay0_ratio = 0;
   uint64_t decay_ratio = 0;
+  uint64_t sustain0_level = 0xffffffff;
   uint64_t sustain_level = 0xffffffff;
   uint64_t release_ratio = 0;
 
@@ -40,6 +44,27 @@ struct EnvelopeGeneratorParams {
     attack_time_param = rounded_attack_time;
     double ratio = exp(-kDeltaT / exp(rounded_attack_time * 0.00015 - 7.5));
     attack_ratio = (uint64_t)(ratio * 4294967296.0);
+  }
+
+  void SetDecay0Time(uint16_t new_decay_time) {
+    uint16_t rounded_decay_time = (new_decay_time >> 6) << 6;
+    if (rounded_decay_time == decay0_time_param) {
+      return;
+    }
+
+    decay0_time_param = rounded_decay_time;
+    double time_constant = exp(rounded_decay_time * 0.00015 - 7.5);
+    double ratio = exp(-kDeltaT / time_constant);
+    decay0_ratio = (uint64_t)(ratio * 4294967296.0);
+  }
+
+  void SetSustain0Level(uint16_t new_sustain_level) {
+    uint16_t rounded_sustain_level = (new_sustain_level >> 6) << 6;
+    if (rounded_sustain_level == sustain0_level_param) {
+      return;
+    }
+    sustain0_level_param = rounded_sustain_level;
+    sustain0_level = ((uint64_t)rounded_sustain_level * (uint64_t)rounded_sustain_level);
   }
 
   void SetDecayTime(uint16_t new_decay_time) {
@@ -92,6 +117,7 @@ class EnvelopeGenerator {
 
   enum class Phase {
     ATTACKING,
+    DECAYING,
     SUSTAINING,
     RELEASED,
   };
@@ -168,6 +194,19 @@ class EnvelopeGenerator {
     self->current_value_ = self->target_value_ - diff;
     if (self->current_value_ >= self->peak_value_) {
       self->current_value_ = self->peak_value_;
+      self->phase_ = Phase::DECAYING;
+      self->UpdateValue = UpdateDecay0;
+    }
+  }
+
+  static void UpdateDecay0(EnvelopeGenerator *self) {
+    uint64_t switch_value = (self->peak_value_ * self->params_.sustain0_level) >> 32;
+    self->target_value_ = 0;
+    uint64_t diff = self->current_value_ - self->target_value_;
+    diff *= self->params_.decay0_ratio;
+    diff >>= 32;
+    self->current_value_ = self->target_value_ + diff;
+    if (self->current_value_ <= switch_value) {
       self->phase_ = Phase::SUSTAINING;
       self->UpdateValue = UpdateDecay;
     }
@@ -259,6 +298,14 @@ void UpdateEnvelopeGenerator() {
 
 void SetAttackTime(void *arg) {
   analog3::eg_params.SetAttackTime(*reinterpret_cast<uint16_t*>(arg));
+}
+
+void SetDecay0Time(void *arg) {
+  analog3::eg_params.SetDecay0Time(*reinterpret_cast<uint16_t*>(arg));
+}
+
+void SetSustain0Level(void *arg) {
+  analog3::eg_params.SetSustain0Level(*reinterpret_cast<uint16_t*>(arg));
 }
 
 void SetDecayTime(void *arg) {

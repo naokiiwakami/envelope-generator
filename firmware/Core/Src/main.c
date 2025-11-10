@@ -36,10 +36,12 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define ADC_INDEX_A 0
-#define ADC_INDEX_D 1
-#define ADC_INDEX_S 2
-#define ADC_INDEX_R 3
+#define ADC_INDEX_A  0
+#define ADC_INDEX_D  1
+#define ADC_INDEX_S  2
+#define ADC_INDEX_R  3
+#define ADC_INDEX_D0 4
+#define ADC_INDEX_S0 5
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -60,6 +62,8 @@ TIM_HandleTypeDef htim1;
 UART_HandleTypeDef huart1;
 
 /* USER CODE BEGIN PV */
+switch_state_t user_sw_state;
+
 volatile uint32_t events = 0;
 enum Event {
   EVENT_CAN_RX = 0x1,
@@ -72,12 +76,13 @@ const uint32_t adc_channels[] = {
   ADC_CHANNEL_1, // PA1, D
   ADC_CHANNEL_2, // PA2, S
   ADC_CHANNEL_3, // PA3, R
-  ADC_CHANNEL_4, // PA4, Dangling
-  ADC_CHANNEL_5, // PA5, Gate A
-  ADC_CHANNEL_6, // PA6, Gate B
+  ADC_CHANNEL_4, // PA4, D0
+  ADC_CHANNEL_5, // PA5, S0
+  ADC_CHANNEL_6, // PA6, Gate 1
+  ADC_CHANNEL_7, // PA6, Gate 2
 };
 
-uint16_t adc_results[7];  // Stores the 4 channel readings
+uint16_t adc_results[8];  // Stores the 4 channel readings
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -134,6 +139,12 @@ void ReceiveCanMessages(FDCAN_HandleTypeDef *hfdcan)
     }
   }
 }
+
+void HandleUserSwitchPressed(const switch_state_t *sw_state) {
+  if (!sw_state->prev_status) {
+    HAL_GPIO_TogglePin(IND_SHIFT_GPIO_Port, IND_SHIFT_Pin);
+  }
+}
 /* USER CODE END 0 */
 
 /**
@@ -174,7 +185,8 @@ int main(void)
   MX_FLASH_Init();
   /* USER CODE BEGIN 2 */
   InitializeStorage();
-
+  InitializeSwitchState(&user_sw_state, USER_SW_GPIO_Port, USER_SW_Pin,
+                        HandleUserSwitchPressed);
   // HAL_TIM_PWM_Start(&htim14, TIM_CHANNEL_1);
   HAL_ADCEx_Calibration_Start(&hadc1);
 
@@ -210,6 +222,7 @@ int main(void)
       __enable_irq();
     }
     CheckForTask();
+    CheckSwitch(&user_sw_state);
   }
   /* USER CODE END 3 */
 }
@@ -651,10 +664,16 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
     case ADC_INDEX_R:
       SubmitTask(SetReleaseTime, &adc_results[adc_channel_index]);
       break;
+    case ADC_INDEX_D0:
+      SubmitTask(SetDecay0Time, &adc_results[adc_channel_index]);
+      break;
+    case ADC_INDEX_S0:
+      SubmitTask(SetSustain0Level, &adc_results[adc_channel_index]);
+      break;
     }
 
     // Update channel index
-    adc_channel_index = (adc_channel_index + 1) % 4;
+    adc_channel_index = (adc_channel_index + 1) % 8;
 
     // Reconfigure ADC to next channel
     adc_change_channel(adc_channels[adc_channel_index]);
