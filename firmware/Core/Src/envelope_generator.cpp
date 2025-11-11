@@ -14,6 +14,8 @@
 #include "analog3/stm32impl.h"
 #include "envelope_generator.h"
 
+#define DECAY_DISTORTION 1
+
 extern analog3::Analog3 *a3;
 
 namespace analog3 {
@@ -28,10 +30,14 @@ struct EnvelopeGeneratorParams {
 
   uint64_t attack_ratio = 0;
   uint64_t decay0_ratio = 0;
+  double decay_time_constant = 0;
   uint64_t decay_ratio = 0;
   uint64_t sustain0_level = 0xffffffff;
   uint64_t sustain_level = 0xffffffff;
   uint64_t release_ratio = 0;
+
+  double distortion_steepness = 0;
+  double distortion_depth = 0;
 
   double delta_t = 0;
 
@@ -57,9 +63,13 @@ struct EnvelopeGeneratorParams {
     }
 
     decay0_time_param = rounded_decay_time;
+#ifdef DECAY_DISTORTION
+    distortion_steepness = (double)rounded_decay_time / 13107.2 + 3.0; // 3 to 8
+#else
     double time_constant = exp(rounded_decay_time * 0.00015 - 7.5);
-    double ratio = exp(-delta_t / time_constant);
-    decay0_ratio = (uint64_t)(ratio * 4294967296.0);
+    double ratio = exp(-delta_t / time_constant) * 4294967296.0;
+    decay0_ratio = (uint64_t)ratio;
+#endif
   }
 
   void SetSustain0Level(uint16_t new_sustain_level) {
@@ -68,7 +78,11 @@ struct EnvelopeGeneratorParams {
       return;
     }
     sustain0_level_param = rounded_sustain_level;
+#ifdef DECAY_DISTORTION
+    distortion_depth = (double)rounded_sustain_level / 128; // 0 to 512;
+#else
     sustain0_level = ((uint64_t)rounded_sustain_level * (uint64_t)rounded_sustain_level);
+#endif
   }
 
   void SetDecayTime(uint16_t new_decay_time) {
@@ -78,9 +92,9 @@ struct EnvelopeGeneratorParams {
     }
 
     decay_time_param = rounded_decay_time;
-    double time_constant = exp(rounded_decay_time * 0.00015 - 7.5);
-    double ratio = exp(-delta_t / time_constant);
-    decay_ratio = (uint64_t)(ratio * 4294967296.0);
+    decay_time_constant = exp(rounded_decay_time * 0.00015 - 7.5);
+    double ratio = exp(-delta_t / decay_time_constant) * 4294967296.0;
+    decay_ratio = (uint64_t)ratio;
   }
 
   void SetSustainLevel(uint16_t new_sustain_level) {
@@ -162,12 +176,14 @@ class EnvelopeGenerator {
 
   void Update() {
     __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, current_value_ >> 20);
+    InitiateMcp47x6DacUpdate(dac_index_, current_value_>> 15);
     if (trigger_ > 0) {
       Trigger();
     } else if (trigger_ < 0) {
       Release();
     }
     UpdateValue(this);
+    CompleteMcp47x6DacUpdate();
   }
 
  private:
@@ -194,8 +210,13 @@ class EnvelopeGenerator {
     self->current_value_ = self->target_value_ - diff;
     if (self->current_value_ >= self->peak_value_) {
       self->current_value_ = self->peak_value_;
+#ifdef DECAY_DISTORTION
+      self->phase_ = Phase::SUSTAINING;
+      self->UpdateValue = UpdateDecay;
+#else
       self->phase_ = Phase::DECAYING;
       self->UpdateValue = UpdateDecay0;
+#endif
     }
   }
 
@@ -216,7 +237,16 @@ class EnvelopeGenerator {
     self->target_value_ = (self->peak_value_ * self->params_.sustain_level) >> 32;
     if (self->current_value_ > self->target_value_ ) {
       uint64_t diff = self->current_value_ - self->target_value_;
+
+#ifdef DECAY_DISTORTION
+      uint64_t max_diff = self->peak_value_ - self->target_value_;
+      double distortion = pow((double)diff / (double)max_diff, self->params_.distortion_steepness);
+      double bent_time_constant = self->params_.decay_time_constant / (1.0 + distortion * self->params_.distortion_depth);
+      uint64_t ratio = exp(-self->params_.delta_t / bent_time_constant) * 4294967296.0;
+      diff *= ratio;
+#else
       diff *= self->params_.decay_ratio;
+#endif
       diff >>= 32;
       self->current_value_ = self->target_value_ + diff;
     } else {

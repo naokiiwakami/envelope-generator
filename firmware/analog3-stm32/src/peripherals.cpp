@@ -112,7 +112,7 @@ void InitializeMcp47x6Dac(uint16_t index, enum MCP47X6_VRL vrl, enum MCP47X6_POW
   }
 }
 
-static HAL_StatusTypeDef I2C_WaitOnFlagUntilTimeout(I2C_HandleTypeDef *hi2c, uint32_t Flag, FlagStatus Status)
+static HAL_StatusTypeDef I2C_WaitOnFlag(I2C_HandleTypeDef *hi2c, uint32_t Flag, FlagStatus Status)
 {
   while (__HAL_I2C_GET_FLAG(hi2c, Flag) == Status)
   {
@@ -120,7 +120,7 @@ static HAL_StatusTypeDef I2C_WaitOnFlagUntilTimeout(I2C_HandleTypeDef *hi2c, uin
   return HAL_OK;
 }
 
-static HAL_StatusTypeDef I2C_WaitOnTXISFlagUntilTimeout(I2C_HandleTypeDef *hi2c)
+static HAL_StatusTypeDef I2C_WaitOnTXISFlag(I2C_HandleTypeDef *hi2c)
 {
   while (__HAL_I2C_GET_FLAG(hi2c, I2C_FLAG_TXIS) == RESET)
   {
@@ -128,7 +128,7 @@ static HAL_StatusTypeDef I2C_WaitOnTXISFlagUntilTimeout(I2C_HandleTypeDef *hi2c)
   return HAL_OK;
 }
 
-static HAL_StatusTypeDef I2C_WaitOnSTOPFlagUntilTimeout(I2C_HandleTypeDef *hi2c)
+static HAL_StatusTypeDef I2C_WaitOnSTOPFlag(I2C_HandleTypeDef *hi2c)
 {
   while (__HAL_I2C_GET_FLAG(hi2c, I2C_FLAG_STOPF) == RESET)
   {
@@ -158,8 +158,7 @@ static void I2C_TransferConfig(I2C_HandleTypeDef *hi2c, uint16_t DevAddress, uin
                I2C_CR2_START | I2C_CR2_STOP)), tmp);
 }
 
-static HAL_StatusTypeDef My_I2C_Master_Transmit(I2C_HandleTypeDef *hi2c, uint16_t DevAddress, uint8_t *pData,
-                                                uint16_t Size, uint32_t Timeout)
+static HAL_StatusTypeDef SendTwoBytesToI2C(I2C_HandleTypeDef *hi2c, uint16_t DevAddress, uint8_t *pData)
 {
   uint32_t xfermode;
 
@@ -168,7 +167,7 @@ static HAL_StatusTypeDef My_I2C_Master_Transmit(I2C_HandleTypeDef *hi2c, uint16_
     /* Process Locked */
     __HAL_LOCK(hi2c);
 
-    if (I2C_WaitOnFlagUntilTimeout(hi2c, I2C_FLAG_BUSY, SET) != HAL_OK)
+    if (I2C_WaitOnFlag(hi2c, I2C_FLAG_BUSY, SET) != HAL_OK)
     {
       return HAL_ERROR;
     }
@@ -179,90 +178,39 @@ static HAL_StatusTypeDef My_I2C_Master_Transmit(I2C_HandleTypeDef *hi2c, uint16_
 
     /* Prepare transfer parameters */
     hi2c->pBuffPtr  = pData;
-    hi2c->XferCount = Size;
+    hi2c->XferCount = 2;
     hi2c->XferISR   = NULL;
 
     hi2c->XferSize = hi2c->XferCount;
     xfermode = I2C_AUTOEND_MODE;
 
-    if (hi2c->XferSize > 0U)
-    {
-      /* Preload TX register */
-      /* Write data to TXDR */
-      hi2c->Instance->TXDR = *hi2c->pBuffPtr;
+    /* Preload TX register */
+    /* Write data to TXDR */
+    hi2c->Instance->TXDR = *hi2c->pBuffPtr;
 
-      /* Increment Buffer pointer */
-      hi2c->pBuffPtr++;
+    /* Increment Buffer pointer */
+    hi2c->pBuffPtr++;
 
-      hi2c->XferCount--;
-      hi2c->XferSize--;
+    hi2c->XferCount--;
+    hi2c->XferSize--;
 
-      /* Send Slave Address */
-      /* Set NBYTES to write and reload if hi2c->XferCount > MAX_NBYTE_SIZE and generate RESTART */
-      I2C_TransferConfig(hi2c, DevAddress, (uint8_t)(hi2c->XferSize + 1U), xfermode,
-                         I2C_GENERATE_START_WRITE);
-    }
-    else
-    {
-      /* Send Slave Address */
-      /* Set NBYTES to write and reload if hi2c->XferCount > MAX_NBYTE_SIZE and generate RESTART */
-      I2C_TransferConfig(hi2c, DevAddress, (uint8_t)hi2c->XferSize, xfermode,
-                         I2C_GENERATE_START_WRITE);
-    }
+    /* Set NBYTES to write and reload if hi2c->XferCount > MAX_NBYTE_SIZE and generate RESTART */
+    I2C_TransferConfig(hi2c, DevAddress, (uint8_t)(hi2c->XferSize + 1U), xfermode,
+                       I2C_GENERATE_START_WRITE);
 
-    HAL_GPIO_TogglePin(DEBUG_OUT_GPIO_Port, DEBUG_OUT_Pin);
-    while (hi2c->XferCount > 0U)
-    {
-      /* Wait until TXIS flag is set */
-      if (I2C_WaitOnTXISFlagUntilTimeout(hi2c) != HAL_OK)
-      {
-        return HAL_ERROR;
-      }
-      HAL_GPIO_TogglePin(DEBUG_OUT_GPIO_Port, DEBUG_OUT_Pin);
-      /* Write data to TXDR */
-      hi2c->Instance->TXDR = *hi2c->pBuffPtr;
-
-      /* Increment Buffer pointer */
-      hi2c->pBuffPtr++;
-
-      hi2c->XferCount--;
-      hi2c->XferSize--;
-
-      if ((hi2c->XferCount != 0U) && (hi2c->XferSize == 0U))
-      {
-        /* Wait until TCR flag is set */
-        if (I2C_WaitOnFlagUntilTimeout(hi2c, I2C_FLAG_TCR, RESET) != HAL_OK)
-        {
-          return HAL_ERROR;
-        }
-        HAL_GPIO_TogglePin(DEBUG_OUT_GPIO_Port, DEBUG_OUT_Pin);
-
-        hi2c->XferSize = hi2c->XferCount;
-        I2C_TransferConfig(hi2c, DevAddress, (uint8_t)hi2c->XferSize, I2C_AUTOEND_MODE,
-                           I2C_NO_STARTSTOP);
-      }
-    }
-    HAL_GPIO_TogglePin(DEBUG_OUT_GPIO_Port, DEBUG_OUT_Pin);
-
-    /* No need to Check TC flag, with AUTOEND mode the stop is automatically generated */
-    /* Wait until STOPF flag is set */
-    if (I2C_WaitOnSTOPFlagUntilTimeout(hi2c) != HAL_OK)
+    /* Wait until TXIS flag is set */
+    if (I2C_WaitOnTXISFlag(hi2c) != HAL_OK)
     {
       return HAL_ERROR;
     }
-    HAL_GPIO_TogglePin(DEBUG_OUT_GPIO_Port, DEBUG_OUT_Pin);
+    /* Write data to TXDR */
+    hi2c->Instance->TXDR = *hi2c->pBuffPtr;
 
-    /* Clear STOP Flag */
-    __HAL_I2C_CLEAR_FLAG(hi2c, I2C_FLAG_STOPF);
+    /* Increment Buffer pointer */
+    hi2c->pBuffPtr++;
 
-    /* Clear Configuration Register 2 */
-    I2C_RESET_CR2(hi2c);
-
-    hi2c->State = HAL_I2C_STATE_READY;
-    hi2c->Mode  = HAL_I2C_MODE_NONE;
-
-    /* Process Unlocked */
-    __HAL_UNLOCK(hi2c);
+    hi2c->XferCount--;
+    hi2c->XferSize--;
 
     return HAL_OK;
   }
@@ -270,6 +218,30 @@ static HAL_StatusTypeDef My_I2C_Master_Transmit(I2C_HandleTypeDef *hi2c, uint16_
   {
     return HAL_BUSY;
   }
+}
+
+static HAL_StatusTypeDef FinishTwoBytesToI2C(I2C_HandleTypeDef *hi2c)
+{
+  /* No need to Check TC flag, with AUTOEND mode the stop is automatically generated */
+  /* Wait until STOPF flag is set */
+  if (I2C_WaitOnSTOPFlag(hi2c) != HAL_OK)
+  {
+    return HAL_ERROR;
+  }
+
+  /* Clear STOP Flag */
+  __HAL_I2C_CLEAR_FLAG(hi2c, I2C_FLAG_STOPF);
+
+  /* Clear Configuration Register 2 */
+  I2C_RESET_CR2(hi2c);
+
+  hi2c->State = HAL_I2C_STATE_READY;
+  hi2c->Mode  = HAL_I2C_MODE_NONE;
+
+  /* Process Unlocked */
+  __HAL_UNLOCK(hi2c);
+
+  return HAL_OK;
 }
 
 /**
@@ -281,8 +253,33 @@ void UpdateMcp47x6Dac(uint16_t index, uint16_t value)
   uint8_t data[2];
   data[0] = value >> 12;
   data[1] = (value >> 4) & 0xff;
-  auto result = HAL_I2C_Master_Transmit(&hi2c1, address << 1, data, 2, 1000);
-  if (result != HAL_OK && result != HAL_BUSY) {
+  // auto result = HAL_I2C_Master_Transmit(&hi2c1, address << 1, data, 2, 1000);
+  if (SendTwoBytesToI2C(&hi2c1, address << 1, data) != HAL_OK) {
     Error_Handler();
+  }
+  if (FinishTwoBytesToI2C(&hi2c1) != HAL_OK) {
+    HandleError();
+  }
+}
+
+/**
+ * Updates MCP47x6 DAC via hi2c1 HAL I2C handle.
+ */
+void InitiateMcp47x6DacUpdate(uint16_t index, uint16_t value)
+{
+  uint16_t address = 0b1100000 + index; // MCP47x6An, n = index
+  uint8_t data[2];
+  data[0] = value >> 12;
+  data[1] = (value >> 4) & 0xff;
+  if (SendTwoBytesToI2C(&hi2c1, address << 1, data) != HAL_OK) {
+    HandleError();
+  }
+}
+
+
+void CompleteMcp47x6DacUpdate()
+{
+  if (FinishTwoBytesToI2C(&hi2c1) != HAL_OK) {
+    HandleError();
   }
 }

@@ -97,6 +97,8 @@ extern void InitializeMcp47x6Dac(uint16_t index, enum MCP47X6_VRL vrl, enum MCP4
 /**
  * Updates MCP47x6 DAC via hi2c1 HAL I2C handle.
  */
+extern void InitiateMcp47x6DacUpdate(uint16_t index, uint16_t value);
+extern void CompleteMcp47x6DacUpdate();
 extern void UpdateMcp47x6Dac(uint16_t index, uint16_t value);
 
 // Serial
