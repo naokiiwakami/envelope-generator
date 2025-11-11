@@ -45,9 +45,7 @@ extern FDCAN_HandleTypeDef hfdcan1;
 
 extern I2C_HandleTypeDef hi2c1;
 
-extern TIM_HandleTypeDef htim1;
 extern TIM_HandleTypeDef htim3;
-extern TIM_HandleTypeDef htim14;
 
 extern UART_HandleTypeDef huart1;
 
@@ -55,7 +53,9 @@ extern UART_HandleTypeDef huart1;
 
 /* Exported constants --------------------------------------------------------*/
 /* USER CODE BEGIN EC */
-
+// Update cycles by TIM3 overflow interrupt handler
+#define EG_UPDATE_CYCLES   4
+#define ADC_UPDATE_CYCLES 32
 /* USER CODE END EC */
 
 /* Exported macro ------------------------------------------------------------*/

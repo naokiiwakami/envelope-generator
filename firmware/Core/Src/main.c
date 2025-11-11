@@ -57,7 +57,6 @@ FDCAN_HandleTypeDef hfdcan1;
 
 I2C_HandleTypeDef hi2c1;
 
-TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim3;
 
 UART_HandleTypeDef huart1;
@@ -93,7 +92,6 @@ static void MX_DMA_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_FDCAN1_Init(void);
 static void MX_I2C1_Init(void);
-static void MX_TIM1_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_FLASH_Init(void);
 static void MX_TIM3_Init(void);
@@ -182,7 +180,6 @@ int main(void)
   MX_ADC1_Init();
   MX_FDCAN1_Init();
   MX_I2C1_Init();
-  MX_TIM1_Init();
   MX_USART1_UART_Init();
   MX_FLASH_Init();
   MX_TIM3_Init();
@@ -190,8 +187,10 @@ int main(void)
   InitializeStorage();
   InitializeSwitchState(&user_sw_state, USER_SW_GPIO_Port, USER_SW_Pin,
                         HandleUserSwitchPressed);
-  // HAL_TIM_PWM_Start(&htim14, TIM_CHANNEL_1);
   HAL_ADCEx_Calibration_Start(&hadc1);
+
+  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, 0);
+  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_3);
 
   InitializeAnalog3();
   InitializeEnvelopeGenerator();
@@ -199,11 +198,9 @@ int main(void)
   HAL_Delay(10);
   put_string("\r\nAnalog3 Envelope Generator\r\n");
 
-  HAL_Delay(20);
+  HAL_TIM_Base_Start_IT(&htim3);
 
-  HAL_TIM_Base_Start_IT(&htim1);
-  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_3);
-  // HAL_TIM_Base_Start_IT(&htim3);
+  HAL_Delay(20);
 
   // The module is ready to run. Signing into the A3 network.
   SignIn();
@@ -468,53 +465,6 @@ static void MX_I2C1_Init(void)
 }
 
 /**
-  * @brief TIM1 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_TIM1_Init(void)
-{
-
-  /* USER CODE BEGIN TIM1_Init 0 */
-
-  /* USER CODE END TIM1_Init 0 */
-
-  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
-  TIM_MasterConfigTypeDef sMasterConfig = {0};
-
-  /* USER CODE BEGIN TIM1_Init 1 */
-
-  /* USER CODE END TIM1_Init 1 */
-  htim1.Instance = TIM1;
-  htim1.Init.Prescaler = 0;
-  htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = 9000;
-  htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim1.Init.RepetitionCounter = 0;
-  htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim1, &sClockSourceConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
-  sMasterConfig.MasterOutputTrigger2 = TIM_TRGO2_UPDATE;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN TIM1_Init 2 */
-
-  /* USER CODE END TIM1_Init 2 */
-
-}
-
-/**
   * @brief TIM3 Initialization Function
   * @param None
   * @retval None
@@ -699,16 +649,12 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
   }
 }
 
-static uint32_t fraction = 0;
+static uint32_t cycles = 0;
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
-  if (htim->Instance == TIM1) {
-    NudgeEnvelopeGenerator();
-    if (++fraction % 16 == 0) {
-      HAL_ADC_Start_DMA(&hadc1, (uint32_t*)&adc_value, 1);
-    }
-  } else {
-    NudgeEnvelopeGenerator();
+  NudgeEnvelopeGenerator();
+  if (++cycles % ADC_UPDATE_CYCLES == 0) {
+    HAL_ADC_Start_DMA(&hadc1, (uint32_t*)&adc_value, 1);
   }
 }
 

@@ -33,8 +33,11 @@ struct EnvelopeGeneratorParams {
   uint64_t sustain_level = 0xffffffff;
   uint64_t release_ratio = 0;
 
-  // const float kDeltaT = 8.5333e-5;
-  const float kDeltaT = 1.875e-4;
+  double delta_t = 0;
+
+  void Initialize() {
+    delta_t = (double)htim3.Init.Period * (double)EG_UPDATE_CYCLES / (double)HAL_RCC_GetSysClockFreq();
+  }
 
   void SetAttackTime(uint16_t new_attack_time) {
     uint16_t rounded_attack_time = (new_attack_time >> 6) << 6;
@@ -43,7 +46,7 @@ struct EnvelopeGeneratorParams {
     }
 
     attack_time_param = rounded_attack_time;
-    double ratio = exp(-kDeltaT / exp(rounded_attack_time * 0.00015 - 7.5));
+    double ratio = exp(-delta_t / exp(rounded_attack_time * 0.00015 - 7.5));
     attack_ratio = (uint64_t)(ratio * 4294967296.0);
   }
 
@@ -55,7 +58,7 @@ struct EnvelopeGeneratorParams {
 
     decay0_time_param = rounded_decay_time;
     double time_constant = exp(rounded_decay_time * 0.00015 - 7.5);
-    double ratio = exp(-kDeltaT / time_constant);
+    double ratio = exp(-delta_t / time_constant);
     decay0_ratio = (uint64_t)(ratio * 4294967296.0);
   }
 
@@ -76,7 +79,7 @@ struct EnvelopeGeneratorParams {
 
     decay_time_param = rounded_decay_time;
     double time_constant = exp(rounded_decay_time * 0.00015 - 7.5);
-    double ratio = exp(-kDeltaT / time_constant);
+    double ratio = exp(-delta_t / time_constant);
     decay_ratio = (uint64_t)(ratio * 4294967296.0);
   }
 
@@ -96,7 +99,7 @@ struct EnvelopeGeneratorParams {
     }
 
     release_time_param = rounded_release_time;
-    double ratio = exp(-kDeltaT / exp(rounded_release_time * 0.000115 - 4.6));
+    double ratio = exp(-delta_t / exp(rounded_release_time * 0.000115 - 4.6));
     release_ratio = (uint64_t)(ratio * 4294967296.0);
   }
 };
@@ -148,7 +151,6 @@ class EnvelopeGenerator {
     }
     velocity_ = velocity;
     trigger_ = 1;
-    // HAL_GPIO_WritePin(gpiox_, gpio_pin_, GPIO_PIN_SET);
   }
 
   void GateOff(uint32_t voice_id) {
@@ -156,14 +158,10 @@ class EnvelopeGenerator {
       return;
     }
     trigger_ = -1;
-    // HAL_GPIO_WritePin(gpiox_, gpio_pin_, GPIO_PIN_RESET);
   }
 
   void Update() {
-    // HAL_GPIO_WritePin(DEBUG_OUT_GPIO_Port, DEBUG_OUT_Pin, GPIO_PIN_SET);
     __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, current_value_ >> 20);
-    UpdateMcp47x6Dac(dac_index_, current_value_>> 15);
-    // HAL_GPIO_WritePin(DEBUG_OUT_GPIO_Port, DEBUG_OUT_Pin, GPIO_PIN_RESET);
     if (trigger_ > 0) {
       Trigger();
     } else if (trigger_ < 0) {
@@ -283,12 +281,16 @@ static analog3::EgMessageHandler message_handler;
 // C API for the main program
 
 void InitializeEnvelopeGenerator() {
+  analog3::eg_params.Initialize();
   analog3::eg_voice_0.Initialize();
   a3->InjectMessageHandler(&message_handler);
 }
 
+static uint32_t cycles = 0;
 void NudgeEnvelopeGenerator() {
-  analog3::pulse = true;
+  if (cycles++ % EG_UPDATE_CYCLES == 0) {
+    analog3::pulse = true;
+  }
 }
 
 void UpdateEnvelopeGenerator() {
