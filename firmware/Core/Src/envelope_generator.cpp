@@ -126,6 +126,7 @@ class EnvelopeGenerator {
 
   int8_t trigger_ = 0;
   uint16_t velocity_ = 0;
+  bool is_gate_on_ = false;
 
   uint64_t current_value_ = 0;
   uint64_t target_value_ = 0;
@@ -156,22 +157,26 @@ class EnvelopeGenerator {
 
   void Initialize() {
     InitializeMcp47x6Dac(dac_index_, MCP47X6_VRL_VDD, MCP47X6_PD_NORMAL, MCP47X6_GAIN_1X);
-    GateOff(0);
+    GateOff();
   }
 
-  void GateOn(uint16_t velocity, uint32_t voice_id) {
-    if (voice_id != (uint32_t)dac_index_ - 1) {
-      return;
-    }
+  uint32_t GetVoiceId() {
+    return (uint32_t)dac_index_ - 1;
+  }
+
+  void GateOn(uint16_t velocity) {
     velocity_ = velocity;
     trigger_ = 1;
+    is_gate_on_ = true;
   }
 
-  void GateOff(uint32_t voice_id) {
-    if (voice_id != (uint32_t)dac_index_ - 1) {
-      return;
-    }
+  void GateOff() {
     trigger_ = -1;
+    is_gate_on_ = false;
+  }
+
+  bool IsGateOn() {
+    return is_gate_on_;
   }
 
   void Update() {
@@ -268,6 +273,7 @@ class EnvelopeGenerator {
 static bool pulse = false;
 static EnvelopeGeneratorParams eg_params{};
 static EnvelopeGenerator eg_voice_0{1, IND_GATE_1_GPIO_Port, IND_GATE_1_Pin, eg_params};
+static bool physical_gate_input_enabled = false;
 
 class EgMessageHandler : public MessageHandler {
  public:
@@ -275,29 +281,37 @@ class EgMessageHandler : public MessageHandler {
   ~EgMessageHandler() = default;
 
   void Handle(const CanRxMessage& message) {
+    if (physical_gate_input_enabled) {
+      return;
+    }
     auto id = message.GetId();
     uint32_t voice_id = 0;
     if (id == A3_ID_MIDI_VOICE_BASE + voice_id) {
       uint8_t index = 0;
       do {
-        index = ReadMessage(message.GetData(), voice_id, index);
+        index = ParseMessage(message.GetData(), voice_id, index);
       } while (index < message.GetDlc());
     }
   }
 
  private:
-  uint8_t ReadMessage(const uint8_t *data, uint32_t voice_id, uint8_t index) {
+  uint8_t ParseMessage(const uint8_t *data, uint32_t voice_id, uint8_t index) {
     auto op = data[index++];
     switch (op) {
     case A3_VOICE_MSG_GATE_ON:
       if (index < 6) {
         uint16_t velocity = (data[index] << 8) + data[index + 1];
         index += 2;
-        eg_voice_0.GateOn(velocity, voice_id);
+        if (eg_voice_0.GetVoiceId() == voice_id) {
+          eg_voice_0.GateOn(velocity);
+        }
+
       }
       break;
     case A3_VOICE_MSG_GATE_OFF:
-      eg_voice_0.GateOff(voice_id);
+      if (eg_voice_0.GetVoiceId() == voice_id) {
+        eg_voice_0.GateOff();
+      }
       break;
     }
     return index;
@@ -308,7 +322,7 @@ class EgMessageHandler : public MessageHandler {
 
 static analog3::EgMessageHandler message_handler;
 
-// C API for the main program
+// C API for the main program /////////////////////////////////////////////////////////////////////////
 
 void InitializeEnvelopeGenerator() {
   analog3::eg_params.Initialize();
@@ -328,6 +342,14 @@ void UpdateEnvelopeGenerator() {
     analog3::eg_voice_0.Update();
     analog3::pulse = false;
   }
+}
+
+void TogglePhysicalGateInput() {
+  analog3::physical_gate_input_enabled = !analog3::physical_gate_input_enabled;
+}
+
+uint8_t IsPhysicalGateInputEnabled() {
+  return analog3::physical_gate_input_enabled;
 }
 
 void SetAttackTime(void *arg) {
@@ -352,4 +374,31 @@ void SetSustainLevel(void *arg) {
 
 void SetReleaseTime(void *arg) {
   analog3::eg_params.SetReleaseTime(*reinterpret_cast<uint16_t*>(arg));
+}
+
+void CheckGate1(void *arg) {
+  if (!analog3::physical_gate_input_enabled) {
+    return;
+  }
+  // The range of the gate level is [0:65535] that projects gate voltage [0v:8v].
+  // The gate-on minimum voltage is 3V that increases up to 8V.
+  // Value of (voltage - 3) represents the output level.
+  uint16_t gate_level = *reinterpret_cast<uint16_t*>(arg);
+  if (!analog3::eg_voice_0.IsGateOn()) {
+    if (gate_level > 22527) { // about 2.75V
+      const int32_t kThreshold = 24000; // about 3V
+      int32_t velocity = (int32_t)gate_level - kThreshold;
+      velocity = velocity * 32768 / ((65536 - kThreshold) / 2);
+      if (velocity < 0) {
+        velocity = 0;
+      } else if (velocity > 65535) {
+        velocity = 65535;
+      }
+      analog3::eg_voice_0.GateOn((uint16_t)velocity);
+      HAL_GPIO_WritePin(IND_GATE_1_GPIO_Port, IND_GATE_1_Pin, GPIO_PIN_SET);
+    }
+  } else if (gate_level < 16384) { // about 2.0V
+    analog3::eg_voice_0.GateOff();
+    HAL_GPIO_WritePin(IND_GATE_1_GPIO_Port, IND_GATE_1_Pin, GPIO_PIN_RESET);
+  }
 }

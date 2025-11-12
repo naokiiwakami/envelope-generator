@@ -42,6 +42,8 @@
 #define ADC_INDEX_R  3
 #define ADC_INDEX_D0 4
 #define ADC_INDEX_S0 5
+#define ADC_INDEX_G1 6
+#define ADC_INDEX_G2 7
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -124,14 +126,6 @@ void ReceiveCanMessages(FDCAN_HandleTypeDef *hfdcan)
     if (HAL_FDCAN_GetRxMessage(hfdcan, FDCAN_RX_FIFO0, rx_header, rx_data) != HAL_OK) {
       HandleError("Failed to receive CAN message; error=%lu", hfdcan->ErrorCode);
     } else {
-      switch (rx_header->Identifier) {
-        case 0x0101:
-          HAL_GPIO_TogglePin(IND_GATE_1_GPIO_Port, IND_GATE_1_Pin);
-          break;
-        case 0x0102:
-          HAL_GPIO_TogglePin(IND_GATE_2_GPIO_Port, IND_GATE_2_Pin);
-          break;
-      }
       if (!q_full) {
         q_head = (q_head + 1) % MESSAGE_QUEUE_SIZE;
         q_full = q_head == q_tail;
@@ -142,7 +136,9 @@ void ReceiveCanMessages(FDCAN_HandleTypeDef *hfdcan)
 
 void HandleUserSwitchPressed(const switch_state_t *sw_state) {
   if (!sw_state->prev_status) {
-    HAL_GPIO_TogglePin(IND_SHIFT_GPIO_Port, IND_SHIFT_Pin);
+    TogglePhysicalGateInput();
+    HAL_GPIO_WritePin(IND_SHIFT_GPIO_Port, IND_SHIFT_Pin,
+                      IsPhysicalGateInputEnabled() ? GPIO_PIN_SET : GPIO_PIN_RESET);
   }
 }
 /* USER CODE END 0 */
@@ -683,6 +679,9 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
       break;
     case ADC_INDEX_S0:
       SubmitTask(SetSustain0Level, &adc_results[adc_channel_index]);
+      break;
+    case ADC_INDEX_G1:
+      SubmitTask(CheckGate1, &adc_results[adc_channel_index]);
       break;
     }
 
