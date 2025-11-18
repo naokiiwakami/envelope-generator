@@ -170,6 +170,12 @@ class EnvelopeGenerator {
     is_gate_on_ = true;
   }
 
+  void AnalogGateOn(uint16_t velocity) {
+    velocity_ = velocity;
+    trigger_ = 2;
+    is_gate_on_ = true;
+  }
+
   void GateOff() {
     trigger_ = -1;
     is_gate_on_ = false;
@@ -181,20 +187,25 @@ class EnvelopeGenerator {
 
   void Update() {
     __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, current_value_ >> 20);
-    InitiateMcp47x6DacUpdate(dac_index_, current_value_>> 15);
+    // InitiateMcp47x6DacUpdate(dac_index_, current_value_>> 15);
     if (trigger_ > 0) {
       Trigger();
     } else if (trigger_ < 0) {
       Release();
     }
     UpdateValue(this);
-    CompleteMcp47x6DacUpdate();
+    // CompleteMcp47x6DacUpdate();
   }
 
  private:
   void Trigger() {
+    uint64_t level;
+    if (trigger_ == 1) {
+      level = ((uint64_t)velocity_ * (uint64_t)velocity_) >> 1;
+    } else {
+      level = (uint64_t)velocity_ << 15;
+    }
     trigger_ = 0;
-    uint64_t level = ((uint64_t)velocity_ * (uint64_t)velocity_) >> 1;
     target_value_ = level * 1.2;
     peak_value_ = level;
     phase_ = Phase::ATTACKING;
@@ -394,7 +405,7 @@ void CheckGate1(void *arg) {
       } else if (velocity > 65535) {
         velocity = 65535;
       }
-      analog3::eg_voice_0.GateOn((uint16_t)velocity);
+      analog3::eg_voice_0.AnalogGateOn((uint16_t)velocity);
       HAL_GPIO_WritePin(IND_GATE_1_GPIO_Port, IND_GATE_1_Pin, GPIO_PIN_SET);
     }
   } else if (gate_level < 16384) { // about 2.0V
