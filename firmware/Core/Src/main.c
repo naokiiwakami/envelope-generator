@@ -57,14 +57,12 @@ DMA_HandleTypeDef hdma_adc1;
 
 FDCAN_HandleTypeDef hfdcan1;
 
-I2C_HandleTypeDef hi2c1;
-
 TIM_HandleTypeDef htim3;
 
 UART_HandleTypeDef huart1;
 
 /* USER CODE BEGIN PV */
-switch_state_t user_sw_state;
+switch_state_t gate_src_sw_state;
 
 volatile uint32_t events = 0;
 enum Event {
@@ -93,7 +91,6 @@ static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_FDCAN1_Init(void);
-static void MX_I2C1_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_FLASH_Init(void);
 static void MX_TIM3_Init(void);
@@ -137,7 +134,7 @@ void ReceiveCanMessages(FDCAN_HandleTypeDef *hfdcan)
 void HandleUserSwitchPressed(const switch_state_t *sw_state) {
   if (!sw_state->prev_status) {
     TogglePhysicalGateInput();
-    HAL_GPIO_WritePin(IND_SHIFT_GPIO_Port, IND_SHIFT_Pin,
+    HAL_GPIO_WritePin(IND_ANALOG_GATE_GPIO_Port, IND_ANALOG_GATE_Pin,
                       IsPhysicalGateInputEnabled() ? GPIO_PIN_SET : GPIO_PIN_RESET);
   }
 }
@@ -175,18 +172,19 @@ int main(void)
   MX_DMA_Init();
   MX_ADC1_Init();
   MX_FDCAN1_Init();
-  MX_I2C1_Init();
   MX_USART1_UART_Init();
   MX_FLASH_Init();
   MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
   InitializeStorage();
-  InitializeSwitchState(&user_sw_state, USER_SW_GPIO_Port, USER_SW_Pin,
+  InitializeSwitchState(&gate_src_sw_state, SW_GATE_SRC_GPIO_Port, SW_GATE_SRC_Pin,
                         HandleUserSwitchPressed);
   HAL_ADCEx_Calibration_Start(&hadc1);
 
-  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, 0);
-  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_3);
+  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 0);
+  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_4, 0);
+  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
+  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_4);
 
   InitializeAnalog3();
   InitializeEnvelopeGenerator();
@@ -220,7 +218,7 @@ int main(void)
       __enable_irq();
     }
     CheckForTask();
-    CheckSwitch(&user_sw_state);
+    CheckSwitch(&gate_src_sw_state);
   }
   /* USER CODE END 3 */
 }
@@ -413,54 +411,6 @@ static void MX_FLASH_Init(void)
 }
 
 /**
-  * @brief I2C1 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_I2C1_Init(void)
-{
-
-  /* USER CODE BEGIN I2C1_Init 0 */
-
-  /* USER CODE END I2C1_Init 0 */
-
-  /* USER CODE BEGIN I2C1_Init 1 */
-
-  /* USER CODE END I2C1_Init 1 */
-  hi2c1.Instance = I2C1;
-  hi2c1.Init.Timing = 0x0090194B;
-  hi2c1.Init.OwnAddress1 = 0;
-  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
-  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
-  hi2c1.Init.OwnAddress2 = 0;
-  hi2c1.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
-  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
-  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
-  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Configure Analogue filter
-  */
-  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c1, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Configure Digital filter
-  */
-  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c1, 0) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN I2C1_Init 2 */
-
-  /* USER CODE END I2C1_Init 2 */
-
-}
-
-/**
   * @brief TIM3 Initialization Function
   * @param None
   * @retval None
@@ -508,7 +458,11 @@ static void MX_TIM3_Init(void)
   sConfigOC.Pulse = 0;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
-  if (HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_3) != HAL_OK)
+  if (HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_4) != HAL_OK)
   {
     Error_Handler();
   }
@@ -601,36 +555,42 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOA_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, DEBUG_OUT_Pin|A3_IND_RED_Pin|A3_IND_BLUE_Pin|IND_GATE_1_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, A3_IND_RED_Pin|A3_IND_BLUE_Pin|IND_GATE_1_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, IND_SHIFT_Pin|IND_GATE_2_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, IND_ANALOG_GATE_Pin|IND_EG_MODE_1_Pin|IND_EG_MODE_0_Pin|IND_GATE_2_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : DEBUG_OUT_Pin A3_IND_RED_Pin A3_IND_BLUE_Pin IND_GATE_1_Pin */
-  GPIO_InitStruct.Pin = DEBUG_OUT_Pin|A3_IND_RED_Pin|A3_IND_BLUE_Pin|IND_GATE_1_Pin;
+  /*Configure GPIO pins : SW_GATE_2_Pin CAN_STB_Pin */
+  GPIO_InitStruct.Pin = SW_GATE_2_Pin|CAN_STB_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : SW_EG_MODE_Pin */
+  GPIO_InitStruct.Pin = SW_EG_MODE_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(SW_EG_MODE_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : A3_IND_RED_Pin A3_IND_BLUE_Pin IND_GATE_1_Pin */
+  GPIO_InitStruct.Pin = A3_IND_RED_Pin|A3_IND_BLUE_Pin|IND_GATE_1_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : USER_SW_Pin */
-  GPIO_InitStruct.Pin = USER_SW_Pin;
+  /*Configure GPIO pin : SW_GATE_SRC_Pin */
+  GPIO_InitStruct.Pin = SW_GATE_SRC_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
-  HAL_GPIO_Init(USER_SW_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(SW_GATE_SRC_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : IND_SHIFT_Pin IND_GATE_2_Pin */
-  GPIO_InitStruct.Pin = IND_SHIFT_Pin|IND_GATE_2_Pin;
+  /*Configure GPIO pins : IND_ANALOG_GATE_Pin IND_EG_MODE_1_Pin IND_EG_MODE_0_Pin IND_GATE_2_Pin */
+  GPIO_InitStruct.Pin = IND_ANALOG_GATE_Pin|IND_EG_MODE_1_Pin|IND_EG_MODE_0_Pin|IND_GATE_2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : CAN_STB_Pin */
-  GPIO_InitStruct.Pin = CAN_STB_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(CAN_STB_GPIO_Port, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 

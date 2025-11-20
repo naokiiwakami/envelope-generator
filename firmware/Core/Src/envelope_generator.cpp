@@ -156,7 +156,8 @@ class EnvelopeGenerator {
   ~EnvelopeGenerator() = default;
 
   void Initialize() {
-    InitializeMcp47x6Dac(dac_index_, MCP47X6_VRL_VDD, MCP47X6_PD_NORMAL, MCP47X6_GAIN_1X);
+    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 0);
+    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_4, 0);
     GateOff();
   }
 
@@ -186,15 +187,14 @@ class EnvelopeGenerator {
   }
 
   void Update() {
-    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, current_value_ >> 20);
-    // InitiateMcp47x6DacUpdate(dac_index_, current_value_>> 15);
+    // __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, current_value_ >> 20);
+    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_4, current_value_ >> 20);
     if (trigger_ > 0) {
       Trigger();
     } else if (trigger_ < 0) {
       Release();
     }
     UpdateValue(this);
-    // CompleteMcp47x6DacUpdate();
   }
 
  private:

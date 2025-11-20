@@ -43,8 +43,6 @@ extern DMA_HandleTypeDef hdma_adc1;
 
 extern FDCAN_HandleTypeDef hfdcan1;
 
-extern I2C_HandleTypeDef hi2c1;
-
 extern TIM_HandleTypeDef htim3;
 
 extern UART_HandleTypeDef huart1;
@@ -73,8 +71,8 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define DEBUG_OUT_Pin GPIO_PIN_9
-#define DEBUG_OUT_GPIO_Port GPIOB
+#define SW_GATE_2_Pin GPIO_PIN_9
+#define SW_GATE_2_GPIO_Port GPIOB
 #define ADC_A_Pin GPIO_PIN_0
 #define ADC_A_GPIO_Port GPIOA
 #define ADC_D_Pin GPIO_PIN_1
@@ -91,14 +89,20 @@ void Error_Handler(void);
 #define ADC_GATE_1_GPIO_Port GPIOA
 #define ADC_GATE_2_Pin GPIO_PIN_7
 #define ADC_GATE_2_GPIO_Port GPIOA
+#define SW_EG_MODE_Pin GPIO_PIN_0
+#define SW_EG_MODE_GPIO_Port GPIOB
 #define A3_IND_RED_Pin GPIO_PIN_1
 #define A3_IND_RED_GPIO_Port GPIOB
 #define A3_IND_BLUE_Pin GPIO_PIN_2
 #define A3_IND_BLUE_GPIO_Port GPIOB
-#define USER_SW_Pin GPIO_PIN_6
-#define USER_SW_GPIO_Port GPIOC
-#define IND_SHIFT_Pin GPIO_PIN_10
-#define IND_SHIFT_GPIO_Port GPIOA
+#define SW_GATE_SRC_Pin GPIO_PIN_6
+#define SW_GATE_SRC_GPIO_Port GPIOC
+#define IND_ANALOG_GATE_Pin GPIO_PIN_10
+#define IND_ANALOG_GATE_GPIO_Port GPIOA
+#define IND_EG_MODE_1_Pin GPIO_PIN_11
+#define IND_EG_MODE_1_GPIO_Port GPIOA
+#define IND_EG_MODE_0_Pin GPIO_PIN_12
+#define IND_EG_MODE_0_GPIO_Port GPIOA
 #define IND_GATE_2_Pin GPIO_PIN_15
 #define IND_GATE_2_GPIO_Port GPIOA
 #define IND_GATE_1_Pin GPIO_PIN_3

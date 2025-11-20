@@ -70,37 +70,6 @@ extern uint8_t q_full;
 extern void adc_change_channel(uint32_t adc_channel);
 extern uint32_t adc_run();
 
-// MCP47x6 DAC
-enum MCP47X6_VRL {  // Resistor Ladder Voltage Reference (Vrl) configuration
-  MCP47X6_VRL_VDD = 0b00,      // VDD, unbuffered
-  MCP47X6_VRL_VREF_UB = 0b10,  // Vref pin, unbuffered
-  MCP47X6_VRL_VREF = 0b11,     // Vref pin, buffered
-};
-
-enum MCP47X6_POWER_DOWN {  // Power-Down configuration
-  MCP47X6_PD_NORMAL = 0b00,  // Not powered down (nnormal operation).
-  MCP47X6_PD_1K = 0b01,      // Powered down - Vout is loaded with 1kOhm R to GND.
-  MCP47X6_PD_100K = 0b10,    // Powered down - Vout is loaded with 100kOhm R to GND.
-  MCP47X6_PD_500K = 0b11,    // Powered down - Vout is loaded with 500kOhm R to GND.
-};
-
-enum MCP47X6_GAIN { // Gain configuration
-  MCP47X6_GAIN_1X = 0,  // gain of 1
-  MCP47X6_GAIN_2X = 1,  // gain of 2. N/A when Vdd is used as Vrl
-};
-
-/**
- * Initializes MCP47x6 DAC via hi2c1 HAL I2C handle.
- */
-extern void InitializeMcp47x6Dac(uint16_t index, enum MCP47X6_VRL vrl, enum MCP47X6_POWER_DOWN pd,
-                                 enum MCP47X6_GAIN gain);
-/**
- * Updates MCP47x6 DAC via hi2c1 HAL I2C handle.
- */
-extern void InitiateMcp47x6DacUpdate(uint16_t index, uint16_t value);
-extern void CompleteMcp47x6DacUpdate();
-extern void UpdateMcp47x6Dac(uint16_t index, uint16_t value);
-
 // Serial
 extern void put_string(const char* message);
 extern void put_hex(const void *data, size_t size);
