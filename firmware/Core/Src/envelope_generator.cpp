@@ -208,7 +208,8 @@ class EnvelopeGenerator {
   void Trigger() {
     uint64_t level;
     if (trigger_ == 1) {
-      level = ((uint64_t)velocity_ * (uint64_t)velocity_) >> 1;
+      // Add an offset of 1/32 level to avoid silence with low velocity
+      level = (((uint64_t)velocity_ * (uint64_t)velocity_) * 31 + 0xffffffff) >> 6;
     } else {
       level = (uint64_t)velocity_ << 15;
     }
