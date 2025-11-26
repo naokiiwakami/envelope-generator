@@ -26,12 +26,14 @@ int32_t SubmitTask(void (*run)(void *), void *arg) {
   if (tasks_overflow) {
     return -1;
   }
+  __disable_irq();  // enter critical section
   pending_tasks[task_last].run = run;
   pending_tasks[task_last].arg = arg;
   task_last = (task_last + 1) % MAX_TASKS;
   if (task_last == task_first) {
     tasks_overflow = 1;
   }
+  __enable_irq();  // exit critical section
   return 0;
 }
 
