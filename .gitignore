@@ -4,3 +4,4 @@ ComponentUpdateLog.txt
 *-backups
 fp-info-cache
 *.lck
+_autosave*

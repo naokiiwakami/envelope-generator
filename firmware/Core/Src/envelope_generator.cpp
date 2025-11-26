@@ -28,12 +28,14 @@ struct EnvelopeGeneratorParams {
   uint16_t sustain_level_param = 0;
   uint16_t release_time_param = 0;
 
+  double attack_time_constant = 0;
   uint64_t attack_ratio = 0;
   uint64_t decay0_ratio = 0;
   double decay_time_constant = 0;
   uint64_t decay_ratio = 0;
   uint64_t sustain0_level = 0xffffffff;
   uint64_t sustain_level = 0xffffffff;
+  double release_time_constant = 0;
   uint64_t release_ratio = 0;
 
   double distortion_steepness = 0;
@@ -52,8 +54,11 @@ struct EnvelopeGeneratorParams {
     }
 
     attack_time_param = rounded_attack_time;
-    double ratio = exp(-delta_t / exp(rounded_attack_time * 0.00015 - 7.5));
-    attack_ratio = (uint64_t)(ratio * 4294967296.0);
+    attack_time_constant = 1.0 + 3.5e-10 * rounded_attack_time * rounded_attack_time * rounded_attack_time;
+    attack_ratio = 0xffffffff / attack_time_constant;
+
+    // double ratio = exp(-delta_t / exp(rounded_attack_time * 0.00015 - 7.5));
+    // attack_ratio = (uint64_t)(ratio * 4294967296.0);
   }
 
   void SetDecay0Time(uint16_t new_decay_time) {
@@ -92,9 +97,9 @@ struct EnvelopeGeneratorParams {
     }
 
     decay_time_param = rounded_decay_time;
-    decay_time_constant = exp(rounded_decay_time * 0.00015 - 7.5);
-    double ratio = exp(-delta_t / decay_time_constant) * 4294967296.0;
-    decay_ratio = (uint64_t)ratio;
+    // decay_time_constant = exp(rounded_decay_time * 0.00017 + 2);
+    decay_time_constant = 7.5 + 7.0e-10 * rounded_decay_time * rounded_decay_time * rounded_decay_time;
+    decay_ratio = 0xffffffff / decay_time_constant;
   }
 
   void SetSustainLevel(uint16_t new_sustain_level) {
@@ -103,7 +108,7 @@ struct EnvelopeGeneratorParams {
       return;
     }
     sustain_level_param = rounded_sustain_level;
-    sustain_level = ((uint64_t)rounded_sustain_level * (uint64_t)rounded_sustain_level);
+    sustain_level = (((uint64_t)rounded_sustain_level >> 1) + 32768) * (uint64_t)rounded_sustain_level;
   }
 
   void SetReleaseTime(uint16_t new_release_time) {
@@ -113,8 +118,10 @@ struct EnvelopeGeneratorParams {
     }
 
     release_time_param = rounded_release_time;
-    double ratio = exp(-delta_t / exp(rounded_release_time * 0.000115 - 4.6));
-    release_ratio = (uint64_t)(ratio * 4294967296.0);
+    release_time_constant = 7.5 + 7.0e-10 * rounded_release_time * rounded_release_time * rounded_release_time;
+    release_ratio = 0xffffffff / release_time_constant;
+    // double ratio = exp(-delta_t / exp(rounded_release_time * 0.000115 - 4.6));
+    // release_ratio = (uint64_t)(ratio * 4294967296.0);
   }
 };
 
@@ -187,7 +194,7 @@ class EnvelopeGenerator {
   }
 
   void Update() {
-    // __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, current_value_ >> 20);
+    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, current_value_ >> 20);
     __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_4, current_value_ >> 20);
     if (trigger_ > 0) {
       Trigger();
@@ -210,6 +217,7 @@ class EnvelopeGenerator {
     peak_value_ = level;
     phase_ = Phase::ATTACKING;
     UpdateValue = UpdateAttack;
+    HAL_GPIO_WritePin(gpiox_, gpio_pin_, GPIO_PIN_SET);
   }
 
   void Release() {
@@ -217,13 +225,15 @@ class EnvelopeGenerator {
     target_value_ = 0;
     phase_ = Phase::RELEASED;
     UpdateValue = UpdateRelease;
+    HAL_GPIO_WritePin(gpiox_, gpio_pin_, GPIO_PIN_RESET);
   }
 
   static void UpdateAttack(EnvelopeGenerator *self) {
     uint64_t diff = self->target_value_ - self->current_value_;
     diff *= self->params_.attack_ratio;
     diff >>= 32;
-    self->current_value_ = self->target_value_ - diff;
+    // self->current_value_ = self->target_value_ - diff;
+    self->current_value_ += diff;
     if (self->current_value_ >= self->peak_value_) {
       self->current_value_ = self->peak_value_;
 #ifdef DECAY_DISTORTION
@@ -251,9 +261,26 @@ class EnvelopeGenerator {
 
   static void UpdateDecay(EnvelopeGenerator *self) {
     self->target_value_ = (self->peak_value_ * self->params_.sustain_level) >> 32;
+    if (self->target_value_ <= self->current_value_) {
+      uint64_t diff = self->current_value_ - self->target_value_;
+      diff *= self->params_.decay_ratio;
+      self->current_value_ -= diff >> 32;
+    } else {
+      uint64_t diff = self->target_value_ - self->current_value_;
+      diff *= self->params_.decay_ratio;
+      self->current_value_ += diff >> 32;
+    }
+    /*
+    if (diff > ((self->peak_value_ - self->target_value_) >> 1)) {
+      diff *= self->params_.decay_ratio * (1.0 - ((double)diff / (self->peak_value_ - self->target_value_) - 0.5) * 8.0);
+    } else {
+      diff *= self->params_.decay_ratio;
+    }
+    */
+    // self->current_value_ += diff >> 32;
+#if 0
     if (self->current_value_ > self->target_value_ ) {
       uint64_t diff = self->current_value_ - self->target_value_;
-
 #ifdef DECAY_DISTORTION
       uint64_t max_diff = self->peak_value_ - self->target_value_;
       double distortion = pow((double)diff / (double)max_diff, self->params_.distortion_steepness);
@@ -271,13 +298,17 @@ class EnvelopeGenerator {
       diff >>= 32;
       self->current_value_ = self->target_value_ - diff;
     }
+#endif
   }
 
   static void UpdateRelease(EnvelopeGenerator *self) {
+    /*
     uint64_t diff = self->current_value_ - self->target_value_;
     diff *= self->params_.release_ratio;
-    diff >>= 32;
-    self->current_value_ = diff;
+    */
+    uint64_t diff = self->current_value_ * self->params_.release_ratio;
+    // diff >>= 32;
+    self->current_value_ -= diff >> 32;
   }
 };
 
@@ -391,10 +422,10 @@ void CheckGate1(void *arg) {
   if (!analog3::physical_gate_input_enabled) {
     return;
   }
-  // The range of the gate level is [0:65535] that projects gate voltage [0v:8v].
+  // The range of the gate level is [0:65535] that projects gate voltage of range [8v:0v].
   // The gate-on minimum voltage is 3V that increases up to 8V.
   // Value of (voltage - 3) represents the output level.
-  uint16_t gate_level = *reinterpret_cast<uint16_t*>(arg);
+  uint16_t gate_level = 65535 - *reinterpret_cast<uint16_t*>(arg);
   if (!analog3::eg_voice_0.IsGateOn()) {
     if (gate_level > 22527) { // about 2.75V
       const int32_t kThreshold = 24000; // about 3V
@@ -406,10 +437,10 @@ void CheckGate1(void *arg) {
         velocity = 65535;
       }
       analog3::eg_voice_0.AnalogGateOn((uint16_t)velocity);
-      HAL_GPIO_WritePin(IND_GATE_1_GPIO_Port, IND_GATE_1_Pin, GPIO_PIN_SET);
+      // HAL_GPIO_WritePin(IND_GATE_1_GPIO_Port, IND_GATE_1_Pin, GPIO_PIN_SET);
     }
   } else if (gate_level < 16384) { // about 2.0V
     analog3::eg_voice_0.GateOff();
-    HAL_GPIO_WritePin(IND_GATE_1_GPIO_Port, IND_GATE_1_Pin, GPIO_PIN_RESET);
+    // HAL_GPIO_WritePin(IND_GATE_1_GPIO_Port, IND_GATE_1_Pin, GPIO_PIN_RESET);
   }
 }
