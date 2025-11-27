@@ -39,7 +39,7 @@ struct EnvelopeGeneratorParams {
   uint64_t release_ratio = 0;
 
   double distortion_steepness = 0;
-  double distortion_depth = 0;
+  double distortion_threshold = 0;
 
   double delta_t = 0;
 
@@ -56,9 +56,6 @@ struct EnvelopeGeneratorParams {
     attack_time_param = rounded_attack_time;
     attack_time_constant = 1.0 + 3.5e-10 * rounded_attack_time * rounded_attack_time * rounded_attack_time;
     attack_ratio = 0xffffffff / attack_time_constant;
-
-    // double ratio = exp(-delta_t / exp(rounded_attack_time * 0.00015 - 7.5));
-    // attack_ratio = (uint64_t)(ratio * 4294967296.0);
   }
 
   void SetDecay0Time(uint16_t new_decay_time) {
@@ -69,7 +66,7 @@ struct EnvelopeGeneratorParams {
 
     decay0_time_param = rounded_decay_time;
 #ifdef DECAY_DISTORTION
-    distortion_steepness = (double)rounded_decay_time / 13107.2 + 3.0; // 3 to 8
+    distortion_steepness = ((double)rounded_decay_time + 65536.0) * (double)rounded_decay_time / 67108864.0;
 #else
     double time_constant = exp(rounded_decay_time * 0.00015 - 7.5);
     double ratio = exp(-delta_t / time_constant) * 4294967296.0;
@@ -84,7 +81,7 @@ struct EnvelopeGeneratorParams {
     }
     sustain0_level_param = rounded_sustain_level;
 #ifdef DECAY_DISTORTION
-    distortion_depth = (double)rounded_sustain_level / 128; // 0 to 512;
+    distortion_threshold = ((double)rounded_sustain_level + 65536.0) * (double)rounded_sustain_level / 8589934592.0; // 0 to 1;
 #else
     sustain0_level = ((uint64_t)rounded_sustain_level * (uint64_t)rounded_sustain_level);
 #endif
@@ -97,7 +94,6 @@ struct EnvelopeGeneratorParams {
     }
 
     decay_time_param = rounded_decay_time;
-    // decay_time_constant = exp(rounded_decay_time * 0.00017 + 2);
     decay_time_constant = 7.5 + 7.0e-10 * rounded_decay_time * rounded_decay_time * rounded_decay_time;
     decay_ratio = 0xffffffff / decay_time_constant;
   }
@@ -120,8 +116,6 @@ struct EnvelopeGeneratorParams {
     release_time_param = rounded_release_time;
     release_time_constant = 7.5 + 7.0e-10 * rounded_release_time * rounded_release_time * rounded_release_time;
     release_ratio = 0xffffffff / release_time_constant;
-    // double ratio = exp(-delta_t / exp(rounded_release_time * 0.000115 - 4.6));
-    // release_ratio = (uint64_t)(ratio * 4294967296.0);
   }
 };
 
@@ -233,7 +227,6 @@ class EnvelopeGenerator {
     uint64_t diff = self->target_value_ - self->current_value_;
     diff *= self->params_.attack_ratio;
     diff >>= 32;
-    // self->current_value_ = self->target_value_ - diff;
     self->current_value_ += diff;
     if (self->current_value_ >= self->peak_value_) {
       self->current_value_ = self->peak_value_;
@@ -262,30 +255,36 @@ class EnvelopeGenerator {
 
   static void UpdateDecay(EnvelopeGenerator *self) {
     self->target_value_ = (self->peak_value_ * self->params_.sustain_level) >> 32;
+    uint64_t diff;
+    uint64_t max_diff;
+    int64_t polarity;
     if (self->target_value_ <= self->current_value_) {
-      uint64_t diff = self->current_value_ - self->target_value_;
-      diff *= self->params_.decay_ratio;
-      self->current_value_ -= diff >> 32;
+      diff = self->current_value_ - self->target_value_;
+      max_diff = self->peak_value_ - self->target_value_;
+      polarity = -1;
     } else {
-      uint64_t diff = self->target_value_ - self->current_value_;
-      diff *= self->params_.decay_ratio;
-      self->current_value_ += diff >> 32;
+      diff = self->target_value_ - self->current_value_;
+      max_diff = self->target_value_;
+      polarity = 1;
     }
-    /*
-    if (diff > ((self->peak_value_ - self->target_value_) >> 1)) {
-      diff *= self->params_.decay_ratio * (1.0 - ((double)diff / (self->peak_value_ - self->target_value_) - 0.5) * 8.0);
+    double thr = self->params_.distortion_threshold;
+    if (diff > (max_diff * thr)) {
+      uint64_t ratio = self->params_.decay_ratio * (1.0 + ((double)diff / max_diff - thr) * self->params_.distortion_steepness);
+      if (ratio > 0xffff0000) {
+        ratio = 0xffff0000;
+      }
+      diff *= ratio;
     } else {
       diff *= self->params_.decay_ratio;
     }
-    */
-    // self->current_value_ += diff >> 32;
+    self->current_value_ += (diff >> 32) * polarity;
 #if 0
     if (self->current_value_ > self->target_value_ ) {
       uint64_t diff = self->current_value_ - self->target_value_;
 #ifdef DECAY_DISTORTION
       uint64_t max_diff = self->peak_value_ - self->target_value_;
       double distortion = pow((double)diff / (double)max_diff, self->params_.distortion_steepness);
-      double bent_time_constant = self->params_.decay_time_constant / (1.0 + distortion * self->params_.distortion_depth);
+      double bent_time_constant = self->params_.decay_time_constant / (1.0 + distortion * self->params_.distortion_threshold);
       uint64_t ratio = exp(-self->params_.delta_t / bent_time_constant) * 4294967296.0;
       diff *= ratio;
 #else
@@ -303,12 +302,7 @@ class EnvelopeGenerator {
   }
 
   static void UpdateRelease(EnvelopeGenerator *self) {
-    /*
-    uint64_t diff = self->current_value_ - self->target_value_;
-    diff *= self->params_.release_ratio;
-    */
     uint64_t diff = self->current_value_ * self->params_.release_ratio;
-    // diff >>= 32;
     self->current_value_ -= diff >> 32;
   }
 };
