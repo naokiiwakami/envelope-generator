@@ -48,25 +48,15 @@ struct EnvelopeGeneratorParams {
   }
 
   void SetAttackTime(uint16_t new_attack_time) {
-    uint16_t rounded_attack_time = (new_attack_time >> 6) << 6;
-    if (rounded_attack_time == attack_time_param) {
-      return;
-    }
-
-    attack_time_param = rounded_attack_time;
-    attack_time_constant = 1.0 + 3.5e-10 * rounded_attack_time * rounded_attack_time * rounded_attack_time;
+    attack_time_param = new_attack_time;
+    attack_time_constant = 1.0 + 3.5e-10 * new_attack_time * new_attack_time * new_attack_time;
     attack_ratio = 0xffffffff / attack_time_constant;
   }
 
   void SetDecay0Time(uint16_t new_decay_time) {
-    uint16_t rounded_decay_time = (new_decay_time >> 6) << 6;
-    if (rounded_decay_time == decay0_time_param) {
-      return;
-    }
-
-    decay0_time_param = rounded_decay_time;
+    decay0_time_param = new_decay_time;
 #ifdef DECAY_DISTORTION
-    distortion_steepness = ((double)rounded_decay_time + 65536.0) * (double)rounded_decay_time / 67108864.0;
+    distortion_steepness = ((double)new_decay_time + 65536.0) * (double)new_decay_time / 67108864.0;
 #else
     double time_constant = exp(rounded_decay_time * 0.00015 - 7.5);
     double ratio = exp(-delta_t / time_constant) * 4294967296.0;
@@ -75,46 +65,28 @@ struct EnvelopeGeneratorParams {
   }
 
   void SetSustain0Level(uint16_t new_sustain_level) {
-    uint16_t rounded_sustain_level = (new_sustain_level >> 6) << 6;
-    if (rounded_sustain_level == sustain0_level_param) {
-      return;
-    }
-    sustain0_level_param = rounded_sustain_level;
+    sustain0_level_param = new_sustain_level;
 #ifdef DECAY_DISTORTION
-    distortion_threshold = ((double)rounded_sustain_level + 65536.0) * (double)rounded_sustain_level / 8589934592.0; // 0 to 1;
+    distortion_threshold = ((double)new_sustain_level + 65536.0) * (double)new_sustain_level / 8589934592.0; // 0 to 1;
 #else
-    sustain0_level = ((uint64_t)rounded_sustain_level * (uint64_t)rounded_sustain_level);
+    sustain0_level = ((uint64_t)new_sustain_level * (uint64_t)new_sustain_level);
 #endif
   }
 
   void SetDecayTime(uint16_t new_decay_time) {
-    uint16_t rounded_decay_time = (new_decay_time >> 6) << 6;
-    if (rounded_decay_time == decay_time_param) {
-      return;
-    }
-
-    decay_time_param = rounded_decay_time;
-    decay_time_constant = 7.5 + 7.0e-10 * rounded_decay_time * rounded_decay_time * rounded_decay_time;
+    decay_time_param = new_decay_time;
+    decay_time_constant = 7.5 + 7.0e-10 * new_decay_time * new_decay_time * new_decay_time;
     decay_ratio = 0xffffffff / decay_time_constant;
   }
 
   void SetSustainLevel(uint16_t new_sustain_level) {
-    uint16_t rounded_sustain_level = (new_sustain_level >> 6) << 6;
-    if (rounded_sustain_level == sustain_level_param) {
-      return;
-    }
-    sustain_level_param = rounded_sustain_level;
-    sustain_level = (((uint64_t)rounded_sustain_level >> 1) + 32768) * (uint64_t)rounded_sustain_level;
+    sustain_level_param = new_sustain_level;
+    sustain_level = (((uint64_t)new_sustain_level >> 1) + 32768) * (uint64_t)new_sustain_level;
   }
 
   void SetReleaseTime(uint16_t new_release_time) {
-    uint16_t rounded_release_time = (new_release_time >> 6) << 6;
-    if (rounded_release_time == release_time_param) {
-      return;
-    }
-
-    release_time_param = rounded_release_time;
-    release_time_constant = 7.5 + 7.0e-10 * rounded_release_time * rounded_release_time * rounded_release_time;
+    release_time_param = new_release_time;
+    release_time_constant = 7.5 + 7.0e-10 * new_release_time * new_release_time * new_release_time;
     release_ratio = 0xffffffff / release_time_constant;
   }
 };
