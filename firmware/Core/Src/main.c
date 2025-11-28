@@ -643,6 +643,9 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
     case ADC_INDEX_G1:
       SubmitTask(CheckGate1, &adc_results[adc_channel_index]);
       break;
+    case ADC_INDEX_G2:
+      SubmitTask(CheckGate2, &adc_results[adc_channel_index]);
+      break;
     }
 
     // Update channel index

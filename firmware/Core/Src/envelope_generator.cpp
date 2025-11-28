@@ -121,9 +121,13 @@ struct EnvelopeGeneratorParams {
 
 class EnvelopeGenerator {
  private:
-  uint16_t dac_index_;
+  TIM_HandleTypeDef *pwm_timer_;
+  uint32_t pwm_timer_channel_;
+
   GPIO_TypeDef *gpiox_;
   uint16_t gpio_pin_;
+
+  uint16_t voice_id_ = 0;
 
   int8_t trigger_ = 0;
   uint16_t velocity_ = 0;
@@ -146,9 +150,11 @@ class EnvelopeGenerator {
   void (*UpdateValue)(EnvelopeGenerator *instance) = UpdateRelease;
 
  public:
-  EnvelopeGenerator(uint16_t dac_index, GPIO_TypeDef *gpiox, uint16_t gpio_pin, const EnvelopeGeneratorParams &params)
+  EnvelopeGenerator(TIM_HandleTypeDef *pwm_timer, uint32_t pwm_timer_channel,
+                    GPIO_TypeDef *gpiox, uint16_t gpio_pin, const EnvelopeGeneratorParams &params)
       :
-      dac_index_(dac_index),
+      pwm_timer_(pwm_timer),
+      pwm_timer_channel_(pwm_timer_channel),
       gpiox_(gpiox),
       gpio_pin_(gpio_pin),
       params_ { params } {
@@ -156,14 +162,14 @@ class EnvelopeGenerator {
   EnvelopeGenerator() = delete;
   ~EnvelopeGenerator() = default;
 
-  void Initialize() {
-    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 0);
-    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_4, 0);
+  void Initialize(uint16_t voice_id) {
+    voice_id_ = voice_id;
+    __HAL_TIM_SET_COMPARE(pwm_timer_, pwm_timer_channel_, 0);
     GateOff();
   }
 
-  uint32_t GetVoiceId() {
-    return (uint32_t)dac_index_ - 1;
+  uint16_t GetVoiceId() {
+    return voice_id_;
   }
 
   void GateOn(uint16_t velocity) {
@@ -188,8 +194,7 @@ class EnvelopeGenerator {
   }
 
   void Update() {
-    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, current_value_ >> 20);
-    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_4, current_value_ >> 20);
+    __HAL_TIM_SET_COMPARE(pwm_timer_, pwm_timer_channel_, current_value_ >> 20);
     if (trigger_ > 0) {
       Trigger();
     } else if (trigger_ < 0) {
@@ -307,12 +312,16 @@ class EnvelopeGenerator {
   }
 };
 
-static bool pulse = false;
+// The output PWM overflow interrupt handler nudges for EG updates
+static bool nudged = false;
 static EnvelopeGeneratorParams eg_params{};
-static EnvelopeGenerator eg_voice_0{1, IND_GATE_1_GPIO_Port, IND_GATE_1_Pin, eg_params};
+static EnvelopeGenerator eg_voice_1{&htim3, TIM_CHANNEL_1, IND_GATE_1_GPIO_Port, IND_GATE_1_Pin, eg_params};
+static EnvelopeGenerator eg_voice_2{&htim3, TIM_CHANNEL_4, IND_GATE_2_GPIO_Port, IND_GATE_2_Pin, eg_params};
 static bool physical_gate_input_enabled = false;
 
 class EgMessageHandler : public MessageHandler {
+ private:
+
  public:
   EgMessageHandler() = default;
   ~EgMessageHandler() = default;
@@ -322,8 +331,8 @@ class EgMessageHandler : public MessageHandler {
       return;
     }
     auto id = message.GetId();
-    uint32_t voice_id = 0;
-    if (id == A3_ID_MIDI_VOICE_BASE + voice_id) {
+    if (id >= A3_ID_MIDI_VOICE_BASE && id < A3_ID_MIDI_REAL_TIME) {
+      uint32_t voice_id = id - A3_ID_MIDI_VOICE_BASE;
       uint8_t index = 0;
       do {
         index = ParseMessage(message.GetData(), voice_id, index);
@@ -335,19 +344,23 @@ class EgMessageHandler : public MessageHandler {
   uint8_t ParseMessage(const uint8_t *data, uint32_t voice_id, uint8_t index) {
     auto op = data[index++];
     switch (op) {
-    case A3_VOICE_MSG_GATE_ON:
-      if (index < 6) {
+    case A3_VOICE_MSG_GATE_ON: {
         uint16_t velocity = (data[index] << 8) + data[index + 1];
         index += 2;
-        if (eg_voice_0.GetVoiceId() == voice_id) {
-          eg_voice_0.GateOn(velocity);
+        if (eg_voice_1.GetVoiceId() == voice_id) {
+          eg_voice_1.GateOn(velocity);
         }
-
+        if (eg_voice_2.GetVoiceId() == voice_id) {
+          eg_voice_2.GateOn(velocity);
+        }
       }
       break;
     case A3_VOICE_MSG_GATE_OFF:
-      if (eg_voice_0.GetVoiceId() == voice_id) {
-        eg_voice_0.GateOff();
+      if (eg_voice_1.GetVoiceId() == voice_id) {
+        eg_voice_1.GateOff();
+      }
+      if (eg_voice_2.GetVoiceId() == voice_id) {
+        eg_voice_2.GateOff();
       }
       break;
     }
@@ -363,21 +376,23 @@ static analog3::EgMessageHandler message_handler;
 
 void InitializeEnvelopeGenerator() {
   analog3::eg_params.Initialize();
-  analog3::eg_voice_0.Initialize();
+  analog3::eg_voice_1.Initialize(0);
+  analog3::eg_voice_2.Initialize(1);
   a3->InjectMessageHandler(&message_handler);
 }
 
 static uint32_t cycles = 0;
 void NudgeEnvelopeGenerator() {
   if (cycles++ % EG_UPDATE_CYCLES == 0) {
-    analog3::pulse = true;
+    analog3::nudged = true;
   }
 }
 
 void UpdateEnvelopeGenerator() {
-  if (analog3::pulse) {
-    analog3::eg_voice_0.Update();
-    analog3::pulse = false;
+  if (analog3::nudged) {
+    analog3::eg_voice_1.Update();
+    analog3::eg_voice_2.Update();
+    analog3::nudged = false;
   }
 }
 
@@ -413,15 +428,16 @@ void SetReleaseTime(void *arg) {
   analog3::eg_params.SetReleaseTime(*reinterpret_cast<uint16_t*>(arg));
 }
 
-void CheckGate1(void *arg) {
+template <analog3::EnvelopeGenerator *EG>
+void CheckGate(const uint16_t &adc_read) {
   if (!analog3::physical_gate_input_enabled) {
     return;
   }
   // The range of the gate level is [0:65535] that projects gate voltage of range [8v:0v].
   // The gate-on minimum voltage is 3V that increases up to 8V.
   // Value of (voltage - 3) represents the output level.
-  uint16_t gate_level = 65535 - *reinterpret_cast<uint16_t*>(arg);
-  if (!analog3::eg_voice_0.IsGateOn()) {
+  uint16_t gate_level = 65535 - adc_read;
+  if (!EG->IsGateOn()) {
     if (gate_level > 22527) { // about 2.75V
       const int32_t kThreshold = 24000; // about 3V
       int32_t velocity = (int32_t)gate_level - kThreshold;
@@ -431,11 +447,19 @@ void CheckGate1(void *arg) {
       } else if (velocity > 65535) {
         velocity = 65535;
       }
-      analog3::eg_voice_0.AnalogGateOn((uint16_t)velocity);
-      // HAL_GPIO_WritePin(IND_GATE_1_GPIO_Port, IND_GATE_1_Pin, GPIO_PIN_SET);
+      EG->AnalogGateOn((uint16_t)velocity);
     }
   } else if (gate_level < 16384) { // about 2.0V
-    analog3::eg_voice_0.GateOff();
-    // HAL_GPIO_WritePin(IND_GATE_1_GPIO_Port, IND_GATE_1_Pin, GPIO_PIN_RESET);
+    EG->GateOff();
   }
+}
+
+
+
+void CheckGate1(void *arg) {
+  CheckGate<&analog3::eg_voice_1>(*reinterpret_cast<uint16_t*>(arg));
+}
+
+void CheckGate2(void *arg) {
+  CheckGate<&analog3::eg_voice_2>(*reinterpret_cast<uint16_t*>(arg));
 }
