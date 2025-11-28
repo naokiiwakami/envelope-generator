@@ -18,12 +18,12 @@ extern "C" {
  * Because of that, EG needs C API as the interface to the main program
  * although it's implemented in C++ internally.
  */
-
 extern void InitializeEnvelopeGenerator();
 extern void NudgeEnvelopeGenerator();
 extern void UpdateEnvelopeGenerator();
 extern void TogglePhysicalGateInput();
 extern uint8_t IsPhysicalGateEnabled();
+extern void SwitchEnvelopeGenerationMode();
 
 /*
  * These guys are tasks run in the main loop.

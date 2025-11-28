@@ -63,6 +63,7 @@ UART_HandleTypeDef huart1;
 
 /* USER CODE BEGIN PV */
 switch_state_t gate_src_sw_state;
+switch_state_t eg_mode_sw_state;
 
 volatile uint32_t events = 0;
 enum Event {
@@ -134,8 +135,12 @@ void ReceiveCanMessages(FDCAN_HandleTypeDef *hfdcan)
 void HandleUserSwitchPressed(const switch_state_t *sw_state) {
   if (!sw_state->prev_status) {
     TogglePhysicalGateInput();
-    HAL_GPIO_WritePin(IND_ANALOG_GATE_GPIO_Port, IND_ANALOG_GATE_Pin,
-                      IsPhysicalGateEnabled() ? GPIO_PIN_SET : GPIO_PIN_RESET);
+  }
+}
+
+void HandleEgModeSwitchPressed(const switch_state_t *sw_state) {
+  if (!sw_state->prev_status) {
+    SwitchEnvelopeGenerationMode();
   }
 }
 /* USER CODE END 0 */
@@ -179,6 +184,8 @@ int main(void)
   InitializeStorage();
   InitializeSwitchState(&gate_src_sw_state, SW_GATE_SRC_GPIO_Port, SW_GATE_SRC_Pin,
                         HandleUserSwitchPressed);
+  InitializeSwitchState(&eg_mode_sw_state, SW_EG_MODE_GPIO_Port, SW_EG_MODE_Pin,
+                        HandleEgModeSwitchPressed);
   HAL_ADCEx_Calibration_Start(&hadc1);
 
   __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 0);
@@ -219,6 +226,7 @@ int main(void)
     }
     CheckForTask();
     CheckSwitch(&gate_src_sw_state);
+    CheckSwitch(&eg_mode_sw_state);
   }
   /* USER CODE END 3 */
 }

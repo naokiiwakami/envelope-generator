@@ -20,7 +20,12 @@ extern analog3::Analog3 *a3;
 
 namespace analog3 {
 
+const uint8_t kEgModeDefault = 0;
+const uint8_t kEgModeTwoPhaseDecay = 1;
+const uint8_t kNumEgModes = 2;
+
 struct EnvelopeGeneratorParams {
+  // config parameters
   uint16_t attack_time_param = 0;
   uint16_t decay0_time_param = 0;
   uint16_t sustain0_level_param = 0;
@@ -31,6 +36,9 @@ struct EnvelopeGeneratorParams {
   uint16_t voice_id = 0;
   bool physical_gate_enabled = false;
 
+  uint8_t mode = kEgModeDefault;
+
+  // derived parameters
   uint64_t attack_ratio = 0;
   uint64_t decay0_ratio = 0;
   uint64_t decay_ratio = 0;
@@ -42,6 +50,9 @@ struct EnvelopeGeneratorParams {
   double distortion_threshold = 0;
 };
 
+/**
+ * Provides user interface to handle EG parameters.
+ */
 class EnvelopeGeneratorDefaultPanel {
  private:
   EnvelopeGeneratorParams *params_1_;
@@ -68,6 +79,8 @@ class EnvelopeGeneratorDefaultPanel {
   void TogglePhysicalGateInput() {
     params_1_->physical_gate_enabled = !params_1_->physical_gate_enabled;
     params_2_->physical_gate_enabled = params_1_->physical_gate_enabled;
+    HAL_GPIO_WritePin(IND_ANALOG_GATE_GPIO_Port, IND_ANALOG_GATE_Pin,
+                      params_1_->physical_gate_enabled ? GPIO_PIN_SET : GPIO_PIN_RESET);
   }
 
   void SetAttackTime(uint16_t new_attack_time) {
@@ -127,6 +140,13 @@ class EnvelopeGeneratorDefaultPanel {
     double release_time_constant = 7.5 + 7.0e-10 * new_release_time * new_release_time * new_release_time;
     params_1_->release_ratio = 0xffffffff / release_time_constant;
     params_2_->release_ratio = params_1_->release_ratio;
+  }
+
+  void SwitchEnvelopeGenerationMode() {
+    params_1_->mode = (params_1_->mode + 1) % kNumEgModes;
+    params_2_->mode = params_1_->mode;
+    HAL_GPIO_WritePin(IND_EG_MODE_0_GPIO_Port, IND_EG_MODE_0_Pin, (params_1_->mode & 0x1) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(IND_EG_MODE_1_GPIO_Port, IND_EG_MODE_1_Pin, (params_1_->mode & 0x2) ? GPIO_PIN_SET : GPIO_PIN_RESET);
   }
 };
 
@@ -412,6 +432,10 @@ void TogglePhysicalGateInput() {
 
 uint8_t IsPhysicalGateEnabled() {
   return analog3::panel.IsPhysicalGateEnabled();
+}
+
+void SwitchEnvelopeGenerationMode() {
+  analog3::panel.SwitchEnvelopeGenerationMode();
 }
 
 void SetAttackTime(void *arg) {
