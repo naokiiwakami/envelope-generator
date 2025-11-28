@@ -28,35 +28,63 @@ struct EnvelopeGeneratorParams {
   uint16_t sustain_level_param = 0;
   uint16_t release_time_param = 0;
 
-  double attack_time_constant = 0;
+  uint16_t voice_id = 0;
+  bool physical_gate_enabled = false;
+
   uint64_t attack_ratio = 0;
   uint64_t decay0_ratio = 0;
-  double decay_time_constant = 0;
   uint64_t decay_ratio = 0;
   uint64_t sustain0_level = 0xffffffff;
   uint64_t sustain_level = 0xffffffff;
-  double release_time_constant = 0;
   uint64_t release_ratio = 0;
 
   double distortion_steepness = 0;
   double distortion_threshold = 0;
+};
 
-  double delta_t = 0;
+class EnvelopeGeneratorDefaultPanel {
+ private:
+  EnvelopeGeneratorParams *params_1_;
+  EnvelopeGeneratorParams *params_2_;
+
+ public:
+  EnvelopeGeneratorDefaultPanel(EnvelopeGeneratorParams *params_1,
+                                EnvelopeGeneratorParams *params_2)
+      :
+      params_1_(params_1),
+      params_2_(params_2) {
+
+  }
 
   void Initialize() {
-    delta_t = (double)htim3.Init.Period * (double)EG_UPDATE_CYCLES / (double)HAL_RCC_GetSysClockFreq();
+    params_1_->voice_id = 0;
+    params_2_->voice_id = 1;
+  }
+
+  bool IsPhysicalGateEnabled() const {
+    return params_1_->physical_gate_enabled;
+  }
+
+  void TogglePhysicalGateInput() {
+    params_1_->physical_gate_enabled = !params_1_->physical_gate_enabled;
+    params_2_->physical_gate_enabled = params_1_->physical_gate_enabled;
   }
 
   void SetAttackTime(uint16_t new_attack_time) {
-    attack_time_param = new_attack_time;
-    attack_time_constant = 1.0 + 3.5e-10 * new_attack_time * new_attack_time * new_attack_time;
-    attack_ratio = 0xffffffff / attack_time_constant;
+    params_1_->attack_time_param = new_attack_time;
+    params_2_->attack_time_param = params_1_->attack_time_param;
+
+    double attack_time_constant = 1.0 + 3.5e-10 * new_attack_time * new_attack_time * new_attack_time;
+    params_1_->attack_ratio = 0xffffffff / attack_time_constant;
+    params_2_->attack_ratio = params_1_->attack_ratio;
   }
 
   void SetDecay0Time(uint16_t new_decay_time) {
-    decay0_time_param = new_decay_time;
+    params_1_->decay0_time_param = new_decay_time;
+    params_2_->decay0_time_param = params_1_->decay0_time_param;
 #ifdef DECAY_DISTORTION
-    distortion_steepness = ((double)new_decay_time + 65536.0) * (double)new_decay_time / 67108864.0;
+    params_1_->distortion_steepness = ((double)new_decay_time + 65536.0) * (double)new_decay_time / 67108864.0;
+    params_2_->distortion_steepness = params_1_->distortion_steepness;
 #else
     double time_constant = exp(rounded_decay_time * 0.00015 - 7.5);
     double ratio = exp(-delta_t / time_constant) * 4294967296.0;
@@ -65,29 +93,40 @@ struct EnvelopeGeneratorParams {
   }
 
   void SetSustain0Level(uint16_t new_sustain_level) {
-    sustain0_level_param = new_sustain_level;
+    params_1_->sustain0_level_param = new_sustain_level;
+    params_2_->sustain0_level_param = params_1_->sustain0_level_param;
 #ifdef DECAY_DISTORTION
-    distortion_threshold = ((double)new_sustain_level + 65536.0) * (double)new_sustain_level / 8589934592.0; // 0 to 1;
+    params_1_->distortion_threshold = ((double)new_sustain_level + 65536.0) * (double)new_sustain_level / 8589934592.0; // 0 to 1;
+    params_2_->distortion_threshold = params_1_->distortion_threshold;
 #else
     sustain0_level = ((uint64_t)new_sustain_level * (uint64_t)new_sustain_level);
 #endif
   }
 
   void SetDecayTime(uint16_t new_decay_time) {
-    decay_time_param = new_decay_time;
-    decay_time_constant = 7.5 + 7.0e-10 * new_decay_time * new_decay_time * new_decay_time;
-    decay_ratio = 0xffffffff / decay_time_constant;
+    params_1_->decay_time_param = new_decay_time;
+    params_2_->decay_time_param = params_1_->decay_time_param;
+
+    double decay_time_constant = 7.5 + 7.0e-10 * new_decay_time * new_decay_time * new_decay_time;
+    params_1_->decay_ratio = 0xffffffff / decay_time_constant;
+    params_2_->decay_ratio = params_1_->decay_ratio;
   }
 
   void SetSustainLevel(uint16_t new_sustain_level) {
-    sustain_level_param = new_sustain_level;
-    sustain_level = (((uint64_t)new_sustain_level >> 1) + 32768) * (uint64_t)new_sustain_level;
+    params_1_->sustain_level_param = new_sustain_level;
+    params_2_->sustain_level_param = params_1_->sustain_level_param;
+
+    params_1_->sustain_level = (((uint64_t)new_sustain_level >> 1) + 32768) * (uint64_t)new_sustain_level;
+    params_2_->sustain_level = params_1_->sustain_level;
   }
 
   void SetReleaseTime(uint16_t new_release_time) {
-    release_time_param = new_release_time;
-    release_time_constant = 7.5 + 7.0e-10 * new_release_time * new_release_time * new_release_time;
-    release_ratio = 0xffffffff / release_time_constant;
+    params_1_->release_time_param = new_release_time;
+    params_2_->release_time_param = params_1_->release_time_param;
+
+    double release_time_constant = 7.5 + 7.0e-10 * new_release_time * new_release_time * new_release_time;
+    params_1_->release_ratio = 0xffffffff / release_time_constant;
+    params_2_->release_ratio = params_1_->release_ratio;
   }
 };
 
@@ -98,8 +137,6 @@ class EnvelopeGenerator {
 
   GPIO_TypeDef *gpiox_;
   uint16_t gpio_pin_;
-
-  uint16_t voice_id_ = 0;
 
   int8_t trigger_ = 0;
   uint16_t velocity_ = 0;
@@ -134,14 +171,17 @@ class EnvelopeGenerator {
   EnvelopeGenerator() = delete;
   ~EnvelopeGenerator() = default;
 
-  void Initialize(uint16_t voice_id) {
-    voice_id_ = voice_id;
+  void Initialize() {
     __HAL_TIM_SET_COMPARE(pwm_timer_, pwm_timer_channel_, 0);
     GateOff();
   }
 
-  uint16_t GetVoiceId() {
-    return voice_id_;
+  uint16_t GetVoiceId() const {
+    return params_.voice_id;
+  }
+
+  bool IsPhysicalGateEnabled() const {
+    return params_.physical_gate_enabled;
   }
 
   void GateOn(uint16_t velocity) {
@@ -286,10 +326,11 @@ class EnvelopeGenerator {
 
 // The output PWM overflow interrupt handler nudges for EG updates
 static bool nudged = false;
-static EnvelopeGeneratorParams eg_params{};
-static EnvelopeGenerator eg_voice_1{&htim3, TIM_CHANNEL_1, IND_GATE_1_GPIO_Port, IND_GATE_1_Pin, eg_params};
-static EnvelopeGenerator eg_voice_2{&htim3, TIM_CHANNEL_4, IND_GATE_2_GPIO_Port, IND_GATE_2_Pin, eg_params};
-static bool physical_gate_input_enabled = false;
+static EnvelopeGeneratorParams eg_params_1{};
+static EnvelopeGeneratorParams eg_params_2{};
+static EnvelopeGeneratorDefaultPanel panel{&eg_params_1, &eg_params_2};
+static EnvelopeGenerator eg_voice_1{&htim3, TIM_CHANNEL_1, IND_GATE_1_GPIO_Port, IND_GATE_1_Pin, eg_params_1};
+static EnvelopeGenerator eg_voice_2{&htim3, TIM_CHANNEL_4, IND_GATE_2_GPIO_Port, IND_GATE_2_Pin, eg_params_2};
 
 class EgMessageHandler : public MessageHandler {
  private:
@@ -299,9 +340,6 @@ class EgMessageHandler : public MessageHandler {
   ~EgMessageHandler() = default;
 
   void Handle(const CanRxMessage& message) {
-    if (physical_gate_input_enabled) {
-      return;
-    }
     auto id = message.GetId();
     if (id >= A3_ID_MIDI_VOICE_BASE && id < A3_ID_MIDI_REAL_TIME) {
       uint32_t voice_id = id - A3_ID_MIDI_VOICE_BASE;
@@ -319,19 +357,19 @@ class EgMessageHandler : public MessageHandler {
     case A3_VOICE_MSG_GATE_ON: {
         uint16_t velocity = (data[index] << 8) + data[index + 1];
         index += 2;
-        if (eg_voice_1.GetVoiceId() == voice_id) {
+        if (!eg_voice_1.IsPhysicalGateEnabled() && eg_voice_1.GetVoiceId() == voice_id) {
           eg_voice_1.GateOn(velocity);
         }
-        if (eg_voice_2.GetVoiceId() == voice_id) {
+        if (!eg_voice_2.IsPhysicalGateEnabled() && eg_voice_2.GetVoiceId() == voice_id) {
           eg_voice_2.GateOn(velocity);
         }
       }
       break;
     case A3_VOICE_MSG_GATE_OFF:
-      if (eg_voice_1.GetVoiceId() == voice_id) {
+      if (!eg_voice_1.IsPhysicalGateEnabled() && eg_voice_1.GetVoiceId() == voice_id) {
         eg_voice_1.GateOff();
       }
-      if (eg_voice_2.GetVoiceId() == voice_id) {
+      if (!eg_voice_2.IsPhysicalGateEnabled() && eg_voice_2.GetVoiceId() == voice_id) {
         eg_voice_2.GateOff();
       }
       break;
@@ -347,9 +385,9 @@ static analog3::EgMessageHandler message_handler;
 // C API for the main program /////////////////////////////////////////////////////////////////////////
 
 void InitializeEnvelopeGenerator() {
-  analog3::eg_params.Initialize();
-  analog3::eg_voice_1.Initialize(0);
-  analog3::eg_voice_2.Initialize(1);
+  analog3::panel.Initialize();
+  analog3::eg_voice_1.Initialize();
+  analog3::eg_voice_2.Initialize();
   a3->InjectMessageHandler(&message_handler);
 }
 
@@ -369,40 +407,40 @@ void UpdateEnvelopeGenerator() {
 }
 
 void TogglePhysicalGateInput() {
-  analog3::physical_gate_input_enabled = !analog3::physical_gate_input_enabled;
+  analog3::panel.TogglePhysicalGateInput();
 }
 
-uint8_t IsPhysicalGateInputEnabled() {
-  return analog3::physical_gate_input_enabled;
+uint8_t IsPhysicalGateEnabled() {
+  return analog3::panel.IsPhysicalGateEnabled();
 }
 
 void SetAttackTime(void *arg) {
-  analog3::eg_params.SetAttackTime(*reinterpret_cast<uint16_t*>(arg));
+  analog3::panel.SetAttackTime(*reinterpret_cast<uint16_t*>(arg));
 }
 
 void SetDecay0Time(void *arg) {
-  analog3::eg_params.SetDecay0Time(*reinterpret_cast<uint16_t*>(arg));
+  analog3::panel.SetDecay0Time(*reinterpret_cast<uint16_t*>(arg));
 }
 
 void SetSustain0Level(void *arg) {
-  analog3::eg_params.SetSustain0Level(*reinterpret_cast<uint16_t*>(arg));
+  analog3::panel.SetSustain0Level(*reinterpret_cast<uint16_t*>(arg));
 }
 
 void SetDecayTime(void *arg) {
-  analog3::eg_params.SetDecayTime(*reinterpret_cast<uint16_t*>(arg));
+  analog3::panel.SetDecayTime(*reinterpret_cast<uint16_t*>(arg));
 }
 
 void SetSustainLevel(void *arg) {
-  analog3::eg_params.SetSustainLevel(*reinterpret_cast<uint16_t*>(arg));
+  analog3::panel.SetSustainLevel(*reinterpret_cast<uint16_t*>(arg));
 }
 
 void SetReleaseTime(void *arg) {
-  analog3::eg_params.SetReleaseTime(*reinterpret_cast<uint16_t*>(arg));
+  analog3::panel.SetReleaseTime(*reinterpret_cast<uint16_t*>(arg));
 }
 
 template <analog3::EnvelopeGenerator *EG>
 void CheckGate(const uint16_t &adc_read) {
-  if (!analog3::physical_gate_input_enabled) {
+  if (!EG->IsPhysicalGateEnabled()) {
     return;
   }
   // The range of the gate level is [0:65535] that projects gate voltage of range [8v:0v].

@@ -135,7 +135,7 @@ void HandleUserSwitchPressed(const switch_state_t *sw_state) {
   if (!sw_state->prev_status) {
     TogglePhysicalGateInput();
     HAL_GPIO_WritePin(IND_ANALOG_GATE_GPIO_Port, IND_ANALOG_GATE_Pin,
-                      IsPhysicalGateInputEnabled() ? GPIO_PIN_SET : GPIO_PIN_RESET);
+                      IsPhysicalGateEnabled() ? GPIO_PIN_SET : GPIO_PIN_RESET);
   }
 }
 /* USER CODE END 0 */

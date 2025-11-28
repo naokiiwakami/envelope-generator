@@ -23,7 +23,7 @@ extern void InitializeEnvelopeGenerator();
 extern void NudgeEnvelopeGenerator();
 extern void UpdateEnvelopeGenerator();
 extern void TogglePhysicalGateInput();
-extern uint8_t IsPhysicalGateInputEnabled();
+extern uint8_t IsPhysicalGateEnabled();
 
 /*
  * These guys are tasks run in the main loop.
