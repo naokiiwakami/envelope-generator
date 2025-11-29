@@ -563,15 +563,16 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOA_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, A3_IND_RED_Pin|A3_IND_BLUE_Pin|IND_GATE_1_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, IND_EG_MODE_2_Pin|A3_IND_RED_Pin|A3_IND_BLUE_Pin|IND_GATE_1_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, IND_ANALOG_GATE_Pin|IND_EG_MODE_1_Pin|IND_EG_MODE_0_Pin|IND_GATE_2_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, IND_ANALOG_GATE_Pin|IND_EG_MODE_0_Pin|IND_EG_MODE_1_Pin|IND_GATE_2_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : SW_GATE_2_Pin CAN_STB_Pin */
-  GPIO_InitStruct.Pin = SW_GATE_2_Pin|CAN_STB_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  /*Configure GPIO pins : IND_EG_MODE_2_Pin A3_IND_RED_Pin A3_IND_BLUE_Pin IND_GATE_1_Pin */
+  GPIO_InitStruct.Pin = IND_EG_MODE_2_Pin|A3_IND_RED_Pin|A3_IND_BLUE_Pin|IND_GATE_1_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /*Configure GPIO pin : SW_EG_MODE_Pin */
@@ -580,25 +581,24 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(SW_EG_MODE_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : A3_IND_RED_Pin A3_IND_BLUE_Pin IND_GATE_1_Pin */
-  GPIO_InitStruct.Pin = A3_IND_RED_Pin|A3_IND_BLUE_Pin|IND_GATE_1_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
   /*Configure GPIO pin : SW_GATE_SRC_Pin */
   GPIO_InitStruct.Pin = SW_GATE_SRC_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(SW_GATE_SRC_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : IND_ANALOG_GATE_Pin IND_EG_MODE_1_Pin IND_EG_MODE_0_Pin IND_GATE_2_Pin */
-  GPIO_InitStruct.Pin = IND_ANALOG_GATE_Pin|IND_EG_MODE_1_Pin|IND_EG_MODE_0_Pin|IND_GATE_2_Pin;
+  /*Configure GPIO pins : IND_ANALOG_GATE_Pin IND_EG_MODE_0_Pin IND_EG_MODE_1_Pin IND_GATE_2_Pin */
+  GPIO_InitStruct.Pin = IND_ANALOG_GATE_Pin|IND_EG_MODE_0_Pin|IND_EG_MODE_1_Pin|IND_GATE_2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : CAN_STB_Pin */
+  GPIO_InitStruct.Pin = CAN_STB_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(CAN_STB_GPIO_Port, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 

@@ -71,8 +71,8 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define SW_GATE_2_Pin GPIO_PIN_9
-#define SW_GATE_2_GPIO_Port GPIOB
+#define IND_EG_MODE_2_Pin GPIO_PIN_9
+#define IND_EG_MODE_2_GPIO_Port GPIOB
 #define ADC_A_Pin GPIO_PIN_0
 #define ADC_A_GPIO_Port GPIOA
 #define ADC_D_Pin GPIO_PIN_1
@@ -99,10 +99,10 @@ void Error_Handler(void);
 #define SW_GATE_SRC_GPIO_Port GPIOC
 #define IND_ANALOG_GATE_Pin GPIO_PIN_10
 #define IND_ANALOG_GATE_GPIO_Port GPIOA
-#define IND_EG_MODE_1_Pin GPIO_PIN_11
-#define IND_EG_MODE_1_GPIO_Port GPIOA
-#define IND_EG_MODE_0_Pin GPIO_PIN_12
+#define IND_EG_MODE_0_Pin GPIO_PIN_11
 #define IND_EG_MODE_0_GPIO_Port GPIOA
+#define IND_EG_MODE_1_Pin GPIO_PIN_12
+#define IND_EG_MODE_1_GPIO_Port GPIOA
 #define IND_GATE_2_Pin GPIO_PIN_15
 #define IND_GATE_2_GPIO_Port GPIOA
 #define IND_GATE_1_Pin GPIO_PIN_3

@@ -153,6 +153,7 @@ class EnvelopeGeneratorDefaultPanel {
     params_2_->mode = params_1_->mode;
     HAL_GPIO_WritePin(IND_EG_MODE_0_GPIO_Port, IND_EG_MODE_0_Pin, (params_1_->mode & 0x1) ? GPIO_PIN_SET : GPIO_PIN_RESET);
     HAL_GPIO_WritePin(IND_EG_MODE_1_GPIO_Port, IND_EG_MODE_1_Pin, (params_1_->mode & 0x2) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(IND_EG_MODE_2_GPIO_Port, IND_EG_MODE_2_Pin, (params_1_->mode & 0x4) ? GPIO_PIN_SET : GPIO_PIN_RESET);
   }
 };
 
