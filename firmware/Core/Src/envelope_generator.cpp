@@ -232,7 +232,7 @@ class EnvelopeGenerator {
   }
 
   void Update() {
-    __HAL_TIM_SET_COMPARE(pwm_timer_, pwm_timer_channel_, current_value_ >> 20);
+    __HAL_TIM_SET_COMPARE(pwm_timer_, pwm_timer_channel_, current_value_ >> 21);
     if (trigger_ > 0) {
       Trigger();
     } else if (trigger_ < 0) {
@@ -269,6 +269,7 @@ class EnvelopeGenerator {
   void Release() {
     trigger_ = 0;
     target_value_ = 0;
+    peak_value_ = current_value_;
     phase_ = Phase::RELEASED;
     if (params_.mode == kEgModeLinear) {
       UpdateValue = UpdateReleaseLinear;
@@ -296,7 +297,7 @@ class EnvelopeGenerator {
   }
 
   static void UpdateAttackLinear(EnvelopeGenerator *self) {
-    uint64_t diff = self->params_.attack_ratio >> 5;
+    uint64_t diff = (self->params_.attack_ratio * self->peak_value_) >> 34;
     self->current_value_ += diff;
     if (self->current_value_ >= self->peak_value_) {
       self->current_value_ = self->peak_value_;
@@ -346,13 +347,14 @@ class EnvelopeGenerator {
 
   static void UpdateDecayLinear(EnvelopeGenerator *self) {
     self->target_value_ = (self->peak_value_ * self->params_.sustain_level) >> 32;
+    uint64_t max_diff = self->peak_value_ - self->target_value_;
     uint64_t diff;
     int64_t polarity;
     if (self->target_value_ <= self->current_value_) {
-      diff = std::min(self->params_.decay_ratio >> 5, self->current_value_ - self->target_value_);
+      diff = std::min((self->params_.decay_ratio * max_diff) >> 34, self->current_value_ - self->target_value_);
       polarity = -1;
     } else {
-      diff = std::min(self->params_.decay_ratio >> 5, self->target_value_ - self->current_value_);
+      diff = std::min((self->params_.decay_ratio * max_diff) >> 34, self->target_value_ - self->current_value_);
       polarity = 1;
     }
     self->current_value_ += diff * polarity;
@@ -364,7 +366,7 @@ class EnvelopeGenerator {
   }
 
   static void UpdateReleaseLinear(EnvelopeGenerator *self) {
-    uint64_t diff = std::min(self->params_.release_ratio >> 5, self->current_value_);
+    uint64_t diff = std::min((self->params_.release_ratio * self->peak_value_) >> 34, self->current_value_);
     self->current_value_ -= diff;
   }
 };

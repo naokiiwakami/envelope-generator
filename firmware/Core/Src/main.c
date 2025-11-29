@@ -440,7 +440,7 @@ static void MX_TIM3_Init(void)
   htim3.Instance = TIM3;
   htim3.Init.Prescaler = 0;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 2048;
+  htim3.Init.Period = 1024;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
@@ -616,8 +616,9 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 static uint32_t cycles = 0;
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
+  ++cycles;
   NudgeEnvelopeGenerator();
-  if (++cycles % ADC_UPDATE_CYCLES == 0) {
+  if (cycles % ADC_UPDATE_CYCLES == 0) {
     HAL_ADC_Start_DMA(&hadc1, (uint32_t*)&adc_value, 1);
   }
 }
