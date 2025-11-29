@@ -95,25 +95,28 @@ class EnvelopeGeneratorDefaultPanel {
   void SetDecay0Time(uint16_t new_decay_time) {
     params_1_->decay0_time_param = new_decay_time;
     params_2_->decay0_time_param = params_1_->decay0_time_param;
-#ifdef DECAY_DISTORTION
-    params_1_->distortion_steepness = ((double)new_decay_time + 65536.0) * (double)new_decay_time / 67108864.0;
-    params_2_->distortion_steepness = params_1_->distortion_steepness;
-#else
-    double time_constant = exp(rounded_decay_time * 0.00015 - 7.5);
-    double ratio = exp(-delta_t / time_constant) * 4294967296.0;
-    decay0_ratio = (uint64_t)ratio;
-#endif
+
+    if (params_1_->mode == kEgModeTwoPhaseDecay) {
+      double decay_time_constant = 7.5 + 7.0e-10 * new_decay_time * new_decay_time * new_decay_time;
+      params_1_->decay0_ratio = 0xffffffff / decay_time_constant;
+      params_2_->decay0_ratio = params_1_->decay0_ratio;
+    } else {
+      params_1_->distortion_steepness = ((double)new_decay_time + 65536.0) * (double)new_decay_time / 67108864.0;
+      params_2_->distortion_steepness = params_1_->distortion_steepness;
+    }
   }
 
   void SetSustain0Level(uint16_t new_sustain_level) {
     params_1_->sustain0_level_param = new_sustain_level;
     params_2_->sustain0_level_param = params_1_->sustain0_level_param;
-#ifdef DECAY_DISTORTION
-    params_1_->distortion_threshold = ((double)new_sustain_level + 65536.0) * (double)new_sustain_level / 8589934592.0; // 0 to 1;
-    params_2_->distortion_threshold = params_1_->distortion_threshold;
-#else
-    sustain0_level = ((uint64_t)new_sustain_level * (uint64_t)new_sustain_level);
-#endif
+
+    if (params_1_->mode == kEgModeTwoPhaseDecay) {
+      params_1_->sustain0_level = (((uint64_t)new_sustain_level >> 1) + 32768) * (uint64_t)new_sustain_level;
+      params_2_->sustain0_level = params_1_->sustain0_level;
+    } else {
+      params_1_->distortion_threshold = ((double)new_sustain_level + 65536.0) * (double)new_sustain_level / 8589934592.0; // 0 to 1;
+      params_2_->distortion_threshold = params_1_->distortion_threshold;
+    }
   }
 
   void SetDecayTime(uint16_t new_decay_time) {
@@ -267,23 +270,22 @@ class EnvelopeGenerator {
     self->current_value_ += diff;
     if (self->current_value_ >= self->peak_value_) {
       self->current_value_ = self->peak_value_;
-#ifdef DECAY_DISTORTION
-      self->phase_ = Phase::SUSTAINING;
-      self->UpdateValue = UpdateDecay;
-#else
-      self->phase_ = Phase::DECAYING;
-      self->UpdateValue = UpdateDecay0;
-#endif
+      if (self->params_.mode == kEgModeTwoPhaseDecay) {
+        self->phase_ = Phase::DECAYING;
+        self->UpdateValue = UpdateDecay0;
+      } else {
+        self->phase_ = Phase::SUSTAINING;
+        self->UpdateValue = UpdateDecay;
+      }
     }
   }
 
   static void UpdateDecay0(EnvelopeGenerator *self) {
     uint64_t switch_value = (self->peak_value_ * self->params_.sustain0_level) >> 32;
     self->target_value_ = 0;
-    uint64_t diff = self->current_value_ - self->target_value_;
-    diff *= self->params_.decay0_ratio;
-    diff >>= 32;
-    self->current_value_ = self->target_value_ + diff;
+
+    uint64_t diff = self->current_value_ * self->params_.decay0_ratio;
+    self->current_value_ -= diff >> 32;
     if (self->current_value_ <= switch_value) {
       self->phase_ = Phase::SUSTAINING;
       self->UpdateValue = UpdateDecay;
@@ -305,7 +307,7 @@ class EnvelopeGenerator {
       polarity = 1;
     }
     double thr = self->params_.distortion_threshold;
-    if (diff > (max_diff * thr)) {
+    if (self->params_.mode != kEgModeTwoPhaseDecay && diff > (max_diff * thr)) {
       uint64_t ratio = self->params_.decay_ratio * (1.0 + ((double)diff / max_diff - thr) * self->params_.distortion_steepness);
       if (ratio > 0xffff0000) {
         ratio = 0xffff0000;
@@ -315,27 +317,6 @@ class EnvelopeGenerator {
       diff *= self->params_.decay_ratio;
     }
     self->current_value_ += (diff >> 32) * polarity;
-#if 0
-    if (self->current_value_ > self->target_value_ ) {
-      uint64_t diff = self->current_value_ - self->target_value_;
-#ifdef DECAY_DISTORTION
-      uint64_t max_diff = self->peak_value_ - self->target_value_;
-      double distortion = pow((double)diff / (double)max_diff, self->params_.distortion_steepness);
-      double bent_time_constant = self->params_.decay_time_constant / (1.0 + distortion * self->params_.distortion_threshold);
-      uint64_t ratio = exp(-self->params_.delta_t / bent_time_constant) * 4294967296.0;
-      diff *= ratio;
-#else
-      diff *= self->params_.decay_ratio;
-#endif
-      diff >>= 32;
-      self->current_value_ = self->target_value_ + diff;
-    } else {
-      uint64_t diff = self->target_value_ - self->current_value_;
-      diff *= self->params_.decay_ratio;
-      diff >>= 32;
-      self->current_value_ = self->target_value_ - diff;
-    }
-#endif
   }
 
   static void UpdateRelease(EnvelopeGenerator *self) {
