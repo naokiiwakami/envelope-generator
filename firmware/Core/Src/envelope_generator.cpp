@@ -7,6 +7,8 @@
 
 #include <math.h>
 
+#include <algorithm>
+
 #include "main.h"
 
 #include "analog3/analog3.h"
@@ -22,7 +24,8 @@ namespace analog3 {
 
 const uint8_t kEgModeDefault = 0;
 const uint8_t kEgModeTwoPhaseDecay = 1;
-const uint8_t kNumEgModes = 2;
+const uint8_t kEgModeLinear = 2;
+const uint8_t kNumEgModes = 3;
 
 struct EnvelopeGeneratorParams {
   // config parameters
@@ -240,18 +243,26 @@ class EnvelopeGenerator {
 
  private:
   void Trigger() {
+    uint64_t velocity;
+    if (params_.mode == kEgModeLinear) {
+      velocity = ((uint64_t)velocity_ * params_.decay0_time_param + (0xfffful - params_.decay0_time_param) * 0xffff) >> 16;
+      // velocity = 65535;
+      UpdateValue = UpdateAttackLinear;
+    } else {
+      velocity = (uint64_t)velocity_;
+      UpdateValue = UpdateAttack;
+    }
     uint64_t level;
     if (trigger_ == 1) {
       // Add an offset of 1/32 level to avoid silence with low velocity
-      level = (((uint64_t)velocity_ * (uint64_t)velocity_) * 31 + 0xffffffff) >> 6;
+      level = ((velocity * velocity) * 31 + 0xffffffff) >> 6;
     } else {
-      level = (uint64_t)velocity_ << 15;
+      level = velocity << 15;
     }
     trigger_ = 0;
     target_value_ = level * 1.2;
     peak_value_ = level;
     phase_ = Phase::ATTACKING;
-    UpdateValue = UpdateAttack;
     HAL_GPIO_WritePin(gpiox_, gpio_pin_, GPIO_PIN_SET);
   }
 
@@ -259,7 +270,11 @@ class EnvelopeGenerator {
     trigger_ = 0;
     target_value_ = 0;
     phase_ = Phase::RELEASED;
-    UpdateValue = UpdateRelease;
+    if (params_.mode == kEgModeLinear) {
+      UpdateValue = UpdateReleaseLinear;
+    } else {
+      UpdateValue = UpdateRelease;
+    }
     HAL_GPIO_WritePin(gpiox_, gpio_pin_, GPIO_PIN_RESET);
   }
 
@@ -277,6 +292,16 @@ class EnvelopeGenerator {
         self->phase_ = Phase::SUSTAINING;
         self->UpdateValue = UpdateDecay;
       }
+    }
+  }
+
+  static void UpdateAttackLinear(EnvelopeGenerator *self) {
+    uint64_t diff = self->params_.attack_ratio >> 5;
+    self->current_value_ += diff;
+    if (self->current_value_ >= self->peak_value_) {
+      self->current_value_ = self->peak_value_;
+      self->phase_ = Phase::SUSTAINING;
+      self->UpdateValue = UpdateDecayLinear;
     }
   }
 
@@ -319,9 +344,28 @@ class EnvelopeGenerator {
     self->current_value_ += (diff >> 32) * polarity;
   }
 
+  static void UpdateDecayLinear(EnvelopeGenerator *self) {
+    self->target_value_ = (self->peak_value_ * self->params_.sustain_level) >> 32;
+    uint64_t diff;
+    int64_t polarity;
+    if (self->target_value_ <= self->current_value_) {
+      diff = std::min(self->params_.decay_ratio >> 5, self->current_value_ - self->target_value_);
+      polarity = -1;
+    } else {
+      diff = std::min(self->params_.decay_ratio >> 5, self->target_value_ - self->current_value_);
+      polarity = 1;
+    }
+    self->current_value_ += diff * polarity;
+  }
+
   static void UpdateRelease(EnvelopeGenerator *self) {
     uint64_t diff = self->current_value_ * self->params_.release_ratio;
     self->current_value_ -= diff >> 32;
+  }
+
+  static void UpdateReleaseLinear(EnvelopeGenerator *self) {
+    uint64_t diff = std::min(self->params_.release_ratio >> 5, self->current_value_);
+    self->current_value_ -= diff;
   }
 };
 
