@@ -1,0 +1,11 @@
+*.d
+*.o
+*.su
+*.cyclo
+*.elf
+*.list
+*.map
+.settings
+*.launch
+Debug
+Release
