@@ -25,7 +25,8 @@ namespace analog3 {
 const uint8_t kEgModeDefault = 0;
 const uint8_t kEgModeTwoPhaseDecay = 1;
 const uint8_t kEgModeLinear = 2;
-const uint8_t kNumEgModes = 3;
+const uint8_t kEgModeGritty = 3;
+const uint8_t kNumEgModes = 4;
 
 struct EnvelopeGeneratorParams {
   // config parameters
@@ -44,6 +45,7 @@ struct EnvelopeGeneratorParams {
   // derived parameters
   uint64_t attack_ratio = 0;
   uint64_t decay0_ratio = 0;
+  uint64_t gritty_ratio = 0;
   uint64_t decay_ratio = 0;
   uint64_t sustain0_level = 0xffffffff;
   uint64_t sustain_level = 0xffffffff;
@@ -99,11 +101,21 @@ class EnvelopeGeneratorDefaultPanel {
     params_1_->decay0_time_param = new_decay_time;
     params_2_->decay0_time_param = params_1_->decay0_time_param;
 
-    if (params_1_->mode == kEgModeTwoPhaseDecay) {
-      double decay_time_constant = 7.5 + 7.0e-10 * new_decay_time * new_decay_time * new_decay_time;
+    switch (params_1_->mode) {
+    case kEgModeTwoPhaseDecay: {
+      double decay_time_constant = 7.5 + 7.0e-11 * new_decay_time * new_decay_time * new_decay_time;
       params_1_->decay0_ratio = 0xffffffff / decay_time_constant;
       params_2_->decay0_ratio = params_1_->decay0_ratio;
-    } else {
+      break;
+    }
+    case kEgModeGritty: {
+      double x = 65535.0 - new_decay_time;
+      double time_constant = 3.5 + 1.2e-12 * x * x * x;
+      params_1_->gritty_ratio = 0xffffffff / time_constant;
+      params_2_->gritty_ratio = params_1_->gritty_ratio;
+      break;
+    }
+    default:
       params_1_->distortion_steepness = ((double)new_decay_time + 65536.0) * (double)new_decay_time / 67108864.0;
       params_2_->distortion_steepness = params_1_->distortion_steepness;
     }
@@ -113,12 +125,15 @@ class EnvelopeGeneratorDefaultPanel {
     params_1_->sustain0_level_param = new_sustain_level;
     params_2_->sustain0_level_param = params_1_->sustain0_level_param;
 
-    if (params_1_->mode == kEgModeTwoPhaseDecay) {
-      params_1_->sustain0_level = (((uint64_t)new_sustain_level >> 1) + 32768) * (uint64_t)new_sustain_level;
-      params_2_->sustain0_level = params_1_->sustain0_level;
-    } else {
-      params_1_->distortion_threshold = ((double)new_sustain_level + 65536.0) * (double)new_sustain_level / 8589934592.0; // 0 to 1;
-      params_2_->distortion_threshold = params_1_->distortion_threshold;
+    switch (params_1_->mode) {
+      case kEgModeTwoPhaseDecay:
+      case kEgModeGritty:
+        params_1_->sustain0_level = (((uint64_t)new_sustain_level >> 1) + 32768) * (uint64_t)new_sustain_level;
+        params_2_->sustain0_level = params_1_->sustain0_level;
+        break;
+      default:
+        params_1_->distortion_threshold = ((double)new_sustain_level + 65536.0) * (double)new_sustain_level / 8589934592.0; // 0 to 1;
+        params_2_->distortion_threshold = params_1_->distortion_threshold;
     }
   }
 
@@ -172,6 +187,8 @@ class EnvelopeGenerator {
   uint64_t current_value_ = 0;
   uint64_t target_value_ = 0;
   uint64_t peak_value_ = 0;
+
+  uint32_t noise_register_ = ~0;
 
   const EnvelopeGeneratorParams &params_;
 
@@ -245,11 +262,16 @@ class EnvelopeGenerator {
  private:
   void Trigger() {
     uint64_t velocity;
-    if (params_.mode == kEgModeLinear) {
+    switch (params_.mode) {
+    case kEgModeLinear:
       velocity = ((uint64_t)velocity_ * params_.decay0_time_param + (0xfffful - params_.decay0_time_param) * 0xffff) >> 16;
-      // velocity = 65535;
       UpdateValue = UpdateAttackLinear;
-    } else {
+      break;
+    case kEgModeGritty:
+      velocity = (uint64_t)velocity_;
+      UpdateValue = UpdateAttackGritty;
+      break;
+    default:
       velocity = (uint64_t)velocity_;
       UpdateValue = UpdateAttack;
     }
@@ -280,6 +302,14 @@ class EnvelopeGenerator {
     HAL_GPIO_WritePin(gpiox_, gpio_pin_, GPIO_PIN_RESET);
   }
 
+  uint8_t UpdateNoise() {
+    uint8_t temp = (noise_register_ >> 12) & 1;
+    temp ^= (noise_register_ >> 30) & 1;
+    noise_register_ <<= 1;
+    noise_register_ += temp;
+    return temp;
+  }
+
   static void UpdateAttack(EnvelopeGenerator *self) {
     uint64_t diff = self->target_value_ - self->current_value_;
     diff *= self->params_.attack_ratio;
@@ -304,6 +334,18 @@ class EnvelopeGenerator {
       self->current_value_ = self->peak_value_;
       self->phase_ = Phase::SUSTAINING;
       self->UpdateValue = UpdateDecayLinear;
+    }
+  }
+
+  static void UpdateAttackGritty(EnvelopeGenerator *self) {
+    uint64_t diff = self->target_value_ - self->current_value_ * self->UpdateNoise();
+    diff *= self->params_.attack_ratio;
+    diff >>= 31;
+    self->current_value_ += diff;
+    if (self->current_value_ >= self->peak_value_) {
+      self->current_value_ = self->peak_value_;
+      self->phase_ = Phase::SUSTAINING;
+      self->UpdateValue = UpdateDecayGritty;
     }
   }
 
@@ -359,6 +401,42 @@ class EnvelopeGenerator {
       polarity = 1;
     }
     self->current_value_ += diff * polarity;
+  }
+
+  static void UpdateDecayGritty(EnvelopeGenerator *self) {
+    self->target_value_ = (self->peak_value_ * self->params_.sustain_level) >> 32;
+    uint8_t push = self->UpdateNoise();
+    uint64_t diff;
+    int64_t polarity;
+    if (self->current_value_ >= self->target_value_) {
+      diff = self->current_value_ - self->target_value_;
+      polarity = -1;
+    } else {
+      diff = self->target_value_ - self->current_value_;
+      polarity = 1;
+    }
+    diff *= self->params_.decay_ratio;
+    uint64_t level = self->current_value_ + (diff >> 32) * polarity;
+    uint64_t diff2 = (level * self->params_.sustain0_level) >> 32;
+    uint64_t target;
+    if (push) {
+      target = level + diff2;
+    } else {
+      target = level - diff2;
+    }
+    int64_t polarity2;
+    if (self->current_value_ >= target) {
+      diff2 = self->current_value_ - target;
+      polarity2 = -1;
+    } else {
+      diff2 = target - self->current_value_;
+      polarity2 = 1;
+    }
+    diff2 *= self->params_.gritty_ratio;
+    self->current_value_ = level + (diff2 >> 32) * polarity2;
+    if (self->current_value_ > 0xffffffff) {
+      self->current_value_ = 0xffffffff;
+    }
   }
 
   static void UpdateRelease(EnvelopeGenerator *self) {
