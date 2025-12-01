@@ -16,7 +16,10 @@ enum A3PropertyValueType {
   // A3_I16,
   // A3_I32,
   A3_STRING,
-  A3_VECTOR_U8
+  A3_VECTOR_U8,
+  A3_VECTOR_U8P,
+  A3_VECTOR_U16,
+  A3_VECTOR_U16P,
 };
 
 // Properties that are common among modules
@@ -33,6 +36,14 @@ typedef struct A3Vector {
   uint8_t size;
   void *data;
 } a3_vector_t;
+
+template <typename T>
+struct A3VectorP {
+  uint8_t size;
+  T **data;
+
+  A3VectorP(uint8_t size, T **data) : size(size), data(data) {}
+};
 
 /**
  * Least set of parameters necessary for sharing config with the Mission Control.

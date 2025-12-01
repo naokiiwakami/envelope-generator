@@ -18,7 +18,7 @@
 
 #define ADDR_MODULE_UID 0x8 // u32
 #define ADDR_MODULE_NAME 0x10 // up to 64 chars
-#define ADDR_PROFILE 0x50
+#define ADDR_MODULE_SPECIFIC_BASE 0x50
 
 #define ADDR_UNSET 0xffff
 

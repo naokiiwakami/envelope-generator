@@ -44,13 +44,15 @@ int32_t Stream::FillPropertyData(const std::vector<Property>& props, uint8_t *da
     }
     switch (current_prop.value_type) {
     case A3_U8:
-        return FillInt<uint8_t>(current_prop, data, payload_index);
+      return FillInt<uint8_t>(current_prop, data, payload_index);
     case A3_U16:
-        return FillInt<uint16_t>(current_prop, data, payload_index);
+      return FillInt<uint16_t>(current_prop, data, payload_index);
     case A3_U32:
-        return FillInt<uint32_t>(current_prop, data, payload_index);
+      return FillInt<uint32_t>(current_prop, data, payload_index);
     case A3_STRING:
-        return FillString(current_prop, data, payload_index);
+      return FillString(current_prop, data, payload_index);
+    case A3_VECTOR_U16P:
+      return FillVectorP<uint16_t>(current_prop, data, payload_index);
         /*
     case A3_VECTOR_U8:
         return FillVectorU8(current_prop, data, payload_index);
@@ -58,30 +60,6 @@ int32_t Stream::FillPropertyData(const std::vector<Property>& props, uint8_t *da
     }
     return CAN_STD_DATA_LENGTH;
 }
-
-/*
-int32_t Stream::FillInt(const Property& prop, uint8_t* data, uint32_t payload_index, uint8_t num_bytes) {
-  if (data_position_ < 2) {
-       data[payload_index++] = num_bytes;
-       ++data_position_;
-       if (payload_index == CAN_STD_DATA_LENGTH) {
-           return payload_index;
-       }
-   }
-   uint32_t value = *(uint32_t *)prop.data;
-   uint8_t total_bytes = num_bytes + 2;
-   uint8_t bytes_to_send = std::min(CAN_STD_DATA_LENGTH - payload_index, total_bytes - data_position_);
-   value >>= (total_bytes - bytes_to_send - data_position_) * 8;
-   for (uint8_t i = 0; i < bytes_to_send; ++i) {
-       data[payload_index + bytes_to_send - i - 1] = value & 0xff;
-       value >>= 8;
-   }
-   data_position_ += bytes_to_send;
-   payload_index += bytes_to_send;
-   CheckForTransferTermination(total_bytes);
-   return payload_index;
-}
-*/
 
 int32_t Stream::FillString(const Property &prop, uint8_t *data, uint32_t payload_index) {
   auto text = static_cast<const std::string *>(prop.data);

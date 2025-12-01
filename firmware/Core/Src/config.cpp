@@ -12,14 +12,18 @@
 
 #include "analog3/config-common.h"
 #include "analog3/definitions.h"
+#include "analog3/property.h"
 #include "analog3/stm32impl.h"
+#include "addresses.h"
+#include "envelope_generator.h"
 
-uint8_t current_profile = 0xff;
-const uint8_t max_profiles = 8;
 const uint8_t num_voices = 2;
 
-uint16_t cv_depth = 0;
-uint16_t cv_offset = 0x8000;
+static uint16_t *voice_ids_data[num_voices] = {&analog3::eg_params_1.voice_id, &analog3::eg_params_2.voice_id};
+static analog3::A3VectorP<uint16_t> voice_ids{num_voices, voice_ids_data};
+
+static uint16_t *attack_time_data[num_voices] = {&analog3::eg_params_1.attack_time_param, &analog3::eg_params_2.attack_time_param};
+static analog3::A3VectorP<uint16_t> attack_time{num_voices, attack_time_data};
 
 // Implementation of required callback functions
 
@@ -32,7 +36,7 @@ uint16_t GetModuleType() {
 }
 
 void SetModuleSpecificProperties(std::vector<analog3::Property> *props) {
-  AddProperty(props, PROP_CURRENT_PROFILE, A3_U8, &current_profile, ADDR_UNSET);
-  AddReadOnlyProperty(props, PROP_MAX_PROFILES, A3_U8, &max_profiles);
   AddReadOnlyProperty(props, PROP_NUM_VOICES, A3_U8, &num_voices);
+  AddProperty(props, PROP_VOICE_ID, A3_VECTOR_U16P, &voice_ids,  ADDR_VOICE_ID);
+  AddProperty(props, PROP_ATTACK_TIME, A3_VECTOR_U16P, &attack_time,  ADDR_UNSET);
 }

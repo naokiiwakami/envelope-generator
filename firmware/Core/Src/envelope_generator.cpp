@@ -28,33 +28,6 @@ const uint8_t kEgModeLinear = 2;
 const uint8_t kEgModeGritty = 3;
 const uint8_t kNumEgModes = 4;
 
-struct EnvelopeGeneratorParams {
-  // config parameters
-  uint16_t attack_time_param = 0;
-  uint16_t decay0_time_param = 0;
-  uint16_t sustain0_level_param = 0;
-  uint16_t decay_time_param = 0;
-  uint16_t sustain_level_param = 0;
-  uint16_t release_time_param = 0;
-
-  uint16_t voice_id = 0;
-  bool physical_gate_enabled = false;
-
-  uint8_t mode = kEgModeDefault;
-
-  // derived parameters
-  uint64_t attack_ratio = 0;
-  uint64_t decay0_ratio = 0;
-  uint64_t gritty_ratio = 0;
-  uint64_t decay_ratio = 0;
-  uint64_t sustain0_level = 0xffffffff;
-  uint64_t sustain_level = 0xffffffff;
-  uint64_t release_ratio = 0;
-
-  double distortion_steepness = 0;
-  double distortion_threshold = 0;
-};
-
 /**
  * Provides user interface to handle EG parameters.
  */
@@ -452,8 +425,8 @@ class EnvelopeGenerator {
 
 // The output PWM overflow interrupt handler nudges for EG updates
 static bool nudged = false;
-static EnvelopeGeneratorParams eg_params_1{};
-static EnvelopeGeneratorParams eg_params_2{};
+EnvelopeGeneratorParams eg_params_1{};
+EnvelopeGeneratorParams eg_params_2{};
 static EnvelopeGeneratorDefaultPanel panel{&eg_params_1, &eg_params_2};
 static EnvelopeGenerator eg_voice_1{&htim3, TIM_CHANNEL_1, IND_GATE_1_GPIO_Port, IND_GATE_1_Pin, eg_params_1};
 static EnvelopeGenerator eg_voice_2{&htim3, TIM_CHANNEL_4, IND_GATE_2_GPIO_Port, IND_GATE_2_Pin, eg_params_2};

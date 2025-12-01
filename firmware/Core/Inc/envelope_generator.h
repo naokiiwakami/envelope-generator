@@ -9,6 +9,47 @@
 #define INC_ENVELOPE_GENERATOR_H_
 
 #ifdef __cplusplus
+
+namespace analog3 {
+
+extern const uint8_t kEgModeDefault;
+extern const uint8_t kEgModeTwoPhaseDecay;
+extern const uint8_t kEgModeLinear;
+extern const uint8_t kEgModeGritty;
+extern const uint8_t kNumEgModes;
+
+struct EnvelopeGeneratorParams {
+  // config parameters
+  uint16_t attack_time_param = 0;
+  uint16_t decay0_time_param = 0;
+  uint16_t sustain0_level_param = 0;
+  uint16_t decay_time_param = 0;
+  uint16_t sustain_level_param = 0;
+  uint16_t release_time_param = 0;
+
+  uint16_t voice_id = 0;
+  bool physical_gate_enabled = false;
+
+  uint8_t mode = kEgModeDefault;
+
+  // derived parameters
+  uint64_t attack_ratio = 0;
+  uint64_t decay0_ratio = 0;
+  uint64_t gritty_ratio = 0;
+  uint64_t decay_ratio = 0;
+  uint64_t sustain0_level = 0xffffffff;
+  uint64_t sustain_level = 0xffffffff;
+  uint64_t release_ratio = 0;
+
+  double distortion_steepness = 0;
+  double distortion_threshold = 0;
+};
+
+extern EnvelopeGeneratorParams eg_params_1;
+extern EnvelopeGeneratorParams eg_params_2;
+
+} // namespace analog3
+
 extern "C" {
 #endif
 

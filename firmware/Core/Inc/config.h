@@ -11,23 +11,23 @@
 #include "analog3/analog3.h"
 
 // Property IDs
-#define PROP_CURRENT_PROFILE 3
-#define PROP_MAX_PROFILES 4
-#define PROP_NUM_VOICES 5
-#define PROP_CV_DEPTH 6
-#define PROP_CV_OFFSET 7
-#define NUM_PROPS 8
+#define PROP_NUM_VOICES 3
+#define PROP_VOICE_ID 4
+#define PROP_PHYSICAL_GATE_ENABLED 5
+#define PROP_ENVELOPE_GENERATION_MODE 6
+#define PROP_ATTACK_TIME 7
+#define PROP_DECAY_TIME 8
+#define PROP_SUSTAIN_LEVEL 9
+#define PROP_RELEASE_TIME 10
+#define PROP_EXTRA_1 11
+#define PROP_EXTRA_2 12
+#define NUM_PROPS 13
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-extern uint8_t current_profile;
-extern const uint8_t max_profiles;
 extern const uint8_t num_voices;
-
-extern uint16_t cv_depth;
-extern uint16_t cv_offset;
 
 #ifdef __cplusplus
 }

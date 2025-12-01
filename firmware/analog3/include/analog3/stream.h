@@ -108,6 +108,35 @@ class Stream {
 
   int32_t FillString(const Property &prop, uint8_t *data, uint32_t payload_index);
 
+  template <typename T>
+  int32_t FillVectorP(const Property &prop, uint8_t *data, uint32_t payload_index) {
+    auto vector = static_cast<const A3VectorP<T>*>(prop.data);
+    if (data_position_ < 2) {
+      data[payload_index++] = vector->size * sizeof(T);
+      ++data_position_;
+      if (payload_index == CAN_STD_DATA_LENGTH) {
+        return payload_index;
+      }
+    }
+    int data_index = data_position_ - 2;
+    uint8_t vector_index = data_index / sizeof(T);
+    while (vector_index < vector->size) {
+      uint8_t shift = (sizeof(T) - data_index - 1) % sizeof(T) * 8;
+      T value = *vector->data[vector_index];
+      data[payload_index++] = value  >> shift;
+      ++data_position_;
+      ++data_index;
+      if (payload_index == CAN_STD_DATA_LENGTH) {
+        return payload_index;
+      }
+      if (shift == 0) {
+        ++vector_index;
+      }
+    }
+    CheckForTransferTermination(vector->size * sizeof(T) + 2);
+    return payload_index;
+  }
+
   void CheckForTransferTermination(uint32_t property_data_length);
 };
 

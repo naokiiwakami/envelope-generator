@@ -301,20 +301,20 @@ void AddProperty(std::vector<analog3::Property> *properties, uint8_t id, uint8_t
                  void *data, uint16_t save_addr) {
   void (*incorporate)(analog3::Property*, const void*, uint8_t);
   switch (value_type) {
-    case A3_U8:
-      incorporate = IncorporateU8;
-      break;
-    case A3_U16:
-      incorporate = IncorporateU16;
-      break;
-    case A3_U32:
-      incorporate = IncorporateU32;
-      break;
-    case A3_STRING:
-      incorporate = IncorporateString;
-      break;
-    default:
-      incorporate = nullptr;
+  case A3_U8:
+    incorporate = IncorporateU8;
+    break;
+  case A3_U16:
+    incorporate = IncorporateU16;
+    break;
+  case A3_U32:
+    incorporate = IncorporateU32;
+    break;
+  case A3_STRING:
+    incorporate = IncorporateString;
+    break;
+  default:
+    incorporate = nullptr;
   }
   properties->push_back( { id, value_type, data, incorporate, save_addr });
 }
