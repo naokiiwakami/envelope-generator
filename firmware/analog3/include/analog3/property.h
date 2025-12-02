@@ -16,10 +16,12 @@ enum A3PropertyValueType {
   // A3_I16,
   // A3_I32,
   A3_STRING,
-  A3_VECTOR_U8,
+  // A3_VECTOR_U8,
   A3_VECTOR_U8P,
-  A3_VECTOR_U16,
+  // A3_VECTOR_U16,
   A3_VECTOR_U16P,
+  // A3_VECTOR_BOOL,
+  A3_VECTOR_BOOLP,
 };
 
 // Properties that are common among modules
@@ -32,10 +34,11 @@ enum A3PropertyValueType {
 
 namespace analog3 {
 
-typedef struct A3Vector {
+template <typename T>
+struct A3Vector {
   uint8_t size;
-  void *data;
-} a3_vector_t;
+  T *data;
+};
 
 template <typename T>
 struct A3VectorP {

@@ -51,8 +51,12 @@ int32_t Stream::FillPropertyData(const std::vector<Property>& props, uint8_t *da
       return FillInt<uint32_t>(current_prop, data, payload_index);
     case A3_STRING:
       return FillString(current_prop, data, payload_index);
+    case A3_VECTOR_U8P:
+      return FillVectorP<uint8_t>(current_prop, data, payload_index);
     case A3_VECTOR_U16P:
       return FillVectorP<uint16_t>(current_prop, data, payload_index);
+    case A3_VECTOR_BOOLP:
+      return FillVectorP<bool>(current_prop, data, payload_index);
         /*
     case A3_VECTOR_U8:
         return FillVectorU8(current_prop, data, payload_index);
