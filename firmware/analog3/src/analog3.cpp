@@ -5,6 +5,8 @@
  *      Author: naoki
  */
 
+#include <algorithm>
+
 #include "analog3/analog3.h"
 
 namespace analog3 {
@@ -64,8 +66,34 @@ void Analog3::HandleRxMessage(const CanRxMessage& message) {
     return;
   }
   uint32_t remote_id = message.GetId();
+  if (remote_id == stream_.GetWireAddress()) {
+    ReadDataFrame(message);
+  }
   if (remote_id == A3_ID_MISSION_CONTROL) {
     HandleMissionControlMessage(message);
+  }
+}
+
+void Analog3::ReadDataFrame(const CanRxMessage& message) {
+  auto *data = message.GetData();
+  auto length = message.GetDlc();
+  if (stream_.ImportDataFrame(data, length)) {
+    // done
+    for (auto raw_prop : stream_.GetRawProperties()) {
+      for (auto prop : properties_) {
+        if (prop.id == raw_prop.type) {
+          prop.Incorporate(raw_prop.value.data(), raw_prop.length);
+        }
+      }
+    }
+    stream_.ClearRawProperties();
+  } else {
+    // continue
+    auto message = hw_controller_->CreateTxMessage();
+    message->SetId(stream_.GetWireAddress());
+    message->SetRemote(true);
+    message->SetDlc(0);
+    Transfer(message);
   }
 }
 
@@ -131,11 +159,9 @@ void Analog3::ProcessMissionControlCommand(uint8_t opcode, const uint8_t *data, 
     case A3_MC_CONTINUE_CONFIG:
       HandleContinueConfig(data, dlc);
       break;
-      /*
-       case A3_MC_MODIFY_CONFIG:
-       HandleModifyConfig();
-       break;
-       */
+    case A3_MC_MODIFY_CONFIG:
+      HandleModifyConfig(data, dlc);
+      break;
   }
 }
 
@@ -190,6 +216,16 @@ void Analog3::HandleContinueConfig(const uint8_t *data, uint8_t dlc) {
     payload_index = stream_.FillPropertyData(properties_, message->GetDataMut(), payload_index);
   }
   message->SetDlc(payload_index);
+  Transfer(message);
+}
+
+void Analog3::HandleModifyConfig(const uint8_t *data, uint8_t dlc) {
+  uint32_t wire_addr = data[2] + A3_ID_ADMIN_WIRES_BASE;
+  stream_.InitiateAdminReads(wire_addr);
+  auto message = hw_controller_->CreateTxMessage();
+  message->SetId(wire_addr);
+  message->SetRemote(true);
+  message->SetDlc(0);
   Transfer(message);
 }
 

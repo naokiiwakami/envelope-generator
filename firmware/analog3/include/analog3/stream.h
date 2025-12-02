@@ -44,9 +44,9 @@ class Stream {
   uint8_t num_remaining_properties_;
 
   /**
-   * Streamed data size
+   * Properties as generic TLV objects. Used temporarily during property imports.
    */
-  uint8_t data_size_;
+  std::vector<Tlv> raw_properties_;
 
  public:
   Stream();
@@ -54,6 +54,14 @@ class Stream {
 
   inline uint32_t GetWireAddress() const {
     return wire_addr_;
+  }
+
+  inline const std::vector<Tlv>& GetRawProperties() const {
+    return raw_properties_;
+  }
+
+  inline void ClearRawProperties() {
+    raw_properties_.clear();
   }
 
   /**
@@ -66,7 +74,21 @@ class Stream {
   void InitiateAdminWrites(uint32_t wire_addr, int prop_start_index, int num_props);
 
   /**
-   * Fill property values to the tx data payload.
+   * Initializes an admin wire for reads.
+   *
+   * @param wire_addr - wire ID to start
+   * @param prop_start_index - starting index of the properties
+   * @param num_props - number of properties to send
+   */
+  void InitiateAdminReads(uint32_t wire_addr);
+
+  /**
+   * Fills property values to the tx data payload, used for exporting properties.
+   *
+   * The property data may be larger than the payload. The method starts streaming at
+   * current position in the payload. The streaming stops at the end of the payload
+   * or property data, whichever comes first. To resume the data export, call this
+   * method multiple times with new payloads (that belong to separate CAN messages).
    *
    * @param props - Source properties.
    * @param data - Payload to fill the data. The size is 8 byte (until we support CAN FD).
@@ -76,6 +98,14 @@ class Stream {
    */
   int32_t FillPropertyData(const std::vector<Property> &props, uint8_t *data,
                            int32_t payload_index);
+
+  /**
+   * Imports data frame into the vector of properties.
+   *
+   * @param data - Payload to import the data.
+   * @param dlc - Payload data length.  xs
+   */
+  bool ImportDataFrame(const uint8_t *data, uint8_t dlc);
 
   inline bool IsDone() const {
     return num_remaining_properties_ == 0;

@@ -31,6 +31,8 @@ class CanTxMessage {
   virtual void SetId(uint32_t id) = 0;
   virtual void SetDlc(uint8_t dlc) = 0;
   virtual uint8_t GetDlc() const = 0;
+  virtual void SetRemote(bool is_remote) = 0;
+  virtual bool IsRemote() const = 0;
   virtual uint8_t* GetDataMut() = 0;
   virtual void Transfer() = 0;
 };
@@ -46,6 +48,7 @@ class CanRxMessage {
   virtual bool IsStandard() const = 0;
   virtual uint32_t GetId() const = 0;
   virtual uint8_t GetDlc() const = 0;
+  virtual bool IsRemote() const = 0;
   virtual const uint8_t* GetData() const = 0;
 };
 
@@ -156,9 +159,11 @@ class Analog3 {
   void NotifyId();
 
   void HandleRxMessage(const CanRxMessage& message);
-  void HandleMissionControlMessage(const CanRxMessage& message);
 
  private:
+  void ReadDataFrame(const CanRxMessage& message);
+  void HandleMissionControlMessage(const CanRxMessage& message);
+
   void ProcessMissionControlCommand(uint8_t opcode, const uint8_t *data, uint8_t dlc);
   void Transfer(CanTxMessage *message);
 
@@ -166,6 +171,7 @@ class Analog3 {
   void HandleContinueName(const uint8_t *data, uint8_t dlc);
   void HandleRequestConfig(const uint8_t *data, uint8_t dlc);
   void HandleContinueConfig(const uint8_t *data, uint8_t dlc);
+  void HandleModifyConfig(const uint8_t *data, uint8_t dlc);
 };
 
 }  // namespace analog3

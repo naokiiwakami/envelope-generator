@@ -188,11 +188,13 @@ inline static void SaveInt(uint16_t address, T data) {
 
 class StoreStream {
  private:
-  union Buffer buffer_;
+  union Buffer row_data_;
   Storage *storage_;
   uint32_t src_page_address_;
 
+  // offset from the page beginning pointing the beginning of the row
   uint16_t row_;
+  // offset in the row
   uint16_t offset_;
 
  public:
@@ -203,9 +205,9 @@ class StoreStream {
     offset_ = address % 8;
     row_ = address - offset_;
     if (src_page_address_ != 0xffffffff) {
-      buffer_.u64 = FlashRead64(src_page_address_ + row_);
+      row_data_.u64 = FlashRead64(src_page_address_ + row_);
     } else {
-      buffer_.u64 = 0xffffffffffffffff;
+      row_data_.u64 = 0xffffffffffffffff;
     }
   }
 
@@ -214,13 +216,14 @@ class StoreStream {
   }
 
   void PutData(const void *data, size_t size) {
-    size_t remaining = size;
-    while (remaining > 0) {
+    auto bytes = reinterpret_cast<const uint8_t*>(data);
+    size_t data_position = 0;
+    while (data_position < size) {
       size_t bytes_to_write = std::min(static_cast<size_t>(8 - offset_), size);
-      memcpy(buffer_.u8v + offset_, data, bytes_to_write);
-      remaining -= bytes_to_write;
+      memcpy(row_data_.u8v + offset_, &bytes[data_position], bytes_to_write);
+      data_position += bytes_to_write;
       offset_ += bytes_to_write;
-      CheckOffset();
+      WrapIfFull();
     }
   }
 
@@ -229,28 +232,34 @@ class StoreStream {
    */
   void Flush() {
     if (offset_ > 0) {
+      UnlockFlash();
       HAL_StatusTypeDef status;
       if ((status = HAL_FLASH_Program(FLASH_TYPEPROGRAM_DOUBLEWORD, storage_->page_address + row_,
-                                      buffer_.u64)) != HAL_OK) {
+                                      row_data_.u64)) != HAL_OK) {
+        LockFlash();
         HandleError("Failed to flush data; status=%d", status);
       }
+      LockFlash();
     }
   }
 
  private:
-  void CheckOffset() {
+  void WrapIfFull() {
     if (offset_ == 8) {
       HAL_StatusTypeDef status;
+      UnlockFlash();
       if ((status = HAL_FLASH_Program(FLASH_TYPEPROGRAM_DOUBLEWORD, storage_->page_address + row_,
-                                      buffer_.u64)) != HAL_OK) {
+                                      row_data_.u64)) != HAL_OK) {
+        LockFlash();
         HandleError("Failed to flush data; status=%d", status);
       }
+      LockFlash();
       row_ += 8;
       offset_ = 0;
       if (src_page_address_ != 0xffffffff) {
-        buffer_.u64 = FlashRead64(src_page_address_ + row_);
+        row_data_.u64 = FlashRead64(src_page_address_ + row_);
       } else {
-        buffer_.u64 = 0xffffffffffffffff;
+        row_data_.u64 = 0xffffffffffffffff;
       }
     }
   }
@@ -311,7 +320,6 @@ uint8_t Load8(uint16_t address) {
 
 void SaveString(uint16_t address, const char *data, size_t max_length) {
   uint8_t length = static_cast<uint8_t>(std::min(strlen(data), max_length - 1));
-  UnlockFlash();
   HAL_StatusTypeDef status;
   if (AreRowsClean(address, static_cast<size_t>(length + 1))) {
     StoreStream ostream { address, &storage };
@@ -328,12 +336,14 @@ void SaveString(uint16_t address, const char *data, size_t max_length) {
         pipe_stream.Flush();
         row = pipe_stream.GetRow();
       } else {
-        uint64_t value = FlashRead64(prev_page_address + row);
+        UnlockFlash();
+        uint32_t address_old = prev_page_address + row;
+        uint64_t value = FlashRead64(address_old);
+        uint32_t address_new = storage.page_address + row;
         if (value != 0xffffffffffffffff
-            && (status = HAL_FLASH_Program(FLASH_TYPEPROGRAM_DOUBLEWORD, storage.page_address + row,
-                                           value)) != HAL_OK) {
-        HAL_FLASH_Lock();
-        HandleError("Failed to store string; status=%d, src_addr=%lx, dst_addr=%lx, row=%u",
+            && (status = HAL_FLASH_Program(FLASH_TYPEPROGRAM_DOUBLEWORD, address_new, value)) != HAL_OK) {
+          HAL_FLASH_Lock();
+          HandleError("Failed to store string; status=%d, src_addr=%lx, dst_addr=%lx, row=%u",
                       status, prev_page_address, storage.page_address, row);
         }
       }

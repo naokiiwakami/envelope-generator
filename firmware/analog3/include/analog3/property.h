@@ -8,6 +8,8 @@
 #ifndef INCLUDE_ANALOG3_PROPERTY_H_
 #define INCLUDE_ANALOG3_PROPERTY_H_
 
+#include <vector>
+
 enum A3PropertyValueType {
   A3_U8,
   A3_U16,
@@ -49,6 +51,21 @@ struct A3VectorP {
 };
 
 /**
+ * Generic raw property data.
+ *
+ * This struct is used mainly for importing data from stream.
+ * The struct is capable of storing property data without knowing
+ * the type of data so that it is handy for keeping incoming data
+ * temporarily before applying changing to existing properties
+ * at the end of importing.
+ */
+struct Tlv {
+  uint8_t type = 0;
+  uint8_t length = 0;
+  std::vector<uint8_t> value ;
+};
+
+/**
  * Least set of parameters necessary for sharing config with the Mission Control.
  */
 struct Property {
@@ -57,7 +74,7 @@ struct Property {
   bool write_protected;  // indicates if the value is write-protected
   void *data;
   // function to incorporate data
-  void (*incorporate)(Property*, const void *data, uint8_t len);
+  void (*incorporate_func)(Property*, const void *data, uint8_t len);
   // address to persist configuration data, 0xffff for a constant value
   uint32_t save_addr;
 
@@ -67,7 +84,7 @@ struct Property {
       value_type(value_type),
       write_protected(true),
       data(const_cast<void*>(data)),
-      incorporate(nullptr),
+      incorporate_func(nullptr),
       save_addr(0xffff) {
   }
 
@@ -78,8 +95,14 @@ struct Property {
       value_type(value_type),
       write_protected(false),
       data(data),
-      incorporate(incorporate),
+      incorporate_func(incorporate),
       save_addr(save_addr) {
+  }
+
+  void Incorporate(const void *data, uint8_t len) {
+    if (incorporate_func != nullptr) {
+      incorporate_func(this, data, len);
+    }
   }
 };
 

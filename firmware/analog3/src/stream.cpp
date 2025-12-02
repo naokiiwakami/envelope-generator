@@ -20,14 +20,22 @@ Stream::Stream() {
   data_position_ = 0;
   wire_addr_ = A3_ID_INVALID;
   num_remaining_properties_ = 0;
-  data_size_ = 0;
 }
 
-void Stream::InitiateAdminWrites(uint32_t wire_addr, int prop_start_index, int num_props)
-{
+void Stream::InitiateAdminWrites(uint32_t wire_addr, int prop_start_index, int num_props) {
     wire_addr_ = wire_addr;
     prop_position_ = prop_start_index;
     num_remaining_properties_ = num_props;
+}
+
+uint32_t kPropPositionNowhere = ~0;
+
+void Stream::InitiateAdminReads(uint32_t wire_addr) {
+    wire_addr_ = wire_addr;
+    prop_position_ = kPropPositionNowhere;
+    num_remaining_properties_ = 0xff;
+    data_position_ = 0;
+    raw_properties_.clear();
 }
 
 int32_t Stream::FillPropertyData(const std::vector<Property>& props, uint8_t *data, int32_t payload_index) {
@@ -96,6 +104,32 @@ void Stream::CheckForTransferTermination(uint32_t property_data_length)
             wire_addr_ = A3_ID_INVALID;
         }
     }
+}
+
+bool Stream::ImportDataFrame(const uint8_t *data, uint8_t dlc) {
+  uint8_t index = 0;
+  if (num_remaining_properties_ == 0xff) {
+    num_remaining_properties_ = data[index++];
+  }
+  for (;index < dlc; ++index) {
+    if (prop_position_ == kPropPositionNowhere) {
+      prop_position_ = data[index];
+      raw_properties_.emplace_back();
+      continue;
+    }
+    Tlv& current_prop = raw_properties_.at(raw_properties_.size() - 1);
+    if (current_prop.length == 0) {
+      current_prop.length = data[index];
+      continue;
+    }
+    current_prop.value.push_back(data[index]);
+    if (current_prop.value.size() == current_prop.length) {
+      current_prop.type = prop_position_;
+      prop_position_ = kPropPositionNowhere;
+      --num_remaining_properties_;
+    }
+  }
+  return IsDone();
 }
 
 }  // namespace analog3

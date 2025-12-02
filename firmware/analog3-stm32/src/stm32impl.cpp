@@ -113,6 +113,14 @@ class Stm32CanTxMessage : public analog3::CanTxMessage {
     return (uint8_t) tx_header_.DataLength;
   }
 
+  void SetRemote(bool is_remote) {
+    tx_header_.TxFrameType = is_remote ? FDCAN_REMOTE_FRAME : FDCAN_DATA_FRAME;
+  }
+
+  bool IsRemote() const {
+    return tx_header_.TxFrameType == FDCAN_REMOTE_FRAME;
+  }
+
   uint8_t* GetDataMut() {
     return tx_data_;
   }
@@ -153,6 +161,10 @@ class Stm32CanRxMessage : public analog3::CanRxMessage {
 
   uint8_t GetDlc() const {
     return (uint8_t) rx_header_.DataLength;
+  }
+
+  bool IsRemote() const {
+    return rx_header_.RxFrameType == FDCAN_REMOTE_FRAME;
   }
 
   const uint8_t* GetData() const {
@@ -286,7 +298,7 @@ void InitializeAnalog3() {
   properties->push_back( { A3_PROP_MODULE_TYPE, A3_TYPE_MODULE_TYPE, &a3->GetModuleType() });
 
   properties->push_back( { A3_PROP_MODULE_NAME, A3_TYPE_MODULE_NAME, a3->GetNameMut(),
-      IncorporateString, ADDR_MODULE_UID });
+      IncorporateString, ADDR_MODULE_NAME });
 
   // set up module specific properties
   SetModuleSpecificProperties(properties);
