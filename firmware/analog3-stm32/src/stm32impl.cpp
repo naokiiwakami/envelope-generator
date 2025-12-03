@@ -56,19 +56,57 @@ static void IncorporateU8(analog3::Property *prop, const void *data, uint8_t len
 }
 
 static void IncorporateU16(analog3::Property *prop, const void *data, uint8_t len) {
-  memcpy(prop->data, data, len);
+  if (len < sizeof(uint16_t)) {
+    // The source is short of bytes, ignore the request silently
+    return;
+  }
+  auto src = static_cast<const uint16_t*>(data);
+  auto dest = static_cast<uint16_t*>(prop->data);
+  *dest = __builtin_bswap16(*src);
   if (prop->save_addr == ADDR_UNSET) {
     return;
   }
-  Save16(prop->save_addr, *static_cast<const uint16_t*>(data));
+  Save16(prop->save_addr, *dest);
 }
 
 static void IncorporateU32(analog3::Property *prop, const void *data, uint8_t len) {
-  memcpy(prop->data, data, len);
+  if (len < sizeof(uint32_t)) {
+    // The source is short of bytes, ignore the request silently
+    return;
+  }
+  auto src = static_cast<const uint32_t*>(data);
+  auto dest = static_cast<uint32_t*>(prop->data);
+  *dest = __builtin_bswap32(*src);
   if (prop->save_addr == ADDR_UNSET) {
     return;
   }
-  Save32(prop->save_addr, *static_cast<const uint32_t*>(data));
+  Save32(prop->save_addr, *dest);
+}
+
+static void IncorporateVectorU8P(analog3::Property *prop, const void *data, uint8_t len) {
+  auto src = static_cast<const uint8_t*>(data);
+  auto dest = static_cast<analog3::A3VectorP<uint8_t>*>(prop->data);
+  auto copy_length = std::min(dest->size, len);
+  for (uint8_t i = 0; i < copy_length; ++i) {
+    *dest->data[i] = src[i];
+  }
+  if (prop->save_addr == ADDR_UNSET) {
+    return;
+  }
+  // Save32(prop->save_addr, *static_cast<const uint32_t*>(data));
+}
+
+static void IncorporateVectorU16P(analog3::Property *prop, const void *data, uint8_t len) {
+  auto src = static_cast<const uint16_t*>(data);
+  auto dest = static_cast<analog3::A3VectorP<uint16_t>*>(prop->data);
+  auto copy_length = std::min(dest->size, (uint8_t)(len / 2));
+  for (uint8_t i = 0; i < copy_length; ++i) {
+    *dest->data[i] = __builtin_bswap16(src[i]);
+  }
+  if (prop->save_addr == ADDR_UNSET) {
+    return;
+  }
+  // Save32(prop->save_addr, *static_cast<const uint32_t*>(data));
 }
 
 class Stm32CanTxMessage : public analog3::CanTxMessage {
@@ -324,6 +362,12 @@ void AddProperty(std::vector<analog3::Property> *properties, uint8_t id, uint8_t
     break;
   case A3_STRING:
     incorporate = IncorporateString;
+    break;
+  case A3_VECTOR_U8P:
+    incorporate = IncorporateVectorU8P;
+    break;
+  case A3_VECTOR_U16P:
+    incorporate = IncorporateVectorU16P;
     break;
   default:
     incorporate = nullptr;

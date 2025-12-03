@@ -54,6 +54,7 @@ extern UART_HandleTypeDef huart1;
 // Update cycles by TIM3 overflow interrupt handler
 #define EG_UPDATE_CYCLES   4
 #define ADC_UPDATE_CYCLES 64
+#define INDICATORS_UPDATE_CYCLES 256
 /* USER CODE END EC */
 
 /* Exported macro ------------------------------------------------------------*/

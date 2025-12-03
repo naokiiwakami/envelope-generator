@@ -57,8 +57,6 @@ class EnvelopeGeneratorDefaultPanel {
   void TogglePhysicalGateInput() {
     params_1_->physical_gate_enabled = !params_1_->physical_gate_enabled;
     params_2_->physical_gate_enabled = params_1_->physical_gate_enabled;
-    HAL_GPIO_WritePin(IND_ANALOG_GATE_GPIO_Port, IND_ANALOG_GATE_Pin,
-                      params_1_->physical_gate_enabled ? GPIO_PIN_SET : GPIO_PIN_RESET);
   }
 
   void SetAttackTime(uint16_t new_attack_time) {
@@ -139,9 +137,6 @@ class EnvelopeGeneratorDefaultPanel {
   void SwitchEnvelopeGenerationMode() {
     params_1_->mode = (params_1_->mode + 1) % kNumEgModes;
     params_2_->mode = params_1_->mode;
-    HAL_GPIO_WritePin(IND_EG_MODE_0_GPIO_Port, IND_EG_MODE_0_Pin, (params_1_->mode & 0x1) ? GPIO_PIN_SET : GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(IND_EG_MODE_1_GPIO_Port, IND_EG_MODE_1_Pin, (params_1_->mode & 0x2) ? GPIO_PIN_SET : GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(IND_EG_MODE_2_GPIO_Port, IND_EG_MODE_2_Pin, (params_1_->mode & 0x4) ? GPIO_PIN_SET : GPIO_PIN_RESET);
   }
 };
 
@@ -424,7 +419,8 @@ class EnvelopeGenerator {
 };
 
 // The output PWM overflow interrupt handler nudges for EG updates
-static bool nudged = false;
+static bool update_envelope_generators = false;
+static bool update_indicators = false;
 EnvelopeGeneratorParams eg_params_1{};
 EnvelopeGeneratorParams eg_params_2{};
 static EnvelopeGeneratorDefaultPanel panel{&eg_params_1, &eg_params_2};
@@ -492,16 +488,27 @@ void InitializeEnvelopeGenerator() {
 
 static uint32_t cycles = 0;
 void NudgeEnvelopeGenerator() {
-  if (cycles++ % EG_UPDATE_CYCLES == 0) {
-    analog3::nudged = true;
+  if (cycles % EG_UPDATE_CYCLES == 0) {
+    analog3::update_envelope_generators = true;
+  }
+  if (cycles % INDICATORS_UPDATE_CYCLES == 0) {
+    analog3::update_indicators = true;
   }
 }
 
 void UpdateEnvelopeGenerator() {
-  if (analog3::nudged) {
+  if (analog3::update_envelope_generators) {
     analog3::eg_voice_1.Update();
     analog3::eg_voice_2.Update();
-    analog3::nudged = false;
+    analog3::update_envelope_generators = false;
+  }
+  if (analog3::update_indicators) {
+    HAL_GPIO_WritePin(IND_ANALOG_GATE_GPIO_Port, IND_ANALOG_GATE_Pin,
+                      analog3::eg_params_1.physical_gate_enabled ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(IND_EG_MODE_0_GPIO_Port, IND_EG_MODE_0_Pin, (analog3::eg_params_1.mode & 0x1) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(IND_EG_MODE_1_GPIO_Port, IND_EG_MODE_1_Pin, (analog3::eg_params_1.mode & 0x2) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(IND_EG_MODE_2_GPIO_Port, IND_EG_MODE_2_Pin, (analog3::eg_params_1.mode & 0x4) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    analog3::update_indicators = false;
   }
 }
 
