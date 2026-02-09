@@ -36,7 +36,7 @@ class Stream {
   /**
    * CAN ID that shares with the peer to exchange the data.
    */
-  uint32_t wire_addr_;
+  uint32_t wire_id_;
 
   /**
    * Number of remaining properties in the stream.
@@ -52,8 +52,8 @@ class Stream {
   Stream();
   ~Stream() = default;
 
-  inline uint32_t GetWireAddress() const {
-    return wire_addr_;
+  inline uint32_t GetWireId() const {
+    return wire_id_;
   }
 
   inline const std::vector<Tlv>& GetRawProperties() const {

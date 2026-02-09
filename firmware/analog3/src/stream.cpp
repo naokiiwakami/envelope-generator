@@ -18,12 +18,12 @@ namespace analog3 {
 Stream::Stream() {
   prop_position_ = 0;
   data_position_ = 0;
-  wire_addr_ = A3_ID_INVALID;
+  wire_id_ = A3_ID_INVALID;
   num_remaining_properties_ = 0;
 }
 
 void Stream::InitiateAdminWrites(uint32_t wire_addr, int prop_start_index, int num_props) {
-    wire_addr_ = wire_addr;
+    wire_id_ = wire_addr;
     prop_position_ = prop_start_index;
     num_remaining_properties_ = num_props;
 }
@@ -31,7 +31,7 @@ void Stream::InitiateAdminWrites(uint32_t wire_addr, int prop_start_index, int n
 uint32_t kPropPositionNowhere = ~0;
 
 void Stream::InitiateAdminReads(uint32_t wire_addr) {
-    wire_addr_ = wire_addr;
+    wire_id_ = wire_addr;
     prop_position_ = kPropPositionNowhere;
     num_remaining_properties_ = 0xff;
     data_position_ = 0;
@@ -101,7 +101,7 @@ void Stream::CheckForTransferTermination(uint32_t property_data_length)
         --num_remaining_properties_;
         if (num_remaining_properties_ == 0) {
             // entire transfer completed. clear the wire ID
-            wire_addr_ = A3_ID_INVALID;
+            wire_id_ = A3_ID_INVALID;
         }
     }
 }

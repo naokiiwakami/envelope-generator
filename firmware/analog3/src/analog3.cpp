@@ -66,7 +66,7 @@ void Analog3::HandleRxMessage(const CanRxMessage& message) {
     return;
   }
   uint32_t remote_id = message.GetId();
-  if (remote_id == stream_.GetWireAddress()) {
+  if (remote_id == stream_.GetWireId()) {
     ReadDataFrame(message);
   }
   if (remote_id == A3_ID_MISSION_CONTROL) {
@@ -90,7 +90,7 @@ void Analog3::ReadDataFrame(const CanRxMessage& message) {
   } else {
     // continue
     auto message = hw_controller_->CreateTxMessage();
-    message->SetId(stream_.GetWireAddress());
+    message->SetId(stream_.GetWireId());
     message->SetRemote(true);
     message->SetDlc(0);
     Transfer(message);
@@ -177,7 +177,7 @@ void Analog3::HandleRequestName(const uint8_t *data, uint8_t dlc) {
 }
 
 void Analog3::HandleContinueName(const uint8_t *data, uint8_t dlc) {
-  uint32_t wire_addr = stream_.GetWireAddress();
+  uint32_t wire_addr = stream_.GetWireId();
   if (wire_addr == A3_ID_INVALID) {
     // no active stream, ignore.
     return;
@@ -204,7 +204,7 @@ void Analog3::HandleRequestConfig(const uint8_t *data, uint8_t dlc) {
 }
 
 void Analog3::HandleContinueConfig(const uint8_t *data, uint8_t dlc) {
-  uint32_t wire_addr = stream_.GetWireAddress();
+  uint32_t wire_addr = stream_.GetWireId();
   if (wire_addr == A3_ID_INVALID) {
     // no active stream, ignore.
     return;
