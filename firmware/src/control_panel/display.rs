@@ -215,30 +215,8 @@ impl EgDisplay {
     }
 
     async fn run_admin_menu_mode(&mut self) {
-        let mut mode = MenuMode::new(self, "ADMIN MENU", &ADMIN_MENU_ITEMS);
+        let mut mode = MenuMode::new(self, "Admin Menu", &ADMIN_MENU_ITEMS);
         mode.run().await;
-    }
-
-    async fn display_current_admin_menu(&mut self, index: usize) {
-        if index >= ADMIN_MENU_ITEMS.len() {
-            error!("display_current_menu: Index out of bounds; index={}", index);
-            return;
-        }
-        self.display.clear(BinaryColor::Off).unwrap();
-        let current_item = &ADMIN_MENU_ITEMS[index];
-        let text_style = MonoTextStyleBuilder::new()
-            .font(&FONT_10X20)
-            .text_color(BinaryColor::On)
-            .build();
-        Text::with_baseline(
-            current_item.name,
-            Point::new(0, 20),
-            text_style,
-            Baseline::Top,
-        )
-        .draw(&mut self.display)
-        .unwrap();
-        self.display.flush().await.unwrap();
     }
 
     // pots diag mode //////////////////////////////////////////////////////

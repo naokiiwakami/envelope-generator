@@ -16,15 +16,15 @@ pub enum OpAction {
 
 pub static ADMIN_MENU_ITEMS: [MenuItem<AdminAction>; 3] = [
     MenuItem {
-        name: "CALIBRATE",
+        name: "Calibrate",
         action: AdminAction::Exit,
     },
     MenuItem {
-        name: "DIAGNOSE",
+        name: "Diagnose",
         action: AdminAction::Diagnose,
     },
     MenuItem {
-        name: "EXIT",
+        name: "Exit",
         action: AdminAction::Exit,
     },
 ];
