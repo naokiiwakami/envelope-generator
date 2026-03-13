@@ -5,3 +5,4 @@ ComponentUpdateLog.txt
 fp-info-cache
 *.lck
 _autosave*
+*.kicad_prl
