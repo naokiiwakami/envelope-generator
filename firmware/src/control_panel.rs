@@ -4,7 +4,6 @@ mod menu;
 
 use defmt::debug;
 use embassy_executor::Spawner;
-use embassy_futures::select::{Either, Either3, select, select3};
 use embassy_stm32::{
     gpio::{Input, Level, Output},
     i2c::{I2c, Master},
@@ -22,7 +21,7 @@ use display::{
 };
 use menu::{ADMIN_MENU_ITEMS, AdminAction as MenuAction};
 
-use crate::{control_panel::diagnoser::Diagnoser, input_reader::get_reader_info_receiver};
+use crate::control_panel::diagnoser::Diagnoser;
 
 pub fn start(
     spawner: Spawner,
@@ -167,26 +166,31 @@ impl ControlPanel {
         self.display_current_admin_menu().await;
     }
 
+    fn update_menu_index(&mut self) {
+        let count = self.encoder.count() >> 2;
+        if count == self.encoder_origin {
+            // no change
+            return;
+        }
+        let delta = (count - self.encoder_origin) as i32;
+        let mut idx = (self.menu_item_index as i32 + delta) % ADMIN_MENU_ITEMS.len() as i32;
+        if idx < 0 {
+            idx += ADMIN_MENU_ITEMS.len() as i32;
+        }
+        self.menu_item_index = idx as usize;
+        debug!(
+            "count: {}, index: {}, origin: {}",
+            count, self.menu_item_index, self.encoder_origin
+        );
+        self.encoder_origin = count;
+    }
+
     async fn update_admin_menu(&mut self) {
         if Instant::now().ge(&self.toggle_time) {
             self.ind_red.toggle();
             self.toggle_time = self.toggle_time.saturating_add(Duration::from_millis(500));
         }
-        let count = self.encoder.count() / 4;
-        let next_index = if count > self.encoder_origin {
-            count - self.encoder_origin
-        } else {
-            16384 - (self.encoder_origin - count)
-        } as usize
-            % ADMIN_MENU_ITEMS.len();
-        if next_index == self.menu_item_index {
-            return;
-        }
-        debug!(
-            "count: {}, index: {}, origin: {}",
-            count, next_index, self.encoder_origin
-        );
-        self.menu_item_index = next_index;
+        self.update_menu_index();
         self.display_current_admin_menu().await;
     }
 
