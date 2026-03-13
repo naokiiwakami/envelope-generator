@@ -109,7 +109,7 @@ impl ControlPanel {
                     match self.mode {
                         ControlPanelMode::Normal => {
                             if button_pressed_at.elapsed().as_millis() > 2000 {
-                                self.into_menu_mode().await;
+                                self.into_admin_menu_mode().await;
                             }
                         }
                         _ => {} // do nothing
@@ -157,14 +157,14 @@ impl ControlPanel {
         self.button_pressed_at = None;
     }
 
-    async fn into_menu_mode(&mut self) {
+    async fn into_admin_menu_mode(&mut self) {
         self.mode = ControlPanelMode::AdminMenu;
         self.encoder_origin = self.encoder.count() / 4;
         self.ind_red.set_high();
         self.ind_green.set_low();
         self.menu_item_index = 0;
         self.toggle_time = Instant::now().saturating_add(Duration::from_millis(500));
-        self.display_current_menu().await;
+        self.display_current_admin_menu().await;
     }
 
     async fn update_admin_menu(&mut self) {
@@ -187,7 +187,7 @@ impl ControlPanel {
             count, next_index, self.encoder_origin
         );
         self.menu_item_index = next_index;
-        self.display_current_menu().await;
+        self.display_current_admin_menu().await;
     }
 
     async fn execute_admin_menu(&mut self) {
@@ -224,8 +224,8 @@ impl ControlPanel {
             .await;
     }
 
-    async fn display_current_menu(&mut self) {
-        let request = DisplayRequest::DisplayMenuItem {
+    async fn display_current_admin_menu(&mut self) {
+        let request = DisplayRequest::DisplayAdminMenuItem {
             index: self.menu_item_index,
         };
         self.display_request_sender.send(request).await;

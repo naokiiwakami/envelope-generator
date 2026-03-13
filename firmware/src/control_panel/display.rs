@@ -1,3 +1,5 @@
+mod menu_mode;
+
 use core::cmp::min;
 use defmt::{debug, error};
 use embassy_futures::yield_now;
@@ -12,7 +14,7 @@ use embassy_sync::{
 use embedded_graphics::{
     mono_font::{
         MonoTextStyleBuilder,
-        ascii::{FONT_5X8, FONT_7X13, FONT_10X20},
+        ascii::{FONT_5X8, FONT_8X13, FONT_8X13_BOLD, FONT_10X20},
     },
     pixelcolor::BinaryColor,
     prelude::*,
@@ -27,7 +29,10 @@ use ssd1306::{
     size::DisplaySize128x64,
 };
 
-use crate::input_reader::{CvInfo, PotInfo};
+use crate::{
+    control_panel::display::menu_mode::MenuMode,
+    input_reader::{CvInfo, PotInfo},
+};
 
 use super::menu::ADMIN_MENU_ITEMS;
 
@@ -43,7 +48,7 @@ pub async fn run_display(i2c: I2c<'static, Async, Master>) {
 enum Mode {
     Any,
     Fundamental,
-    Menu,
+    AdminMenu,
     PotsDiag,
     CvDiag,
 }
@@ -65,7 +70,7 @@ pub enum Request {
         position: Point,
     },
     // Menu requests
-    DisplayMenuItem {
+    DisplayAdminMenuItem {
         index: usize,
     },
     // PotsDiag requests
@@ -83,7 +88,7 @@ impl Request {
         match self {
             Request::Clear { .. } | Request::Flush => Mode::Any,
             Request::ShowInitialScreen | Request::DisplayText { .. } => Mode::Fundamental,
-            Request::DisplayMenuItem { .. } => Mode::Menu,
+            Request::DisplayAdminMenuItem { .. } => Mode::AdminMenu,
             Request::UpdatePotValue { .. } => Mode::PotsDiag,
             Request::UpdateCvValues { .. } => Mode::CvDiag,
         }
@@ -127,7 +132,7 @@ impl EgDisplay {
             match self.mode {
                 Mode::Any => {} // Generic requests don't have a specific mode
                 Mode::Fundamental => self.run_fundamental_mode().await,
-                Mode::Menu => self.run_menu_mode().await,
+                Mode::AdminMenu => self.run_admin_menu_mode().await,
                 Mode::PotsDiag => self.run_pots_diag_mode().await,
                 Mode::CvDiag => self.run_cv_diag_mode().await,
             };
@@ -203,26 +208,18 @@ impl EgDisplay {
 
     // menu mode //////////////////////////////////////////////////////////
 
-    async fn into_menu_mode(&mut self, pending_request: Request) {
+    async fn into_admin_menu_mode(&mut self, pending_request: Request) {
         self.clear(false, false).await;
-        self.mode = Mode::Menu;
+        self.mode = Mode::AdminMenu;
         self.pending_request = Some(pending_request);
     }
 
-    async fn run_menu_mode(&mut self) {
-        while matches!(self.mode, Mode::Menu) {
-            let request = self.fetch_request().await;
-            match request {
-                Request::Clear { .. } | Request::Flush => {
-                    self.handle_generic_request(request).await
-                }
-                Request::DisplayMenuItem { index } => self.display_current_menu(index).await,
-                _ => self.switch_mode(request).await,
-            }
-        }
+    async fn run_admin_menu_mode(&mut self) {
+        let mut mode = MenuMode::new(self, "ADMIN MENU", &ADMIN_MENU_ITEMS);
+        mode.run().await;
     }
 
-    async fn display_current_menu(&mut self, index: usize) {
+    async fn display_current_admin_menu(&mut self, index: usize) {
         if index >= ADMIN_MENU_ITEMS.len() {
             error!("display_current_menu: Index out of bounds; index={}", index);
             return;
@@ -404,7 +401,7 @@ impl EgDisplay {
     async fn switch_mode(&mut self, request: Request) {
         match request.mode() {
             Mode::Fundamental => self.into_fundamental_mode(request).await,
-            Mode::Menu => self.into_menu_mode(request).await,
+            Mode::AdminMenu => self.into_admin_menu_mode(request).await,
             Mode::PotsDiag => self.into_pots_diag_mode(request).await,
             Mode::CvDiag => self.into_cv_diag_mode(request).await,
             Mode::Any => {} // Generic requests shouldn't reach here.
@@ -436,7 +433,13 @@ impl EgDisplay {
         position: Point,
     ) {
         let font = match size {
-            1 => &FONT_7X13,
+            1 => {
+                if reverse {
+                    &FONT_8X13_BOLD
+                } else {
+                    &FONT_8X13
+                }
+            }
             2 => &FONT_10X20,
             _ => &FONT_5X8,
         };

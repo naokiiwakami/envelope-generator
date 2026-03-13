@@ -1,20 +1,20 @@
-pub static MENU_ITEMS: [MenuItem; 2] = [
-    MenuItem {
+pub static OP_MENU_ITEMS: [OpMenuItem; 2] = [
+    OpMenuItem {
         name: "MODE",
-        action: Action::ChangeMode,
+        action: OpAction::ChangeMode,
     },
-    MenuItem {
+    OpMenuItem {
         name: "EXIT",
-        action: Action::Exit,
+        action: OpAction::Exit,
     },
 ];
 
-pub struct MenuItem {
+pub struct OpMenuItem {
     pub name: &'static str,
-    pub action: Action,
+    pub action: OpAction,
 }
 
-pub enum Action {
+pub enum OpAction {
     ChangeMode,
     Exit,
 }
@@ -29,6 +29,22 @@ pub static ADMIN_MENU_ITEMS: [AdminMenuItem; 2] = [
         action: AdminAction::Exit,
     },
 ];
+
+pub static A_MENU_ITEMS: [MenuItem<AdminAction>; 2] = [
+    MenuItem {
+        name: "DIAGNOSE",
+        action: AdminAction::Diagnose,
+    },
+    MenuItem {
+        name: "EXIT",
+        action: AdminAction::Exit,
+    },
+];
+
+pub struct MenuItem<ActionT> {
+    pub name: &'static str,
+    pub action: ActionT,
+}
 
 pub struct AdminMenuItem {
     pub name: &'static str,
