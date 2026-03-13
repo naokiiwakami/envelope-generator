@@ -1,3 +1,4 @@
+mod diagnoser;
 mod display;
 mod menu;
 
@@ -21,7 +22,7 @@ use display::{
 };
 use menu::{ADMIN_MENU_ITEMS, AdminAction as MenuAction};
 
-use crate::input_reader::get_reader_info_receiver;
+use crate::{control_panel::diagnoser::Diagnoser, input_reader::get_reader_info_receiver};
 
 pub fn start(
     spawner: Spawner,
@@ -193,7 +194,9 @@ impl ControlPanel {
         let action = &ADMIN_MENU_ITEMS[self.menu_item_index].action;
         match action {
             MenuAction::Diagnose => {
-                self.diagnose().await;
+                let mut diagnoser = Diagnoser::new(self);
+                diagnoser.diagnose().await;
+                // self.diagnose().await;
                 self.mode = ControlPanelMode::Normal;
             }
             MenuAction::Exit => {
@@ -201,134 +204,6 @@ impl ControlPanel {
                 self.show_initial_screen().await;
             }
         };
-    }
-
-    async fn diagnose(&mut self) {
-        self.display_text("Diagnosing...", true).await;
-        crate::analog3::trigger_diagnose().await;
-        Timer::after_millis(6500).await;
-        self.blink_leds().await;
-        Timer::after_millis(500).await;
-        self.diagnose_patch_controller().await;
-        self.diagnose_pots().await;
-        self.diagnose_cv().await;
-        self.display_text("Done!", true).await;
-        Timer::after_secs(1).await;
-        self.show_initial_screen().await;
-    }
-
-    async fn diagnose_patch_controller(&mut self) {
-        crate::patch_controller::diagnose_leds().await;
-        self.display_text("Press button", false).await;
-        crate::patch_controller::diagnose_button().await;
-    }
-
-    async fn diagnose_pots(&mut self) {
-        self.display_text("Testing pots", false).await;
-        let mut receiver = get_reader_info_receiver().await;
-        let mut now = Instant::now();
-        self.button_pressed_at = if self.button.is_low() {
-            Some(now.clone())
-        } else {
-            None
-        };
-        let mut next = now.saturating_add(Duration::from_millis(10));
-        let mut wakeup_count = 0;
-
-        let mut first_one_covered = false;
-        loop {
-            let sleep_time = next.duration_since(now);
-            match select(receiver.changed(), Timer::after(sleep_time)).await {
-                Either::First(reader_info) => {
-                    let pot_info = reader_info.pot_info;
-                    let index = pot_info.kind.clone() as usize;
-                    self.display_request_sender
-                        .send(DisplayRequest::UpdatePotValue { pot_info })
-                        .await;
-                    if index == 0 {
-                        first_one_covered = true;
-                    } else if index == 7 && first_one_covered {
-                        self.display_request_sender
-                            .send(DisplayRequest::Flush)
-                            .await;
-                    }
-                }
-                Either::Second(()) => {}
-            }
-            now = Instant::now();
-            if now.ge(&next) {
-                if self.button.is_low() {
-                    self.button_pressed_at.replace(now.clone());
-                } else {
-                    let to_exit = self.button_pressed_at.is_some();
-                    self.button_pressed_at = None;
-                    if to_exit {
-                        self.ind_red.set_low();
-                        self.ind_green.set_low();
-                        break;
-                    }
-                }
-                if wakeup_count % 50 == 0 {
-                    self.ind_red.toggle();
-                    self.ind_green.toggle();
-                }
-                wakeup_count += 1;
-                while now.ge(&next) {
-                    next = next.saturating_add(Duration::from_millis(10));
-                }
-            }
-        }
-    }
-
-    async fn diagnose_cv(&mut self) {
-        let mut receiver = get_reader_info_receiver().await;
-        let mut now = Instant::now();
-        self.button_pressed_at = if self.button.is_low() {
-            Some(now.clone())
-        } else {
-            None
-        };
-        let mut next = now.saturating_add(Duration::from_millis(10));
-        let mut wakeup_count = 0;
-
-        let mut last_update_time = Instant::now();
-        loop {
-            let sleep_time = next.duration_since(now);
-            match select(receiver.changed(), Timer::after(sleep_time)).await {
-                Either::First(reader_info) => {
-                    let cv_info = reader_info.cv_info;
-                    if last_update_time.elapsed().as_millis() >= 30 {
-                        self.display_request_sender
-                            .send(DisplayRequest::UpdateCvValues { cv_info })
-                            .await;
-                        last_update_time = Instant::now();
-                    }
-                }
-                Either::Second(()) => {}
-            }
-            now = Instant::now();
-            if now.ge(&next) {
-                if self.button.is_low() {
-                    self.button_pressed_at.replace(now.clone());
-                } else {
-                    let to_exit = self.button_pressed_at.is_some();
-                    self.button_pressed_at = None;
-                    if to_exit {
-                        self.ind_red.set_low();
-                        self.ind_green.set_low();
-                        break;
-                    }
-                }
-                if wakeup_count % 50 == 0 {
-                    self.ind_red.toggle();
-                    self.ind_green.toggle();
-                }
-                wakeup_count += 1;
-                while now.ge(&next) {
-                    next = next.saturating_add(Duration::from_millis(10));
-                }
-            }
-        }
     }
 
     async fn blink_leds(&mut self) {
