@@ -3,7 +3,6 @@
 use embassy_stm32::can::frame::FdFrame;
 use embedded_can::{Frame, Id};
 use heapless::String;
-use num_enum::{IntoPrimitive, TryFromPrimitive};
 
 // ID assignments /////////////////////////////////
 pub const A3_ID_UNASSIGNED: u16 = 0xFFFF;

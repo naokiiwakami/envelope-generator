@@ -17,7 +17,7 @@ use embassy_stm32::exti::{self, ExtiInput};
 use embassy_stm32::flash::{self, Flash};
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::i2c::{self, I2c, Master};
-use embassy_stm32::mode::{self, Async, Blocking};
+use embassy_stm32::mode::{Async, Blocking};
 use embassy_stm32::pac;
 use embassy_stm32::peripherals::{self, DAC1, TIM3};
 use embassy_stm32::rcc::{

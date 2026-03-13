@@ -18,7 +18,7 @@ use embedded_graphics::{
     },
     pixelcolor::BinaryColor,
     prelude::*,
-    primitives::{Arc, Circle, PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, StyledDrawable},
+    primitives::{Arc, Circle, PrimitiveStyle, PrimitiveStyleBuilder},
     text::{Baseline, Text},
 };
 use heapless::String;
