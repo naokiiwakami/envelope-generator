@@ -16,12 +16,15 @@ use embassy_sync::{
 };
 use embassy_time::{Duration, Instant, Timer};
 
+use crate::envelope_generator::{
+    EVENT_CHANNEL_SIZE, EgEvent, GateEventType, GateId, get_event_sender,
+};
+
 // communications ///////////////////////////////
 static WATCH_READER: Watch<ThreadModeRawMutex, InputReaderInfo, 2> = Watch::new();
 static CHANNEL_ADC: Channel<ThreadModeRawMutex, InputReaderRequest, 2> = Channel::new();
 static SIGNAL_GATE_1_READING: Signal<ThreadModeRawMutex, u16> = Signal::new();
 static SIGNAL_GATE_2_READING: Signal<ThreadModeRawMutex, u16> = Signal::new();
-static CHANNEL_GATE: Channel<ThreadModeRawMutex, GateEvent, 4> = Channel::new();
 
 /// ADC resources
 pub struct AdcResources {
@@ -70,25 +73,6 @@ pub struct CvInfo {
 pub struct InputReaderInfo {
     pub pot_info: PotInfo,
     pub cv_info: CvInfo,
-}
-
-pub struct GateEvent {
-    pub id: GateId,
-    pub event: GateEventType,
-}
-
-#[derive(Clone, Debug, defmt::Format)]
-pub enum GateId {
-    Gate1,
-    Gate2,
-}
-
-#[derive(Clone, Debug, defmt::Format)]
-pub enum GateEventType {
-    AnalogGateEnabled,
-    AnalogGateDisabled,
-    GateOn { level: u16 },
-    GateOff,
 }
 
 pub enum InputReaderRequest {
@@ -143,10 +127,6 @@ where
         Timer::after_millis(sleep_millis).await;
         sleep_millis *= 2;
     }
-}
-
-pub fn get_gate_event_receiver() -> channel::Receiver<'static, ThreadModeRawMutex, GateEvent, 4> {
-    CHANNEL_GATE.receiver()
 }
 
 pub async fn get_reader_info_receiver()
@@ -304,7 +284,7 @@ struct AnalogGate {
     gate_id: GateId,
     state: AnalogGateState,
 
-    event_sender: channel::Sender<'static, ThreadModeRawMutex, GateEvent, 4>,
+    event_sender: channel::Sender<'static, ThreadModeRawMutex, EgEvent, EVENT_CHANNEL_SIZE>,
 }
 
 impl AnalogGate {
@@ -320,7 +300,7 @@ impl AnalogGate {
             trigger,
             gate_id,
             state: AnalogGateState::Disabled,
-            event_sender: CHANNEL_GATE.sender(),
+            event_sender: get_event_sender(),
         }
     }
 
@@ -337,7 +317,7 @@ impl AnalogGate {
                         self.state = AnalogGateState::GateOff;
                         self.ind_analog_gate.set_high();
                         self.event_sender
-                            .send(GateEvent {
+                            .send(EgEvent::GateEvent {
                                 id: self.gate_id.clone(),
                                 event: GateEventType::AnalogGateEnabled,
                             })
@@ -391,10 +371,12 @@ impl AnalogGate {
             GateId::Gate1 => SIGNAL_GATE_1_READING.wait().await,
             GateId::Gate2 => SIGNAL_GATE_2_READING.wait().await,
         };
+        // TODO: Calibrate and convert properly
+        let velocity = 0xffff - (level << 4);
         self.event_sender
-            .send(GateEvent {
+            .send(EgEvent::GateEvent {
                 id: self.gate_id.clone(),
-                event: GateEventType::GateOn { level },
+                event: GateEventType::GateOn { velocity },
             })
             .await;
     }
@@ -402,7 +384,7 @@ impl AnalogGate {
     async fn handle_gate_off(&mut self) {
         self.state = AnalogGateState::GateOff;
         self.event_sender
-            .send(GateEvent {
+            .send(EgEvent::GateEvent {
                 id: self.gate_id.clone(),
                 event: GateEventType::GateOff,
             })
@@ -418,14 +400,14 @@ impl AnalogGate {
             );
             if !matches!(self.state, AnalogGateState::GateOff) {
                 self.event_sender
-                    .send(GateEvent {
+                    .send(EgEvent::GateEvent {
                         id: self.gate_id.clone(),
                         event: GateEventType::GateOff,
                     })
                     .await;
             }
             self.event_sender
-                .send(GateEvent {
+                .send(EgEvent::GateEvent {
                     id: self.gate_id.clone(),
                     event: GateEventType::AnalogGateDisabled,
                 })

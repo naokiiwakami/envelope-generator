@@ -14,19 +14,21 @@ use embassy_stm32::{
     pac,
     peripherals::DAC1,
 };
-use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel};
+use embassy_sync::{
+    blocking_mutex::raw::ThreadModeRawMutex,
+    channel::{self, Channel},
+};
 use embassy_time::{Duration, Timer};
 use heapless::String;
 use {defmt_rtt as _, panic_probe as _};
 
 use config::EgConfig;
 use default_engine::DefaultEgEngine;
-use definitions::{EngineType, VoiceParams};
+use definitions::VoiceParams;
+pub use definitions::{EgEvent, EngineType, GateEventType, GateId};
 use diag_engine::DiagEgEngine;
 
-use crate::input_reader::{
-    GateEvent, GateEventType, GateId, InputReaderInfo, get_gate_event_receiver,
-};
+use crate::input_reader::InputReaderInfo;
 use crate::{
     analog3::{
         self,
@@ -42,10 +44,20 @@ use crate::{
 const POLLING_INTERVAL: Duration = Duration::from_micros(100); // 20 kHz
 const BUF_SEGMENT_LENGTH: usize = 128;
 
+// DAC buffers
 const BUF_SIZE: usize = BUF_SEGMENT_LENGTH * 2;
 static mut BUFFERS: [[u16; BUF_SIZE]; 2] = [[0; BUF_SIZE]; 2];
 static mut HEADS: [usize; 2] = [0; 2];
 static mut TAILS: [usize; 2] = [0; 2];
+
+// Event channel
+pub const EVENT_CHANNEL_SIZE: usize = 4;
+static CHANNEL_EVENT: Channel<ThreadModeRawMutex, EgEvent, EVENT_CHANNEL_SIZE> = Channel::new();
+
+pub fn get_event_sender()
+-> channel::Sender<'static, ThreadModeRawMutex, EgEvent, EVENT_CHANNEL_SIZE> {
+    CHANNEL_EVENT.sender()
+}
 
 pub fn start(
     spawner: Spawner,
@@ -109,7 +121,8 @@ async fn run_envelope_generator(
 
 struct EnvelopeGenerator {
     config: EgConfig,
-    gate_event_receiver: channel::Receiver<'static, ThreadModeRawMutex, GateEvent, 4>,
+    gate_event_receiver:
+        channel::Receiver<'static, ThreadModeRawMutex, EgEvent, EVENT_CHANNEL_SIZE>,
     voice_1: EgVoice,
     voice_2: EgVoice,
 }
@@ -118,7 +131,7 @@ impl EnvelopeGenerator {
     pub fn new(ind_gate_1: Output<'static>, ind_gate_2: Output<'static>) -> Self {
         Self {
             config: EgConfig::new(0x101, 0x102),
-            gate_event_receiver: get_gate_event_receiver(),
+            gate_event_receiver: CHANNEL_EVENT.receiver(),
             voice_1: EgVoice::new(0, ind_gate_1),
             voice_2: EgVoice::new(1, ind_gate_2),
         }
@@ -187,10 +200,13 @@ impl EnvelopeGenerator {
         self.voice_2.update();
     }
 
-    async fn handle_gate_event(&mut self, event: GateEvent) {
-        match event.id {
-            GateId::Gate1 => self.voice_1.handle_gate_event(event.event).await,
-            GateId::Gate2 => self.voice_2.handle_gate_event(event.event).await,
+    async fn handle_gate_event(&mut self, eg_event: EgEvent) {
+        match eg_event {
+            EgEvent::GateEvent { id, event } => match id {
+                GateId::Gate1 => self.voice_1.handle_gate_event(event).await,
+                GateId::Gate2 => self.voice_2.handle_gate_event(event).await,
+            },
+            EgEvent::SwitchTypeRequested(engine_type) => {}
         };
     }
 
@@ -275,8 +291,8 @@ impl EgVoice {
             GateEventType::AnalogGateDisabled => {
                 self.analog_gate_enabled = false;
             }
-            GateEventType::GateOn { level } => {
-                self.params.velocity = level;
+            GateEventType::GateOn { velocity } => {
+                self.params.velocity = velocity;
                 self.gate_on()
             }
             GateEventType::GateOff => {

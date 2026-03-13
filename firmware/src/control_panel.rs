@@ -19,7 +19,7 @@ use heapless::String;
 use display::{
     CHANNEL_LENGTH as DISPLAY_CHANNEL_LENGTH, Request as DisplayRequest, get_request_sender,
 };
-use menu::{ADMIN_MENU_ITEMS, Action as MenuAction};
+use menu::{ADMIN_MENU_ITEMS, AdminAction as MenuAction};
 
 use crate::input_reader::get_reader_info_receiver;
 
@@ -44,8 +44,8 @@ async fn run_control_panel(mut control_panel: ControlPanel) {
 
 enum ControlPanelMode {
     Normal,
-    Menu,
-    MenuSelected,
+    AdminMenu,
+    AdminMenuSelected,
 }
 
 struct ControlPanel {
@@ -120,7 +120,7 @@ impl ControlPanel {
             self.on_button_released().await;
         } else {
             match self.mode {
-                ControlPanelMode::Menu => self.update_menu().await,
+                ControlPanelMode::AdminMenu => self.update_admin_menu().await,
                 _ => {}
             }
         }
@@ -133,8 +133,8 @@ impl ControlPanel {
                 self.ind_red.set_high();
                 self.ind_green.set_high();
             }
-            ControlPanelMode::Menu => {
-                self.mode = ControlPanelMode::MenuSelected;
+            ControlPanelMode::AdminMenu => {
+                self.mode = ControlPanelMode::AdminMenuSelected;
             }
             _ => {}
         };
@@ -146,10 +146,10 @@ impl ControlPanel {
                 self.ind_red.set_low();
                 self.ind_green.set_low();
             }
-            ControlPanelMode::MenuSelected => {
+            ControlPanelMode::AdminMenuSelected => {
                 self.ind_red.set_low();
                 self.ind_green.set_low();
-                self.execute_menu().await;
+                self.execute_admin_menu().await;
             }
             _ => {}
         }
@@ -157,7 +157,7 @@ impl ControlPanel {
     }
 
     async fn into_menu_mode(&mut self) {
-        self.mode = ControlPanelMode::Menu;
+        self.mode = ControlPanelMode::AdminMenu;
         self.encoder_origin = self.encoder.count() / 4;
         self.ind_red.set_high();
         self.ind_green.set_low();
@@ -166,7 +166,7 @@ impl ControlPanel {
         self.display_current_menu().await;
     }
 
-    async fn update_menu(&mut self) {
+    async fn update_admin_menu(&mut self) {
         if Instant::now().ge(&self.toggle_time) {
             self.ind_red.toggle();
             self.toggle_time = self.toggle_time.saturating_add(Duration::from_millis(500));
@@ -189,7 +189,7 @@ impl ControlPanel {
         self.display_current_menu().await;
     }
 
-    async fn execute_menu(&mut self) {
+    async fn execute_admin_menu(&mut self) {
         let action = &ADMIN_MENU_ITEMS[self.menu_item_index].action;
         match action {
             MenuAction::Diagnose => {
