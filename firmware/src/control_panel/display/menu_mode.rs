@@ -8,20 +8,20 @@ use embedded_graphics::{
     primitives::{PrimitiveStyleBuilder, Rectangle},
 };
 
-use crate::control_panel::menu::{ADMIN_MENU_ITEMS, AdminMenuItem};
+use crate::control_panel::menu::MenuItem;
 
 use super::{EgDisplay, Mode, Request};
 
-pub struct MenuMode<'a> {
+pub struct MenuMode<'a, ActionT> {
     display: &'a mut EgDisplay,
 
     title: &'a str,
-    menu_items: &'a [AdminMenuItem],
+    menu_items: &'a [MenuItem<ActionT>],
     top_line: usize,
     current_item: usize,
 }
 
-impl<'a> MenuMode<'a> {
+impl<'a, ActionT> MenuMode<'a, ActionT> {
     const NUM_LINES: usize = 3; // three lines fit in the screen
     const LINE_HEIGHT: i32 = 16;
     const MARGIN_TOP: i32 = 1;
@@ -30,7 +30,7 @@ impl<'a> MenuMode<'a> {
     pub fn new(
         display: &'a mut EgDisplay,
         title: &'a str,
-        menu_items: &'static [AdminMenuItem],
+        menu_items: &'static [MenuItem<ActionT>],
     ) -> Self {
         Self {
             display,
@@ -78,7 +78,7 @@ impl<'a> MenuMode<'a> {
     }
 
     async fn display_current_admin_menu(&mut self, index: usize) {
-        if index >= ADMIN_MENU_ITEMS.len() {
+        if index >= self.menu_items.len() {
             error!("display_current_menu: Index out of bounds; index={}", index);
             return;
         }
