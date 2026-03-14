@@ -1,17 +1,24 @@
 /// Default EG voice engine
+use defmt;
+
 use super::config::EgConfig;
 use super::definitions::VoiceParams;
 
+use crate::envelope_generator::EngineType;
 use crate::input_reader::PotKind;
 
+#[derive(Debug, defmt::Format)]
 enum DefaultEnginePhase {
     Released,
     Attack,
+    InitialDecay,
     Decay,
 }
 
 /// The fundamental envelope EG voice engine that generates traditional ADSR curve.
 pub struct DefaultEgEngine {
+    engine_type: EngineType,
+
     // Values are UQ32.32 fixed point integers.
     // This equal integer and fractional assignment is convenient for EG curve
     // calculation as most of values are in range of [0:1) that fit within
@@ -22,6 +29,8 @@ pub struct DefaultEgEngine {
     decay_ratio: u64,
     sustain_level: u64,
     release_ratio: u64,
+    initial_decay_ratio: u64,
+    decay_switch_level: u64,
 
     // Values that represent current EG state
 
@@ -46,12 +55,16 @@ pub struct DefaultEgEngine {
 }
 
 impl DefaultEgEngine {
-    pub fn new() -> Self {
+    pub fn new(engine_type: EngineType) -> Self {
         Self {
+            engine_type,
+
             attack_ratio: 0,
             decay_ratio: 0,
             sustain_level: 0xffffffff,
             release_ratio: 0,
+            initial_decay_ratio: 0,
+            decay_switch_level: 0xffffffff,
 
             current_value: 0,
             target_value: 0,
@@ -62,7 +75,8 @@ impl DefaultEgEngine {
         }
     }
 
-    pub fn initialize(&mut self, voice_index: usize, config: &EgConfig) {
+    pub fn initialize(&mut self, engine_type: &EngineType, voice_index: usize, config: &EgConfig) {
+        self.engine_type = engine_type.clone();
         self.update_params(voice_index, config, &PotKind::Attack);
         self.update_params(voice_index, config, &PotKind::Decay);
         self.update_params(voice_index, config, &PotKind::Sustain);
@@ -95,7 +109,21 @@ impl DefaultEgEngine {
                     7.5 + 2.5e-9 * new_release_time * new_release_time * new_release_time;
                 self.release_ratio = 0xffffffff / release_time_constant as u64;
             }
-            _ => {} // else ignore for now
+            PotKind::Extra1 => {
+                if matches!(self.engine_type, EngineType::ADDSR) {
+                    let new_decay_time = config.extra1[voice_index] as f64;
+                    let decay_time_constant =
+                        7.5 + 2.5e-9 * new_decay_time * new_decay_time * new_decay_time;
+                    self.initial_decay_ratio = 0xffffffff / decay_time_constant as u64;
+                }
+            }
+            PotKind::Extra2 => {
+                if matches!(self.engine_type, EngineType::ADDSR) {
+                    let level = config.extra2[voice_index] as u64;
+                    self.decay_switch_level = ((level >> 1) + 32768) * level;
+                }
+            }
+            _ => {} // TODO interpret CV1_DEPTH and CV2_DEPTH
         }
     }
 
@@ -124,30 +152,63 @@ impl DefaultEgEngine {
     pub fn update(&mut self, _params: &VoiceParams) -> u16 {
         match self.phase {
             DefaultEnginePhase::Attack => {
-                let mut diff = self.target_value - self.current_value;
-                diff *= self.attack_ratio;
-                self.current_value += diff >> 32;
+                let mut delta = self.target_value - self.current_value;
+                delta *= self.attack_ratio;
+                self.current_value += delta >> 32;
                 if self.current_value >= self.peak_value {
-                    self.phase = DefaultEnginePhase::Decay;
+                    self.phase = match self.engine_type {
+                        EngineType::ADDSR => DefaultEnginePhase::InitialDecay,
+                        _ => DefaultEnginePhase::Decay,
+                    };
                     self.current_value = self.peak_value;
+                }
+            }
+            DefaultEnginePhase::InitialDecay => {
+                // update the target value every cycle as the sustain level may have changed.
+                let switch_value = (self.peak_value * self.decay_switch_level) >> 32;
+                let mut current_value: i64 = self.current_value as i64;
+                let target_value: i64 =
+                    (switch_value as i64 - self.peak_value as i64) * 6 / 5 + self.peak_value as i64;
+                if target_value < current_value {
+                    let mut delta = current_value - target_value;
+                    delta *= self.initial_decay_ratio as i64;
+                    delta >>= 32;
+                    current_value -= delta;
+                    if current_value > switch_value as i64 {
+                        self.current_value = current_value as u64;
+                    } else {
+                        self.current_value = switch_value;
+                        self.phase = DefaultEnginePhase::Decay;
+                    }
+                } else {
+                    let mut delta = target_value - current_value;
+                    delta *= self.initial_decay_ratio as i64;
+                    delta >>= 32;
+                    current_value += delta;
+                    if current_value < switch_value as i64 {
+                        self.current_value = current_value as u64;
+                    } else {
+                        self.current_value = switch_value;
+                        self.phase = DefaultEnginePhase::Decay;
+                    }
                 }
             }
             DefaultEnginePhase::Decay => {
                 // update the target value every cycle as the sustain level may have changed.
                 self.target_value = (self.peak_value * self.sustain_level) >> 32;
                 if self.target_value < self.current_value {
-                    let mut diff = self.current_value - self.target_value;
-                    diff *= self.decay_ratio;
-                    self.current_value -= diff >> 32;
+                    let mut delta = self.current_value - self.target_value;
+                    delta *= self.decay_ratio;
+                    self.current_value -= delta >> 32;
                 } else {
-                    let mut diff = self.target_value - self.current_value;
-                    diff *= self.decay_ratio;
-                    self.current_value += diff >> 32;
+                    let mut delta = self.target_value - self.current_value;
+                    delta *= self.decay_ratio;
+                    self.current_value += delta >> 32;
                 };
             }
             DefaultEnginePhase::Released => {
-                let diff = self.current_value * self.release_ratio;
-                self.current_value -= diff >> 32;
+                let delta = self.current_value * self.release_ratio;
+                self.current_value -= delta >> 32;
             }
         }
 

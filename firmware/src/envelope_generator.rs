@@ -244,17 +244,18 @@ impl EgVoice {
                 note: 60, // middle C
                 velocity: 0,
             },
-            engine_type: EngineType::Default,
-            default_engine: DefaultEgEngine::new(),
+            engine_type: EngineType::ADDSR,
+            default_engine: DefaultEgEngine::new(EngineType::ADDSR),
             diag_engine: DiagEgEngine::new(),
         }
     }
 
     pub fn switch_engine(&mut self, engine_type: EngineType, config: &EgConfig) {
         match engine_type {
-            EngineType::Default => self
-                .default_engine
-                .initialize(self.params.voice_index, config),
+            EngineType::Default | EngineType::ADDSR => {
+                self.default_engine
+                    .initialize(&engine_type, self.params.voice_index, config)
+            }
             EngineType::Diag => self.diag_engine.initialize(self.params.voice_index, config),
         }
         self.engine_type = engine_type;
@@ -274,7 +275,6 @@ impl EgVoice {
                 A3_VOICE_MSG_SET_NOTE => {
                     if index < message.size {
                         self.params.note = data[index];
-                        debug!("note set to {}", self.params.note);
                         index += 1;
                     } else {
                         warn!("could not fetch note");
@@ -283,7 +283,6 @@ impl EgVoice {
                 A3_VOICE_MSG_GATE_ON => {
                     if index + 1 < message.size {
                         self.params.velocity = (data[index] as u16) << 8 + (data[index + 1] as u16);
-                        debug!("velocity set to {}", self.params.velocity);
                         index += 2;
                     } else {
                         warn!("could not fetch velocity");
@@ -325,7 +324,7 @@ impl EgVoice {
             }
         }
         match self.engine_type {
-            EngineType::Default => self.default_engine.gate_on(&self.params),
+            EngineType::Default | EngineType::ADDSR => self.default_engine.gate_on(&self.params),
             EngineType::Diag => self.diag_engine.gate_on(&self.params),
         }
     }
@@ -333,7 +332,7 @@ impl EgVoice {
     fn gate_off(&mut self) {
         self.ind_gate.set_low();
         match self.engine_type {
-            EngineType::Default => self.default_engine.gate_off(),
+            EngineType::Default | EngineType::ADDSR => self.default_engine.gate_off(),
             EngineType::Diag => self.diag_engine.gate_off(),
         }
     }
@@ -341,7 +340,7 @@ impl EgVoice {
     pub fn update_params(&mut self, config: &EgConfig, input: &InputReaderInfo) {
         let index = self.params.voice_index;
         match self.engine_type {
-            EngineType::Default => {
+            EngineType::Default | EngineType::ADDSR => {
                 self.default_engine
                     .update_params(index, config, &input.pot_info.kind)
             }
@@ -353,7 +352,7 @@ impl EgVoice {
 
     pub fn update(&mut self) {
         let mut current_value: u16 = match self.engine_type {
-            EngineType::Default => self.default_engine.out_buf,
+            EngineType::Default | EngineType::ADDSR => self.default_engine.out_buf,
             EngineType::Diag => self.diag_engine.out_buf,
         };
         while self.queue_length() < BUF_SEGMENT_LENGTH {
@@ -363,7 +362,7 @@ impl EgVoice {
                 HEADS[self.params.voice_index] = (head + 1) % BUF_SIZE;
             }
             current_value = match self.engine_type {
-                EngineType::Default => self.default_engine.update(&self.params),
+                EngineType::Default | EngineType::ADDSR => self.default_engine.update(&self.params),
                 EngineType::Diag => self.diag_engine.update(&self.params),
             }
         }

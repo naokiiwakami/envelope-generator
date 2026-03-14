@@ -17,6 +17,7 @@ pub enum EgEvent {
 #[derive(Clone)]
 pub enum EngineType {
     Default,
+    ADDSR,
     Diag,
 }
 
