@@ -10,10 +10,11 @@ pub struct VoiceParams {
 /// Event for the envelope generator
 pub enum EgEvent {
     GateEvent { id: GateId, event: GateEventType },
-    SwitchTypeRequested(EngineType),
+    SwitchEngineRequested(EngineType),
 }
 
 /// EG engine types
+#[derive(Clone)]
 pub enum EngineType {
     Default,
     Diag,

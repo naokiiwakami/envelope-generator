@@ -2,7 +2,7 @@
 use super::config::EgConfig;
 use super::definitions::VoiceParams;
 
-use crate::input_reader::{InputReaderInfo, PotKind};
+use crate::input_reader::PotKind;
 
 enum DefaultEnginePhase {
     Released,
@@ -62,13 +62,17 @@ impl DefaultEgEngine {
         }
     }
 
-    pub fn update_params(
-        &mut self,
-        voice_index: usize,
-        config: &EgConfig,
-        input: &InputReaderInfo,
-    ) {
-        match input.pot_info.kind {
+    pub fn initialize(&mut self, voice_index: usize, config: &EgConfig) {
+        self.update_params(voice_index, config, &PotKind::Attack);
+        self.update_params(voice_index, config, &PotKind::Decay);
+        self.update_params(voice_index, config, &PotKind::Sustain);
+        self.update_params(voice_index, config, &PotKind::Release);
+        self.update_params(voice_index, config, &PotKind::Extra1);
+        self.update_params(voice_index, config, &PotKind::Extra2);
+    }
+
+    pub fn update_params(&mut self, voice_index: usize, config: &EgConfig, updated_pot: &PotKind) {
+        match updated_pot {
             PotKind::Attack => {
                 let attack_time = config.attack[voice_index] as f64;
                 let attack_time_constant: f64 =

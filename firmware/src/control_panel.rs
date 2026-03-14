@@ -19,9 +19,9 @@ use heapless::String;
 use display::{
     CHANNEL_LENGTH as DISPLAY_CHANNEL_LENGTH, Request as DisplayRequest, get_request_sender,
 };
-use menu::{ADMIN_MENU_ITEMS, AdminAction as MenuAction};
+use menu::{ADMIN_MENU_ITEMS, AdminAction, OpAction};
 
-use crate::control_panel::diagnoser::Diagnoser;
+use crate::control_panel::{diagnoser::Diagnoser, menu::OP_MENU_ITEMS};
 
 pub fn start(
     spawner: Spawner,
@@ -44,8 +44,10 @@ async fn run_control_panel(mut control_panel: ControlPanel) {
 
 enum ControlPanelMode {
     Normal,
+    OpMenu,
+    OpActionSelected,
     AdminMenu,
-    AdminMenuSelected,
+    AdminActionSelected,
 }
 
 struct ControlPanel {
@@ -62,7 +64,7 @@ struct ControlPanel {
     button_pressed_at: Option<Instant>,
     mode: ControlPanelMode,
 
-    encoder_origin: u16,
+    encoder_origin: i16,
     menu_item_index: usize,
     toggle_time: Instant,
 }
@@ -75,7 +77,7 @@ impl ControlPanel {
         encoder_ind_green: Output<'static>,
     ) -> Self {
         let display_request_sender = get_request_sender();
-        let encoder_origin = encoder.count() / 4;
+        let encoder_origin = encoder.count() as i16 / 4;
         Self {
             display_request_sender,
             encoder,
@@ -101,8 +103,8 @@ impl ControlPanel {
 
     async fn update(&mut self) {
         let next_level = self.button.get_level();
-
         if next_level == Level::Low {
+            // swiched on
             match self.button_pressed_at {
                 Some(button_pressed_at) => {
                     match self.mode {
@@ -111,7 +113,7 @@ impl ControlPanel {
                                 self.into_admin_menu_mode().await;
                             }
                         }
-                        _ => {} // do nothing
+                        _ => {} // do nothing, next mode is not determined yet
                     }
                 }
                 None => self.on_button_pressed(),
@@ -119,7 +121,9 @@ impl ControlPanel {
         } else if self.button_pressed_at.is_some() {
             self.on_button_released().await;
         } else {
+            // normal "button off" status, do regular task for the mode
             match self.mode {
+                ControlPanelMode::OpMenu => self.update_op_menu().await,
                 ControlPanelMode::AdminMenu => self.update_admin_menu().await,
                 _ => {}
             }
@@ -133,8 +137,11 @@ impl ControlPanel {
                 self.ind_red.set_high();
                 self.ind_green.set_high();
             }
+            ControlPanelMode::OpMenu => {
+                self.mode = ControlPanelMode::OpActionSelected;
+            }
             ControlPanelMode::AdminMenu => {
-                self.mode = ControlPanelMode::AdminMenuSelected;
+                self.mode = ControlPanelMode::AdminActionSelected;
             }
             _ => {}
         };
@@ -144,21 +151,34 @@ impl ControlPanel {
         match self.mode {
             ControlPanelMode::Normal => {
                 self.ind_red.set_low();
-                self.ind_green.set_low();
+                self.ind_green.set_high();
+                self.into_op_menu_mode().await;
             }
-            ControlPanelMode::AdminMenuSelected => {
+            ControlPanelMode::OpActionSelected => {
+                self.execute_op_action().await;
+            }
+            ControlPanelMode::AdminActionSelected => {
                 self.ind_red.set_low();
                 self.ind_green.set_low();
-                self.execute_admin_menu().await;
+                self.execute_admin_action().await;
             }
             _ => {}
         }
         self.button_pressed_at = None;
     }
 
+    async fn into_op_menu_mode(&mut self) {
+        debug!("into_op_menu_mode");
+        self.mode = ControlPanelMode::OpMenu;
+        self.encoder_origin = self.encoder.count() as i16 / 4;
+        self.ind_green.set_high();
+        self.menu_item_index = 0;
+        self.display_current_op_menu().await;
+    }
+
     async fn into_admin_menu_mode(&mut self) {
         self.mode = ControlPanelMode::AdminMenu;
-        self.encoder_origin = self.encoder.count() / 4;
+        self.encoder_origin = self.encoder.count() as i16 / 4;
         self.ind_red.set_high();
         self.ind_green.set_low();
         self.menu_item_index = 0;
@@ -166,16 +186,27 @@ impl ControlPanel {
         self.display_current_admin_menu().await;
     }
 
-    fn update_menu_index(&mut self) {
-        let count = self.encoder.count() >> 2;
-        if count == self.encoder_origin {
-            // no change
-            return;
+    /// Checks the encoder value and update the index if there's any change.
+    /// Returns true if the index has changed.
+    fn update_menu_index(&mut self, menu_size: usize) -> bool {
+        let raw_count = self.encoder.count();
+        if raw_count % 4 != 0 {
+            // the encoder is still moving
+            return false;
         }
-        let delta = (count - self.encoder_origin) as i32;
-        let mut idx = (self.menu_item_index as i32 + delta) % ADMIN_MENU_ITEMS.len() as i32;
+        let count = raw_count as i16 / 4;
+        if count == self.encoder_origin {
+            // no change in the counter
+            return false;
+        }
+        let delta = count - self.encoder_origin;
+        let mut idx: i32 = (self.menu_item_index as i32 + delta as i32) % (menu_size as i32);
+        debug!(
+            "count: {}, origin: {}, delta: {}, idx: {}",
+            count, self.encoder_origin, delta, idx
+        );
         if idx < 0 {
-            idx += ADMIN_MENU_ITEMS.len() as i32;
+            idx += menu_size as i32;
         }
         self.menu_item_index = idx as usize;
         debug!(
@@ -183,6 +214,13 @@ impl ControlPanel {
             count, self.menu_item_index, self.encoder_origin
         );
         self.encoder_origin = count;
+        return true;
+    }
+
+    async fn update_op_menu(&mut self) {
+        if self.update_menu_index(OP_MENU_ITEMS.len()) {
+            self.display_current_op_menu().await;
+        }
     }
 
     async fn update_admin_menu(&mut self) {
@@ -190,20 +228,38 @@ impl ControlPanel {
             self.ind_red.toggle();
             self.toggle_time = self.toggle_time.saturating_add(Duration::from_millis(500));
         }
-        self.update_menu_index();
-        self.display_current_admin_menu().await;
+        if self.update_menu_index(ADMIN_MENU_ITEMS.len()) {
+            self.display_current_admin_menu().await;
+        }
     }
 
-    async fn execute_admin_menu(&mut self) {
+    async fn execute_op_action(&mut self) {
+        let action = &OP_MENU_ITEMS[self.menu_item_index].action;
+        match action {
+            OpAction::ChangeMode => {
+                self.ind_red.set_low();
+                self.ind_green.set_low();
+                self.mode = ControlPanelMode::Normal;
+                self.show_initial_screen().await;
+            }
+            OpAction::Exit => {
+                self.ind_red.set_low();
+                self.ind_green.set_low();
+                self.mode = ControlPanelMode::Normal;
+                self.show_initial_screen().await;
+            }
+        }
+    }
+
+    async fn execute_admin_action(&mut self) {
         let action = &ADMIN_MENU_ITEMS[self.menu_item_index].action;
         match action {
-            MenuAction::Diagnose => {
+            AdminAction::Diagnose => {
                 let mut diagnoser = Diagnoser::new(self);
                 diagnoser.diagnose().await;
-                // self.diagnose().await;
                 self.mode = ControlPanelMode::Normal;
             }
-            MenuAction::Exit => {
+            AdminAction::Exit => {
                 self.mode = ControlPanelMode::Normal;
                 self.show_initial_screen().await;
             }
@@ -226,6 +282,17 @@ impl ControlPanel {
         self.display_request_sender
             .send(DisplayRequest::ShowInitialScreen)
             .await;
+    }
+
+    async fn display_current_op_menu(&mut self) {
+        let request = DisplayRequest::DisplayOpMenuItem {
+            index: self.menu_item_index,
+        };
+        debug!(
+            "sending display op menu item request, index={}",
+            self.menu_item_index
+        );
+        self.display_request_sender.send(request).await;
     }
 
     async fn display_current_admin_menu(&mut self) {

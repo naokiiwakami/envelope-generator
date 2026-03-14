@@ -178,7 +178,7 @@ impl EnvelopeGenerator {
                     }
                 },
                 Either5::Third(()) => {}
-                Either5::Fourth(event) => self.handle_gate_event(event).await,
+                Either5::Fourth(event) => self.handle_event(event),
                 Either5::Fifth(input) => self.consume_input(input),
             };
             self.regular_task();
@@ -200,13 +200,17 @@ impl EnvelopeGenerator {
         self.voice_2.update();
     }
 
-    async fn handle_gate_event(&mut self, eg_event: EgEvent) {
+    fn handle_event(&mut self, eg_event: EgEvent) {
         match eg_event {
             EgEvent::GateEvent { id, event } => match id {
-                GateId::Gate1 => self.voice_1.handle_gate_event(event).await,
-                GateId::Gate2 => self.voice_2.handle_gate_event(event).await,
+                GateId::Gate1 => self.voice_1.handle_gate_event(event),
+                GateId::Gate2 => self.voice_2.handle_gate_event(event),
             },
-            EgEvent::SwitchTypeRequested(engine_type) => {}
+            EgEvent::SwitchEngineRequested(engine_type) => {
+                self.voice_1
+                    .switch_engine(engine_type.clone(), &self.config);
+                self.voice_2.switch_engine(engine_type, &self.config);
+            }
         };
     }
 
@@ -246,6 +250,16 @@ impl EgVoice {
         }
     }
 
+    pub fn switch_engine(&mut self, engine_type: EngineType, config: &EgConfig) {
+        match engine_type {
+            EngineType::Default => self
+                .default_engine
+                .initialize(self.params.voice_index, config),
+            EngineType::Diag => self.diag_engine.initialize(self.params.voice_index, config),
+        }
+        self.engine_type = engine_type;
+    }
+
     pub async fn handle_a3_message(&mut self, message: &A3Datagram) {
         if self.analog_gate_enabled {
             // do nothing when analog gate is enabled
@@ -282,7 +296,7 @@ impl EgVoice {
         }
     }
 
-    pub async fn handle_gate_event(&mut self, event: GateEventType) {
+    pub fn handle_gate_event(&mut self, event: GateEventType) {
         match event {
             GateEventType::AnalogGateEnabled => {
                 self.analog_gate_enabled = true;
@@ -327,8 +341,13 @@ impl EgVoice {
     pub fn update_params(&mut self, config: &EgConfig, input: &InputReaderInfo) {
         let index = self.params.voice_index;
         match self.engine_type {
-            EngineType::Default => self.default_engine.update_params(index, config, input),
-            EngineType::Diag => self.diag_engine.update_params(index, config, input),
+            EngineType::Default => {
+                self.default_engine
+                    .update_params(index, config, &input.pot_info.kind)
+            }
+            EngineType::Diag => self
+                .diag_engine
+                .update_params(index, config, &input.pot_info.kind),
         }
     }
 

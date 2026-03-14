@@ -1,6 +1,6 @@
 use core::cmp::min;
 
-use defmt::error;
+use defmt::{debug, error};
 use embassy_futures::yield_now;
 use embedded_graphics::{
     pixelcolor::BinaryColor,
@@ -42,6 +42,7 @@ impl<'a, ActionT> MenuMode<'a, ActionT> {
     }
 
     pub async fn run(&mut self) {
+        debug!("Running menu mode, menu={}", self.title);
         Rectangle::new(Point::zero(), Size::new(128, 16))
             .into_styled(
                 PrimitiveStyleBuilder::new()
@@ -63,25 +64,27 @@ impl<'a, ActionT> MenuMode<'a, ActionT> {
 
         self.show_menu().await;
         self.display.display.flush().await.unwrap();
-        while matches!(self.display.mode, Mode::AdminMenu) {
+        while self.display.mode.is_menu_mode() {
             let request = self.display.fetch_request().await;
             match request {
                 Request::Clear { .. } | Request::Flush => {
                     self.display.handle_generic_request(request).await
                 }
-                Request::DisplayAdminMenuItem { index } => {
-                    self.display_current_admin_menu(index).await
+                Request::DisplayOpMenuItem { index } | Request::DisplayAdminMenuItem { index } => {
+                    debug!("display current menu, index={}", index);
+                    self.display_current_menu(index).await
                 }
                 _ => self.display.switch_mode(request).await,
             }
         }
     }
 
-    async fn display_current_admin_menu(&mut self, index: usize) {
+    async fn display_current_menu(&mut self, index: usize) {
         if index >= self.menu_items.len() {
             error!("display_current_menu: Index out of bounds; index={}", index);
             return;
         }
+        debug!("displaying {}, index: {}", self.title, index);
         if index == self.current_item {
             // do nothing
             return;

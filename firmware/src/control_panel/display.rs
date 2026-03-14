@@ -34,7 +34,7 @@ use crate::{
     input_reader::{CvInfo, PotInfo},
 };
 
-use super::menu::ADMIN_MENU_ITEMS;
+use super::menu::{ADMIN_MENU_ITEMS, OP_MENU_ITEMS};
 
 pub const CHANNEL_LENGTH: usize = 4;
 static CHANNEL_REQUEST: Channel<ThreadModeRawMutex, Request, CHANNEL_LENGTH> = Channel::new();
@@ -48,9 +48,19 @@ pub async fn run_display(i2c: I2c<'static, Async, Master>) {
 enum Mode {
     Any,
     Fundamental,
+    OpMenu,
     AdminMenu,
     PotsDiag,
     CvDiag,
+}
+
+impl Mode {
+    fn is_menu_mode(&self) -> bool {
+        match self {
+            Mode::OpMenu | Mode::AdminMenu => true,
+            _ => false,
+        }
+    }
 }
 
 pub enum Request {
@@ -70,6 +80,9 @@ pub enum Request {
         position: Point,
     },
     // Menu requests
+    DisplayOpMenuItem {
+        index: usize,
+    },
     DisplayAdminMenuItem {
         index: usize,
     },
@@ -88,6 +101,7 @@ impl Request {
         match self {
             Request::Clear { .. } | Request::Flush => Mode::Any,
             Request::ShowInitialScreen | Request::DisplayText { .. } => Mode::Fundamental,
+            Request::DisplayOpMenuItem { .. } => Mode::OpMenu,
             Request::DisplayAdminMenuItem { .. } => Mode::AdminMenu,
             Request::UpdatePotValue { .. } => Mode::PotsDiag,
             Request::UpdateCvValues { .. } => Mode::CvDiag,
@@ -132,6 +146,7 @@ impl EgDisplay {
             match self.mode {
                 Mode::Any => {} // Generic requests don't have a specific mode
                 Mode::Fundamental => self.run_fundamental_mode().await,
+                Mode::OpMenu => self.run_op_menu_mode().await,
                 Mode::AdminMenu => self.run_admin_menu_mode().await,
                 Mode::PotsDiag => self.run_pots_diag_mode().await,
                 Mode::CvDiag => self.run_cv_diag_mode().await,
@@ -206,7 +221,21 @@ impl EgDisplay {
         self.display.flush().await.unwrap();
     }
 
-    // menu mode //////////////////////////////////////////////////////////
+    // op menu mode /////////////////////////////////////////////////////////
+
+    async fn into_op_menu_mode(&mut self, pending_request: Request) {
+        debug!("into op menu mode");
+        self.clear(false, false).await;
+        self.mode = Mode::OpMenu;
+        self.pending_request = Some(pending_request);
+    }
+
+    async fn run_op_menu_mode(&mut self) {
+        let mut mode = MenuMode::new(self, "OPERATIONS", &OP_MENU_ITEMS);
+        mode.run().await;
+    }
+
+    // admin menu mode /////////////////////////////////////////////////////
 
     async fn into_admin_menu_mode(&mut self, pending_request: Request) {
         self.clear(false, false).await;
@@ -215,7 +244,7 @@ impl EgDisplay {
     }
 
     async fn run_admin_menu_mode(&mut self) {
-        let mut mode = MenuMode::new(self, "Admin Menu", &ADMIN_MENU_ITEMS);
+        let mut mode = MenuMode::new(self, "ADMIN", &ADMIN_MENU_ITEMS);
         mode.run().await;
     }
 
@@ -379,6 +408,7 @@ impl EgDisplay {
     async fn switch_mode(&mut self, request: Request) {
         match request.mode() {
             Mode::Fundamental => self.into_fundamental_mode(request).await,
+            Mode::OpMenu => self.into_op_menu_mode(request).await,
             Mode::AdminMenu => self.into_admin_menu_mode(request).await,
             Mode::PotsDiag => self.into_pots_diag_mode(request).await,
             Mode::CvDiag => self.into_cv_diag_mode(request).await,
