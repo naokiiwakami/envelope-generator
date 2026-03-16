@@ -64,17 +64,36 @@ impl<'a, ActionT> MenuMode<'a, ActionT> {
 
         self.show_menu().await;
         self.display.display.flush().await.unwrap();
-        while self.display.mode.is_menu_mode() {
+        loop {
+            // while self.display.mode.is_menu_mode() {
             let request = self.display.fetch_request().await;
+            /*
+            let request_mode = &request.mode();
+            if matches!(request_mode, Mode::Any) {
+                self.display.handle_generic_request(request).await;
+            } else if request_mode != &self.display.mode {
+                self.display.switch_mode(request).await;
+                break;
+            }
+            */
             match request {
                 Request::Clear { .. } | Request::Flush => {
                     self.display.handle_generic_request(request).await
                 }
-                Request::DisplayOpMenuItem { index } | Request::DisplayAdminMenuItem { index } => {
+                Request::DisplayOpMenuItem { index }
+                | Request::DisplayEngineTypeMenuItem { index }
+                | Request::DisplayAdminMenuItem { index } => {
+                    if request.mode() != self.display.mode {
+                        self.display.switch_mode(request).await;
+                        break;
+                    }
                     debug!("display current menu, index={}", index);
                     self.display_current_menu(index).await
                 }
-                _ => self.display.switch_mode(request).await,
+                _ => {
+                    self.display.switch_mode(request).await;
+                    break;
+                }
             }
         }
     }

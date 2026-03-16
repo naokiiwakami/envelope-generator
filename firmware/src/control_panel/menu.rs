@@ -2,49 +2,53 @@ use crate::envelope_generator::EngineType;
 
 pub static OP_MENU_ITEMS: [MenuItem<OpAction>; 2] = [
     MenuItem {
-        name: "MODE",
-        action: OpAction::ChangeMode,
+        name: "EG TYPE",
+        selection: OpAction::EngineType,
     },
     MenuItem {
         name: "EXIT",
-        action: OpAction::Exit,
+        selection: OpAction::Exit,
     },
 ];
 
 pub enum OpAction {
-    ChangeMode,
+    EngineType,
     Exit,
 }
 
-pub static MODE_MENU_ITEMS: [MenuItem<EngineType>; 2] = [
+pub static ENGINE_TYPE_MENU_ITEMS: [MenuItem<Option<EngineType>>; 3] = [
     MenuItem {
         name: "ADSR",
-        action: EngineType::Default,
+        selection: Some(EngineType::Default),
     },
     MenuItem {
         name: "ADDSR",
-        action: EngineType::ADDSR,
+        selection: Some(EngineType::ADDSR),
+    },
+    MenuItem {
+        name: "CANCEL",
+        selection: None,
     },
 ];
 
 pub static ADMIN_MENU_ITEMS: [MenuItem<AdminAction>; 3] = [
     MenuItem {
         name: "CALIBRATE",
-        action: AdminAction::Exit,
+        selection: AdminAction::Exit,
     },
     MenuItem {
         name: "DIAGNOSE",
-        action: AdminAction::Diagnose,
+        selection: AdminAction::Diagnose,
     },
     MenuItem {
         name: "EXIT",
-        action: AdminAction::Exit,
+        selection: AdminAction::Exit,
     },
 ];
 
-pub struct MenuItem<ActionT> {
+pub struct MenuItem<SelectionT> {
     pub name: &'static str,
-    pub action: ActionT,
+    pub selection: SelectionT,
 }
 
 pub enum AdminAction {
