@@ -1,3 +1,5 @@
+mod addsr_engine;
+mod adsr_engine;
 mod config;
 mod default_engine;
 mod definitions;
@@ -6,7 +8,10 @@ mod linear_engine;
 
 use defmt::{debug, warn};
 use embassy_executor::Spawner;
-use embassy_futures::select::{Either5, select5};
+use embassy_futures::{
+    select::{Either5, select5},
+    yield_now,
+};
 use embassy_stm32::{
     dac::{self, Dac},
     gpio::Output,
@@ -25,11 +30,10 @@ use {defmt_rtt as _, panic_probe as _};
 
 pub use self::definitions::{EgEvent, EngineType, GateEventType, GateId};
 use self::{
-    config::EgConfig, default_engine::DefaultEgEngine, definitions::VoiceParams,
-    diag_engine::DiagEgEngine, linear_engine::LinearEgEngine,
+    addsr_engine::AddsrEngine, adsr_engine::AdsrEngine, config::EgConfig, definitions::VoiceParams,
+    diag_engine::DiagEngine, linear_engine::LinearEngine,
 };
 
-use crate::input_reader::InputReaderInfo;
 use crate::{
     analog3::{
         self,
@@ -40,10 +44,11 @@ use crate::{
     },
     input_reader::get_reader_info_receiver,
 };
+use crate::{envelope_generator::definitions::Engine, input_reader::InputReaderInfo};
 
 // parameter tweaks
-const POLLING_INTERVAL: Duration = Duration::from_micros(100); // 20 kHz
-const BUF_SEGMENT_LENGTH: usize = 128;
+const POLLING_INTERVAL: Duration = Duration::from_micros(50); // 20 kHz
+const BUF_SEGMENT_LENGTH: usize = 64;
 
 // DAC buffers
 const BUF_SIZE: usize = BUF_SEGMENT_LENGTH * 2;
@@ -66,8 +71,7 @@ pub fn start(
     ind_gate_1: Output<'static>,
     ind_gate_2: Output<'static>,
 ) {
-    let eg = EnvelopeGenerator::new(ind_gate_1, ind_gate_2);
-    spawner.spawn(run_envelope_generator(dac_channels, eg).unwrap());
+    spawner.spawn(run_envelope_generator(dac_channels, ind_gate_1, ind_gate_2).unwrap());
 }
 
 pub async fn get_uid() -> u32 {
@@ -107,7 +111,8 @@ pub async fn get_name() -> String<A3_MAX_PROP_DATA_SIZE> {
 #[embassy_executor::task]
 async fn run_envelope_generator(
     dac_channels: Dac<'static, DAC1, Blocking>,
-    mut eg: EnvelopeGenerator,
+    ind_gate_1: Output<'static>,
+    ind_gate_2: Output<'static>,
 ) {
     let (mut dac1, mut dac2) = dac_channels.split();
     dac1.set_trigger(dac::TriggerSel::Tim2);
@@ -117,28 +122,70 @@ async fn run_envelope_generator(
     dac2.set_triggering(true);
     dac2.enable();
 
-    eg.run().await;
+    let mut eg_resources = EgResources::new(ind_gate_1, ind_gate_2);
+    let mut engine_type = EngineType::ADSR;
+    loop {
+        match engine_type {
+            EngineType::ADSR => {
+                let mut eg = EnvelopeGenerator::<AdsrEngine>::new(&mut eg_resources);
+                eg.run(&mut engine_type).await;
+            }
+            EngineType::ADDSR => {
+                let mut eg = EnvelopeGenerator::<AddsrEngine>::new(&mut eg_resources);
+                eg.run(&mut engine_type).await;
+            }
+            EngineType::Linear => {
+                let mut eg = EnvelopeGenerator::<LinearEngine>::new(&mut eg_resources);
+                eg.run(&mut engine_type).await;
+            }
+            EngineType::Diag => {
+                let mut eg = EnvelopeGenerator::<DiagEngine>::new(&mut eg_resources);
+                eg.run(&mut engine_type).await;
+            }
+        }
+    }
 }
 
-struct EnvelopeGenerator {
+struct EgResources {
     config: EgConfig,
     gate_event_receiver:
         channel::Receiver<'static, ThreadModeRawMutex, EgEvent, EVENT_CHANNEL_SIZE>,
-    voice_1: EgVoice,
-    voice_2: EgVoice,
+    ind_gate_1: Output<'static>,
+    ind_gate_2: Output<'static>,
 }
 
-impl EnvelopeGenerator {
+impl EgResources {
     pub fn new(ind_gate_1: Output<'static>, ind_gate_2: Output<'static>) -> Self {
         Self {
             config: EgConfig::new(0x101, 0x102),
             gate_event_receiver: CHANNEL_EVENT.receiver(),
-            voice_1: EgVoice::new(0, ind_gate_1),
-            voice_2: EgVoice::new(1, ind_gate_2),
+            ind_gate_1,
+            ind_gate_2,
+        }
+    }
+}
+
+struct EnvelopeGenerator<'a, EngineT: Engine> {
+    config: &'a mut EgConfig,
+    gate_event_receiver:
+        &'a mut channel::Receiver<'static, ThreadModeRawMutex, EgEvent, EVENT_CHANNEL_SIZE>,
+    voice_1: EgVoice<'a, EngineT>,
+    voice_2: EgVoice<'a, EngineT>,
+}
+
+impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
+    pub fn new(resources: &'a mut EgResources) -> Self {
+        let voice_1 = EgVoice::new(0, &mut resources.ind_gate_1, &resources.config);
+        let voice_2 = EgVoice::new(1, &mut resources.ind_gate_2, &resources.config);
+        Self {
+            config: &mut resources.config,
+            gate_event_receiver: &mut resources.gate_event_receiver,
+            voice_1,
+            voice_2,
         }
     }
 
-    pub async fn run(&mut self) {
+    pub async fn run(&mut self, engine_type: &mut EngineType) {
         let rx_receiver = analog3::get_forwarder_receiver();
         let prop_request_receiver = analog3::get_prop_request_receiver();
         let mut input_reader_info_receiver = get_reader_info_receiver().await;
@@ -179,7 +226,11 @@ impl EnvelopeGenerator {
                     }
                 },
                 Either5::Third(()) => {}
-                Either5::Fourth(event) => self.handle_event(event),
+                Either5::Fourth(event) => {
+                    if self.handle_event(event, engine_type) {
+                        break;
+                    }
+                }
                 Either5::Fifth(input) => self.consume_input(input),
             };
             self.regular_task();
@@ -201,18 +252,20 @@ impl EnvelopeGenerator {
         self.voice_2.update();
     }
 
-    fn handle_event(&mut self, eg_event: EgEvent) {
+    fn handle_event(&mut self, eg_event: EgEvent, engine_type: &mut EngineType) -> bool {
         match eg_event {
-            EgEvent::GateEvent { id, event } => match id {
-                GateId::Gate1 => self.voice_1.handle_gate_event(event),
-                GateId::Gate2 => self.voice_2.handle_gate_event(event),
-            },
-            EgEvent::SwitchEngineRequested(engine_type) => {
-                self.voice_1
-                    .switch_engine(engine_type.clone(), &self.config);
-                self.voice_2.switch_engine(engine_type, &self.config);
+            EgEvent::GateEvent { id, event } => {
+                match id {
+                    GateId::Gate1 => self.voice_1.handle_gate_event(event),
+                    GateId::Gate2 => self.voice_2.handle_gate_event(event),
+                };
+                false
             }
-        };
+            EgEvent::SwitchEngineRequested(t) => {
+                *engine_type = t;
+                true
+            }
+        }
     }
 
     fn consume_input(&mut self, input: InputReaderInfo) {
@@ -222,22 +275,22 @@ impl EnvelopeGenerator {
     }
 }
 
-struct EgVoice {
-    ind_gate: Output<'static>,
+struct EgVoice<'a, EngineT: Engine> {
+    ind_gate: &'a mut Output<'static>,
 
     analog_gate_enabled: bool,
 
     params: VoiceParams,
 
-    // engines
-    engine_type: EngineType,
-    default_engine: DefaultEgEngine,
-    linear_engine: LinearEgEngine,
-    diag_engine: DiagEgEngine,
+    engine: EngineT,
+
+    last_value: u16,
 }
 
-impl EgVoice {
-    pub fn new(voice_index: usize, ind_gate: Output<'static>) -> Self {
+impl<'a, EngineT: Engine> EgVoice<'a, EngineT> {
+    pub fn new(voice_index: usize, ind_gate: &'a mut Output<'static>, config: &EgConfig) -> Self {
+        let mut engine = EngineT::new();
+        engine.initialize(voice_index, config);
         Self {
             ind_gate,
             analog_gate_enabled: false,
@@ -246,26 +299,9 @@ impl EgVoice {
                 note: 60, // middle C
                 velocity: 0,
             },
-            engine_type: EngineType::ADDSR,
-            default_engine: DefaultEgEngine::new(EngineType::ADDSR),
-            linear_engine: LinearEgEngine::new(),
-            diag_engine: DiagEgEngine::new(),
+            engine,
+            last_value: 0,
         }
-    }
-
-    pub fn switch_engine(&mut self, engine_type: EngineType, config: &EgConfig) {
-        match engine_type {
-            EngineType::Default | EngineType::ADDSR => {
-                self.default_engine
-                    .initialize(&engine_type, self.params.voice_index, config)
-            }
-            EngineType::Linear => {
-                self.linear_engine
-                    .initialize(&engine_type, self.params.voice_index, config);
-            }
-            EngineType::Diag => self.diag_engine.initialize(self.params.voice_index, config),
-        }
-        self.engine_type = engine_type;
     }
 
     pub async fn handle_a3_message(&mut self, message: &A3Datagram) {
@@ -299,6 +335,7 @@ impl EgVoice {
                 A3_VOICE_MSG_GATE_OFF => self.gate_off(),
                 _ => {} // do nothing
             }
+            yield_now().await;
         }
     }
 
@@ -330,56 +367,28 @@ impl EgVoice {
                     (TAILS[self.params.voice_index] + BUF_SEGMENT_LENGTH) % BUF_SIZE;
             }
         }
-        match self.engine_type {
-            EngineType::Default | EngineType::ADDSR => self.default_engine.gate_on(&self.params),
-            EngineType::Linear => self.linear_engine.gate_on(&self.params),
-            EngineType::Diag => self.diag_engine.gate_on(&self.params),
-        }
+        self.engine.gate_on(&self.params);
     }
 
     fn gate_off(&mut self) {
         self.ind_gate.set_low();
-        match self.engine_type {
-            EngineType::Default | EngineType::ADDSR => self.default_engine.gate_off(),
-            EngineType::Linear => self.linear_engine.gate_off(),
-            EngineType::Diag => self.diag_engine.gate_off(),
-        }
+        self.engine.gate_off();
     }
 
     pub fn update_params(&mut self, config: &EgConfig, input: &InputReaderInfo) {
         let index = self.params.voice_index;
-        match self.engine_type {
-            EngineType::Default | EngineType::ADDSR => {
-                self.default_engine
-                    .update_params(index, config, &input.pot_info.kind)
-            }
-            EngineType::Linear => {
-                self.linear_engine
-                    .update_params(index, config, &input.pot_info.kind)
-            }
-            EngineType::Diag => self
-                .diag_engine
-                .update_params(index, config, &input.pot_info.kind),
-        }
+        self.engine
+            .update_params(index, config, &input.pot_info.kind);
     }
 
     pub fn update(&mut self) {
-        let mut current_value: u16 = match self.engine_type {
-            EngineType::Default | EngineType::ADDSR => self.default_engine.out_buf,
-            EngineType::Linear => self.linear_engine.out_buf,
-            EngineType::Diag => self.diag_engine.out_buf,
-        };
         while self.queue_length() < BUF_SEGMENT_LENGTH {
             unsafe {
                 let head = HEADS[self.params.voice_index];
-                BUFFERS[self.params.voice_index][head] = current_value;
+                BUFFERS[self.params.voice_index][head] = self.last_value;
                 HEADS[self.params.voice_index] = (head + 1) % BUF_SIZE;
             }
-            current_value = match self.engine_type {
-                EngineType::Default | EngineType::ADDSR => self.default_engine.update(&self.params),
-                EngineType::Linear => self.linear_engine.update(&self.params),
-                EngineType::Diag => self.diag_engine.update(&self.params),
-            }
+            self.last_value = self.engine.update(&self.params);
         }
     }
 

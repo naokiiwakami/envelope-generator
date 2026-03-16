@@ -19,7 +19,7 @@ pub enum OpAction {
 pub static ENGINE_TYPE_MENU_ITEMS: [MenuItem<Option<EngineType>>; 4] = [
     MenuItem {
         name: "ADSR",
-        selection: Some(EngineType::Default),
+        selection: Some(EngineType::ADSR),
     },
     MenuItem {
         name: "ADDSR",

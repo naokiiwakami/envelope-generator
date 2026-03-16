@@ -62,8 +62,9 @@ struct ControlPanel {
     display_request_sender:
         channel::Sender<'static, ThreadModeRawMutex, DisplayRequest, DISPLAY_CHANNEL_LENGTH>,
 
-    // EG engine
+    // EG
     eg_event_sender: channel::Sender<'static, ThreadModeRawMutex, EgEvent, EVENT_CHANNEL_SIZE>,
+    engine_type_index: usize,
 
     // rotary encoder
     encoder: Qei<'static, TIM3>,
@@ -91,6 +92,7 @@ impl ControlPanel {
         Self {
             display_request_sender,
             eg_event_sender: get_eg_event_sender(),
+            engine_type_index: 0,
             encoder,
             button: encoder_button,
             ind_red: encoder_ind_red,
@@ -189,7 +191,7 @@ impl ControlPanel {
 
     /// Transit the mode to OpMenu.
     async fn into_op_menu_mode(&mut self) {
-        self.into_menu_mode(ControlPanelMode::OpMenu, false, true, false)
+        self.into_menu_mode(ControlPanelMode::OpMenu, 0, false, true, false)
             .await;
         self.display_current_op_menu().await;
     }
@@ -221,8 +223,14 @@ impl ControlPanel {
 
     /// Transit the mode to EngineTypeMenu.
     async fn into_engine_type_menu_mode(&mut self) {
-        self.into_menu_mode(ControlPanelMode::EngineTypeMenu, false, true, false)
-            .await;
+        self.into_menu_mode(
+            ControlPanelMode::EngineTypeMenu,
+            self.engine_type_index,
+            false,
+            true,
+            false,
+        )
+        .await;
         self.display_current_engine_type_menu().await;
     }
 
@@ -242,6 +250,7 @@ impl ControlPanel {
 
     /// Called on button release in OpActionSelected mode to execute the next action.
     async fn switch_engine_type(&mut self) {
+        self.engine_type_index = self.menu_item_index;
         match &ENGINE_TYPE_MENU_ITEMS[self.menu_item_index].selection {
             Some(engine_type) => {
                 self.eg_event_sender
@@ -257,7 +266,7 @@ impl ControlPanel {
 
     /// Transit the mode to AdminMenu.
     async fn into_admin_menu_mode(&mut self) {
-        self.into_menu_mode(ControlPanelMode::AdminMenu, true, false, true)
+        self.into_menu_mode(ControlPanelMode::AdminMenu, 0, true, false, true)
             .await;
         self.display_current_admin_menu().await;
     }
@@ -303,6 +312,7 @@ impl ControlPanel {
     async fn into_menu_mode(
         &mut self,
         mode: ControlPanelMode,
+        index: usize,
         red: bool,
         green: bool,
         blink: bool,
@@ -313,7 +323,7 @@ impl ControlPanel {
             .set_level(if red { Level::High } else { Level::Low });
         self.ind_green
             .set_level(if green { Level::High } else { Level::Low });
-        self.menu_item_index = 0;
+        self.menu_item_index = index;
         if blink {
             self.toggle_time = Instant::now().saturating_add(Duration::from_millis(500));
         }

@@ -231,7 +231,7 @@ impl EgDisplay {
     // op menu mode /////////////////////////////////////////////////////////
 
     async fn run_op_menu_mode(&mut self) {
-        let mut menu = MenuMode::new(self, "OPERATIONS", &OP_MENU_ITEMS);
+        let mut menu = MenuMode::new(self, "SETTINGS", &OP_MENU_ITEMS);
         menu.run().await;
     }
 

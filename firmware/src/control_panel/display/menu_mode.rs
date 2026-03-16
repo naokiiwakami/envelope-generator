@@ -103,8 +103,18 @@ impl<'a, ActionT> MenuMode<'a, ActionT> {
             // no need to scroll, just move the cursor
             self.cursor(self.current_item - self.top_line, true).await;
             self.cursor(index - self.top_line, false).await;
+            self.current_item = index;
         } else {
-            self.display.clear(false, false).await;
+            self.current_item = index;
+            Rectangle::new(Point::new(0, 16), Size::new(128, 48))
+                .into_styled(
+                    PrimitiveStyleBuilder::new()
+                        .fill_color(BinaryColor::Off)
+                        .build(),
+                )
+                .draw(&mut self.display.display)
+                .unwrap();
+            yield_now().await;
             if index < self.top_line {
                 // scroll up
                 self.top_line = index;
@@ -114,7 +124,6 @@ impl<'a, ActionT> MenuMode<'a, ActionT> {
             }
             self.show_menu().await;
         }
-        self.current_item = index;
         self.display.display.flush().await.unwrap();
     }
 

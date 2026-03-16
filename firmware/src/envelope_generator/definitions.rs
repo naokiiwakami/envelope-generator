@@ -1,5 +1,9 @@
 use defmt;
 
+use super::config::EgConfig;
+
+use crate::input_reader::PotKind;
+
 /// Parameters shared between the EG voice controller and EG engine
 pub struct VoiceParams {
     pub voice_index: usize,
@@ -16,7 +20,7 @@ pub enum EgEvent {
 /// EG engine types
 #[derive(Clone)]
 pub enum EngineType {
-    Default,
+    ADSR,
     ADDSR,
     Linear,
     Diag,
@@ -36,4 +40,19 @@ pub enum GateEventType {
     AnalogGateDisabled,
     GateOn { velocity: u16 },
     GateOff,
+}
+
+pub trait Engine {
+    fn new() -> Self;
+
+    fn initialize(&mut self, voice_index: usize, config: &EgConfig);
+
+    fn update_params(&mut self, voice_index: usize, config: &EgConfig, updated_pot: &PotKind);
+
+    fn gate_on(&mut self, params: &VoiceParams);
+
+    fn gate_off(&mut self);
+
+    // Calculate the next sample and return value in range 0..0xfff.
+    fn update(&mut self, params: &VoiceParams) -> u16;
 }
