@@ -16,7 +16,7 @@ pub enum OpAction {
     Exit,
 }
 
-pub static ENGINE_TYPE_MENU_ITEMS: [MenuItem<Option<EngineType>>; 3] = [
+pub static ENGINE_TYPE_MENU_ITEMS: [MenuItem<Option<EngineType>>; 4] = [
     MenuItem {
         name: "ADSR",
         selection: Some(EngineType::Default),
@@ -24,6 +24,10 @@ pub static ENGINE_TYPE_MENU_ITEMS: [MenuItem<Option<EngineType>>; 3] = [
     MenuItem {
         name: "ADDSR",
         selection: Some(EngineType::ADDSR),
+    },
+    MenuItem {
+        name: "LINEAR",
+        selection: Some(EngineType::Linear),
     },
     MenuItem {
         name: "CANCEL",

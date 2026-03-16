@@ -231,22 +231,22 @@ impl EgDisplay {
     // op menu mode /////////////////////////////////////////////////////////
 
     async fn run_op_menu_mode(&mut self) {
-        let mut mode = MenuMode::new(self, "OPERATIONS", &OP_MENU_ITEMS);
-        mode.run().await;
+        let mut menu = MenuMode::new(self, "OPERATIONS", &OP_MENU_ITEMS);
+        menu.run().await;
     }
 
     // op menu mode /////////////////////////////////////////////////////////
 
     async fn run_engine_type_menu_mode(&mut self) {
-        let mut mode = MenuMode::new(self, "EG TYPE", &ENGINE_TYPE_MENU_ITEMS);
-        mode.run().await;
+        let mut menu = MenuMode::new(self, "EG TYPE", &ENGINE_TYPE_MENU_ITEMS);
+        menu.run().await;
     }
 
     // admin menu mode /////////////////////////////////////////////////////
 
     async fn run_admin_menu_mode(&mut self) {
-        let mut mode = MenuMode::new(self, "ADMIN", &ADMIN_MENU_ITEMS);
-        mode.run().await;
+        let mut menu = MenuMode::new(self, "ADMIN", &ADMIN_MENU_ITEMS);
+        menu.run().await;
     }
 
     // pots diag mode //////////////////////////////////////////////////////

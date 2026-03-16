@@ -2,6 +2,7 @@ mod config;
 mod default_engine;
 mod definitions;
 mod diag_engine;
+mod linear_engine;
 
 use defmt::{debug, warn};
 use embassy_executor::Spawner;
@@ -22,11 +23,11 @@ use embassy_time::{Duration, Timer};
 use heapless::String;
 use {defmt_rtt as _, panic_probe as _};
 
-use config::EgConfig;
-use default_engine::DefaultEgEngine;
-use definitions::VoiceParams;
-pub use definitions::{EgEvent, EngineType, GateEventType, GateId};
-use diag_engine::DiagEgEngine;
+pub use self::definitions::{EgEvent, EngineType, GateEventType, GateId};
+use self::{
+    config::EgConfig, default_engine::DefaultEgEngine, definitions::VoiceParams,
+    diag_engine::DiagEgEngine, linear_engine::LinearEgEngine,
+};
 
 use crate::input_reader::InputReaderInfo;
 use crate::{
@@ -231,6 +232,7 @@ struct EgVoice {
     // engines
     engine_type: EngineType,
     default_engine: DefaultEgEngine,
+    linear_engine: LinearEgEngine,
     diag_engine: DiagEgEngine,
 }
 
@@ -246,6 +248,7 @@ impl EgVoice {
             },
             engine_type: EngineType::ADDSR,
             default_engine: DefaultEgEngine::new(EngineType::ADDSR),
+            linear_engine: LinearEgEngine::new(),
             diag_engine: DiagEgEngine::new(),
         }
     }
@@ -255,6 +258,10 @@ impl EgVoice {
             EngineType::Default | EngineType::ADDSR => {
                 self.default_engine
                     .initialize(&engine_type, self.params.voice_index, config)
+            }
+            EngineType::Linear => {
+                self.linear_engine
+                    .initialize(&engine_type, self.params.voice_index, config);
             }
             EngineType::Diag => self.diag_engine.initialize(self.params.voice_index, config),
         }
@@ -325,6 +332,7 @@ impl EgVoice {
         }
         match self.engine_type {
             EngineType::Default | EngineType::ADDSR => self.default_engine.gate_on(&self.params),
+            EngineType::Linear => self.linear_engine.gate_on(&self.params),
             EngineType::Diag => self.diag_engine.gate_on(&self.params),
         }
     }
@@ -333,6 +341,7 @@ impl EgVoice {
         self.ind_gate.set_low();
         match self.engine_type {
             EngineType::Default | EngineType::ADDSR => self.default_engine.gate_off(),
+            EngineType::Linear => self.linear_engine.gate_off(),
             EngineType::Diag => self.diag_engine.gate_off(),
         }
     }
@@ -344,6 +353,10 @@ impl EgVoice {
                 self.default_engine
                     .update_params(index, config, &input.pot_info.kind)
             }
+            EngineType::Linear => {
+                self.linear_engine
+                    .update_params(index, config, &input.pot_info.kind)
+            }
             EngineType::Diag => self
                 .diag_engine
                 .update_params(index, config, &input.pot_info.kind),
@@ -353,6 +366,7 @@ impl EgVoice {
     pub fn update(&mut self) {
         let mut current_value: u16 = match self.engine_type {
             EngineType::Default | EngineType::ADDSR => self.default_engine.out_buf,
+            EngineType::Linear => self.linear_engine.out_buf,
             EngineType::Diag => self.diag_engine.out_buf,
         };
         while self.queue_length() < BUF_SEGMENT_LENGTH {
@@ -363,6 +377,7 @@ impl EgVoice {
             }
             current_value = match self.engine_type {
                 EngineType::Default | EngineType::ADDSR => self.default_engine.update(&self.params),
+                EngineType::Linear => self.linear_engine.update(&self.params),
                 EngineType::Diag => self.diag_engine.update(&self.params),
             }
         }

@@ -18,6 +18,7 @@ pub enum EgEvent {
 pub enum EngineType {
     Default,
     ADDSR,
+    Linear,
     Diag,
 }
 

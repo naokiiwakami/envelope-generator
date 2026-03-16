@@ -83,6 +83,9 @@ impl DefaultEgEngine {
         self.update_params(voice_index, config, &PotKind::Release);
         self.update_params(voice_index, config, &PotKind::Extra1);
         self.update_params(voice_index, config, &PotKind::Extra2);
+        self.current_value = 0;
+        self.target_value = 0;
+        self.phase = DefaultEnginePhase::Released;
     }
 
     pub fn update_params(&mut self, voice_index: usize, config: &EgConfig, updated_pot: &PotKind) {

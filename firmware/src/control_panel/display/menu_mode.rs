@@ -10,7 +10,7 @@ use embedded_graphics::{
 
 use crate::control_panel::menu::MenuItem;
 
-use super::{EgDisplay, Mode, Request};
+use super::{EgDisplay, Request};
 
 pub struct MenuMode<'a, ActionT> {
     display: &'a mut EgDisplay,
@@ -67,15 +67,6 @@ impl<'a, ActionT> MenuMode<'a, ActionT> {
         loop {
             // while self.display.mode.is_menu_mode() {
             let request = self.display.fetch_request().await;
-            /*
-            let request_mode = &request.mode();
-            if matches!(request_mode, Mode::Any) {
-                self.display.handle_generic_request(request).await;
-            } else if request_mode != &self.display.mode {
-                self.display.switch_mode(request).await;
-                break;
-            }
-            */
             match request {
                 Request::Clear { .. } | Request::Flush => {
                     self.display.handle_generic_request(request).await
