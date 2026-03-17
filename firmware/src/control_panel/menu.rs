@@ -6,14 +6,14 @@ pub static OP_MENU_ITEMS: [MenuItem<OpAction>; 2] = [
         selection: OpAction::EngineType,
     },
     MenuItem {
-        name: "EXIT",
-        selection: OpAction::Exit,
+        name: "CANCEL",
+        selection: OpAction::Cancel,
     },
 ];
 
 pub enum OpAction {
     EngineType,
-    Exit,
+    Cancel,
 }
 
 pub static ENGINE_TYPE_MENU_ITEMS: [MenuItem<Option<EngineType>>; 4] = [
@@ -38,15 +38,15 @@ pub static ENGINE_TYPE_MENU_ITEMS: [MenuItem<Option<EngineType>>; 4] = [
 pub static ADMIN_MENU_ITEMS: [MenuItem<AdminAction>; 3] = [
     MenuItem {
         name: "CALIBRATE",
-        selection: AdminAction::Exit,
+        selection: AdminAction::Cancel,
     },
     MenuItem {
         name: "DIAGNOSE",
         selection: AdminAction::Diagnose,
     },
     MenuItem {
-        name: "EXIT",
-        selection: AdminAction::Exit,
+        name: "CANCEL",
+        selection: AdminAction::Cancel,
     },
 ];
 
@@ -57,5 +57,5 @@ pub struct MenuItem<SelectionT> {
 
 pub enum AdminAction {
     Diagnose,
-    Exit,
+    Cancel,
 }

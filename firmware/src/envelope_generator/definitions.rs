@@ -18,7 +18,7 @@ pub enum EgEvent {
 }
 
 /// EG engine types
-#[derive(Clone)]
+#[derive(Clone, Debug, defmt::Format)]
 #[repr(u8)]
 pub enum EngineType {
     ADSR = 0,

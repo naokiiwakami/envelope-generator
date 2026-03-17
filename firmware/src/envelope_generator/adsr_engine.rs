@@ -42,11 +42,6 @@ pub struct AdsrEngine {
     peak_value: u64,
 
     phase: EnginePhase,
-
-    // The 31-bit (0..0x7fffffff) current value is scaled down to this output buffer
-    // of range 0..0xfff for each value update so that the parent EgVoice picks up the
-    // value and put it in the buffer for DAC.
-    pub out_buf: u16,
 }
 
 impl AdsrEngine {}
@@ -63,8 +58,6 @@ impl Engine for AdsrEngine {
             target_value: 0,
             peak_value: 0,
             phase: EnginePhase::Released,
-
-            out_buf: 0,
         }
     }
 
@@ -167,8 +160,6 @@ impl Engine for AdsrEngine {
         }
 
         // scale range of 31 bit (0..7fffffff) down to 12 bit (0..fff).
-        self.out_buf = (self.current_value >> 19) as u16;
-
-        self.out_buf
+        (self.current_value >> 19) as u16
     }
 }

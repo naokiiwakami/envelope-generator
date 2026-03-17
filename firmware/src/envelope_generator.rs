@@ -232,6 +232,7 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
                 false
             }
             EgEvent::SwitchEngineRequested(engine_type) => {
+                debug!("switching engine to {:?}", engine_type);
                 self.config.engine_type = engine_type;
                 true
             }

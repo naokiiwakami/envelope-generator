@@ -2,7 +2,10 @@ use embassy_futures::select::{Either, select};
 use embassy_time::{Duration, Instant, Timer};
 use embedded_graphics::prelude::Point;
 
-use crate::input_reader::get_reader_info_receiver;
+use crate::{
+    envelope_generator::{EgEvent, EngineType},
+    input_reader::get_reader_info_receiver,
+};
 
 use super::{ControlPanel, DisplayRequest, display::FontSize};
 
@@ -25,6 +28,10 @@ impl<'a> Diagnoser<'a> {
                 Point::new(10, 25),
             )
             .await;
+        self.control_panel
+            .eg_event_sender
+            .send(EgEvent::SwitchEngineRequested(EngineType::Diag))
+            .await;
         crate::analog3::trigger_diagnose().await;
         Timer::after_millis(6500).await;
         self.control_panel.blink_leds().await;
@@ -32,12 +39,14 @@ impl<'a> Diagnoser<'a> {
         self.diagnose_patch_controller().await;
         self.diagnose_pots().await;
         self.diagnose_cv().await;
+        self.control_panel.switch_engine_type().await;
         self.control_panel
             .display_text("DONE!", true, true, FontSize::Medium, Point::new(40, 25))
             .await;
         Timer::after_secs(1).await;
         self.control_panel.show_initial_screen().await;
     }
+
     async fn diagnose_patch_controller(&mut self) {
         crate::patch_controller::diagnose_leds().await;
         self.control_panel

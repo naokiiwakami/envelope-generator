@@ -14,7 +14,7 @@ use embassy_sync::{
     signal::Signal,
     watch::{self, Watch},
 };
-use embassy_time::{Duration, Instant, Timer};
+use embassy_time::Timer;
 
 use crate::envelope_generator::{
     EVENT_CHANNEL_SIZE, EgEvent, GateEventType, GateId, get_event_sender,

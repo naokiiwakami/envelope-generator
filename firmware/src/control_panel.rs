@@ -175,6 +175,7 @@ impl ControlPanel {
                 self.execute_op_action().await;
             }
             ControlPanelMode::EngineTypeSelected => {
+                self.engine_type_index = self.menu_item_index;
                 self.switch_engine_type().await;
             }
             ControlPanelMode::AdminActionSelected => {
@@ -215,7 +216,7 @@ impl ControlPanel {
         let action = &OP_MENU_ITEMS[self.menu_item_index].selection;
         match action {
             OpAction::EngineType => self.into_engine_type_menu_mode().await,
-            OpAction::Exit => self.into_normal_mode().await,
+            OpAction::Cancel => self.into_normal_mode().await,
         }
     }
 
@@ -250,8 +251,7 @@ impl ControlPanel {
 
     /// Called on button release in OpActionSelected mode to execute the next action.
     async fn switch_engine_type(&mut self) {
-        self.engine_type_index = self.menu_item_index;
-        match &ENGINE_TYPE_MENU_ITEMS[self.menu_item_index].selection {
+        match &ENGINE_TYPE_MENU_ITEMS[self.engine_type_index].selection {
             Some(engine_type) => {
                 self.eg_event_sender
                     .send(EgEvent::SwitchEngineRequested(engine_type.clone()))
@@ -294,7 +294,7 @@ impl ControlPanel {
                 diagnoser.diagnose().await;
                 self.mode = ControlPanelMode::Normal;
             }
-            AdminAction::Exit => self.into_normal_mode().await,
+            AdminAction::Cancel => self.into_normal_mode().await,
         };
     }
 
