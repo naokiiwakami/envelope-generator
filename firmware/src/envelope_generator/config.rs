@@ -141,14 +141,7 @@ impl EgConfig {
 
     /// Translates data from the input reader into the config values.
     pub fn translate(&mut self, pot_info: &PotInfo) {
-        // Pots pick up noise so their values do not drop to zero at the bottoms.
-        // It causes noticable slight level at the edge of the configuration.
-        // We subtract 4 from the original value to mitigate this problem.
-        let value = if pot_info.value >= 4 {
-            (pot_info.value - 4) << 4
-        } else {
-            0
-        };
+        let pot_value = pot_info.value;
         let destination_params: Option<&mut [u16; 2]> = match pot_info.kind {
             PotKind::Attack => Some(&mut self.attack),
             PotKind::Decay => Some(&mut self.decay),
@@ -157,17 +150,17 @@ impl EgConfig {
             PotKind::Extra1 => Some(&mut self.extra1),
             PotKind::Extra2 => Some(&mut self.extra2),
             PotKind::CvADepth => {
-                self.cv_a_depth = value;
+                self.cv_a_depth = pot_value;
                 None
             }
             PotKind::CvBDepth => {
-                self.cv_b_depth = value;
+                self.cv_b_depth = pot_value;
                 None
             }
         };
         destination_params.and_then(|params| {
-            params[0] = value;
-            params[1] = value;
+            params[0] = pot_value;
+            params[1] = pot_value;
             Some(())
         });
     }

@@ -40,8 +40,8 @@ pub struct AdcResources {
     pub gate_1: AnyAdcChannel<'static, ADC1>,
     pub gate_2: AnyAdcChannel<'static, ADC1>,
 
-    pub cv_1: AnyAdcChannel<'static, ADC1>,
-    pub cv_2: AnyAdcChannel<'static, ADC1>,
+    pub cv_a: AnyAdcChannel<'static, ADC1>,
+    pub cv_b: AnyAdcChannel<'static, ADC1>,
 }
 
 #[derive(Clone, Debug, defmt::Format)]
@@ -65,8 +65,8 @@ pub struct PotInfo {
 
 #[derive(Clone)]
 pub struct CvInfo {
-    pub cv_a: u16,
-    pub cv_b: u16,
+    pub cv_a: i16,
+    pub cv_b: i16,
 }
 
 #[derive(Clone)]
@@ -168,8 +168,6 @@ struct InputReader {
     resources: AdcResources,
 
     // pot reading
-    cv1_depth: u16,
-    cv2_depth: u16,
     pot_index: usize,
 }
 
@@ -177,8 +175,6 @@ impl InputReader {
     pub fn new(resources: AdcResources) -> Self {
         Self {
             resources,
-            cv1_depth: 0,
-            cv2_depth: 0,
             pot_index: 0,
         }
     }
@@ -186,25 +182,14 @@ impl InputReader {
     pub async fn run(&mut self) {
         let request_receiver = CHANNEL_ADC.receiver();
         let mut reader_info_sender = WATCH_READER.sender();
-        let mut wakeup_time = Instant::now();
-        let mut now = wakeup_time;
         loop {
-            let sleep_time = if now.gt(&wakeup_time) {
-                Duration::from_millis(0)
-            } else {
-                wakeup_time.duration_since(now)
-            };
-            match select(Timer::after(sleep_time), request_receiver.receive()).await {
+            match select(Timer::after_millis(10), request_receiver.receive()).await {
                 Either::First(()) => {}
                 Either::Second(request) => match request {
                     InputReaderRequest::ReadGate { gate_id } => self.read_gate_level(gate_id).await,
                 },
             }
-            now = Instant::now();
-            if now.ge(&wakeup_time) {
-                self.regular_reading(&mut reader_info_sender).await;
-                wakeup_time = wakeup_time.saturating_add(Duration::from_millis(10));
-            }
+            self.regular_reading(&mut reader_info_sender).await;
         }
     }
 
@@ -214,18 +199,6 @@ impl InputReader {
     ) {
         let (pot_info, cv_info) = self.run_adc(self.pot_index).await;
         self.pot_index = (self.pot_index + 1) % MUX_ADDRESSES.len();
-        match pot_info.kind {
-            PotKind::CvADepth => {
-                self.cv1_depth = pot_info.value;
-            }
-            PotKind::CvBDepth => {
-                self.cv2_depth = pot_info.value;
-            }
-            _ => {
-                // debug!("sending the change");
-                // pot_change_sender.send(info);
-            }
-        }
         reader_info_sender.send(InputReaderInfo { pot_info, cv_info });
     }
 
@@ -240,8 +213,8 @@ impl InputReader {
         let mut buffer = [0u16; 3];
         let sequence = [
             (&mut self.resources.pots, SampleTime::CYCLES160_5),
-            (&mut self.resources.cv_1, SampleTime::CYCLES160_5),
-            (&mut self.resources.cv_2, SampleTime::CYCLES160_5),
+            (&mut self.resources.cv_a, SampleTime::CYCLES160_5),
+            (&mut self.resources.cv_b, SampleTime::CYCLES160_5),
         ]
         .into_iter();
         self.resources
@@ -249,15 +222,25 @@ impl InputReader {
             .read(self.resources.dma.reborrow(), sequence, &mut buffer)
             .await;
 
+        // Pots pick up noise so their values do not drop to zero at the bottoms.
+        // It causes noticable slight level at the edge of the configuration.
+        // We subtract 4 from the original value to mitigate this problem.
+        let pot_value = if buffer[2] >= 4 {
+            (buffer[2] - 4) << 4
+        } else {
+            0
+        };
+
+        // TODO: Calibrate the zero points
+        let cv_a = 32767 - (buffer[0] << 4) as i16;
+        let cv_b = 32767 - (buffer[1] << 4) as i16;
+
         (
             PotInfo {
                 kind: kind.clone(),
-                value: buffer[2],
+                value: pot_value,
             },
-            CvInfo {
-                cv_a: buffer[0],
-                cv_b: buffer[1],
-            },
+            CvInfo { cv_a, cv_b },
         )
     }
 

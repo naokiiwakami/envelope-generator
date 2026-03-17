@@ -238,8 +238,8 @@ async fn setup_peripherals(p: Peripherals) -> EgResources {
         gate_1: p.PA3.degrade_adc(),
         gate_2: p.PA2.degrade_adc(),
 
-        cv_1: p.PA0.degrade_adc(),
-        cv_2: p.PA1.degrade_adc(),
+        cv_a: p.PA0.degrade_adc(),
+        cv_b: p.PA1.degrade_adc(),
     };
 
     let mut qei_config = qei::Config::default();

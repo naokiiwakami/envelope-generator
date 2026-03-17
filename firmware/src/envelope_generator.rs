@@ -1,7 +1,6 @@
 mod addsr_engine;
 mod adsr_engine;
 mod config;
-mod default_engine;
 mod definitions;
 mod diag_engine;
 mod linear_engine;
@@ -29,13 +28,7 @@ use heapless::String;
 use {defmt_rtt as _, panic_probe as _};
 
 use crate::{
-    analog3::{
-        self,
-        addresses_common::*,
-        definitions::*,
-        property::{PropRequest, Property},
-        storage,
-    },
+    analog3::{self, addresses_common::*, definitions::*, storage},
     input_reader::{InputReaderInfo, get_reader_info_receiver},
 };
 

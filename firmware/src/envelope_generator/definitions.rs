@@ -2,7 +2,7 @@ use defmt;
 
 use super::config::EgConfig;
 
-use crate::input_reader::{InputReaderInfo, PotKind};
+use crate::input_reader::InputReaderInfo;
 
 /// Parameters shared between the EG voice controller and EG engine
 pub struct VoiceParams {
