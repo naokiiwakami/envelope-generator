@@ -32,7 +32,7 @@ use crate::{
     input_reader::{InputReaderInfo, get_reader_info_receiver},
 };
 
-pub use self::definitions::{EgEvent, EngineType, GateEventType, GateId};
+pub use self::definitions::{EgRequest, EngineType, GateEventType, GateId};
 use self::{
     addsr_engine::AddsrEngine, adsr_engine::AdsrEngine, config::EgConfig, definitions::Engine,
     definitions::VoiceParams, diag_engine::DiagEngine, linear_engine::LinearEngine,
@@ -49,12 +49,13 @@ static mut HEADS: [usize; 2] = [0; 2];
 static mut TAILS: [usize; 2] = [0; 2];
 
 // Event channel
-pub const EVENT_CHANNEL_SIZE: usize = 4;
-static CHANNEL_EVENT: Channel<ThreadModeRawMutex, EgEvent, EVENT_CHANNEL_SIZE> = Channel::new();
+pub const REQUEST_CHANNEL_SIZE: usize = 4;
+static CHANNEL_REQUEST: Channel<ThreadModeRawMutex, EgRequest, REQUEST_CHANNEL_SIZE> =
+    Channel::new();
 
-pub fn get_event_sender()
--> channel::Sender<'static, ThreadModeRawMutex, EgEvent, EVENT_CHANNEL_SIZE> {
-    CHANNEL_EVENT.sender()
+pub fn get_request_sender()
+-> channel::Sender<'static, ThreadModeRawMutex, EgRequest, REQUEST_CHANNEL_SIZE> {
+    CHANNEL_REQUEST.sender()
 }
 
 pub fn start(
@@ -140,8 +141,8 @@ async fn run_envelope_generator(
 
 struct EgResources {
     config: EgConfig,
-    gate_event_receiver:
-        channel::Receiver<'static, ThreadModeRawMutex, EgEvent, EVENT_CHANNEL_SIZE>,
+    request_receiver:
+        channel::Receiver<'static, ThreadModeRawMutex, EgRequest, REQUEST_CHANNEL_SIZE>,
     ind_gate_1: Output<'static>,
     ind_gate_2: Output<'static>,
 }
@@ -150,7 +151,7 @@ impl EgResources {
     pub fn new(ind_gate_1: Output<'static>, ind_gate_2: Output<'static>) -> Self {
         Self {
             config: EgConfig::new(0x101, 0x102, EngineType::ADSR),
-            gate_event_receiver: CHANNEL_EVENT.receiver(),
+            request_receiver: CHANNEL_REQUEST.receiver(),
             ind_gate_1,
             ind_gate_2,
         }
@@ -159,8 +160,8 @@ impl EgResources {
 
 struct EnvelopeGenerator<'a, EngineT: Engine> {
     config: &'a mut EgConfig,
-    gate_event_receiver:
-        &'a mut channel::Receiver<'static, ThreadModeRawMutex, EgEvent, EVENT_CHANNEL_SIZE>,
+    request_receiver:
+        &'a mut channel::Receiver<'static, ThreadModeRawMutex, EgRequest, REQUEST_CHANNEL_SIZE>,
     voice_1: EgVoice<'a, EngineT>,
     voice_2: EgVoice<'a, EngineT>,
 }
@@ -171,7 +172,7 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
         let voice_2 = EgVoice::new(1, &mut resources.ind_gate_2, &resources.config);
         Self {
             config: &mut resources.config,
-            gate_event_receiver: &mut resources.gate_event_receiver,
+            request_receiver: &mut resources.request_receiver,
             voice_1,
             voice_2,
         }
@@ -186,7 +187,7 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
                 rx_receiver.receive(),
                 prop_request_receiver.receive(),
                 Timer::after(POLLING_INTERVAL),
-                self.gate_event_receiver.receive(),
+                self.request_receiver.receive(),
                 input_reader_info_receiver.changed(),
             )
             .await
@@ -194,8 +195,8 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
                 Either5::First(rx_frame) => self.handle_a3_message(&rx_frame).await,
                 Either5::Second(prop_request) => self.config.handle_request(prop_request),
                 Either5::Third(()) => {}
-                Either5::Fourth(event) => {
-                    if self.handle_event(event) {
+                Either5::Fourth(request) => {
+                    if self.handle_request(request) {
                         break;
                     }
                 }
@@ -222,16 +223,16 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
 
     /// Handles the incoming event.
     /// Returns true if the event causes exiting this engine type.
-    fn handle_event(&mut self, eg_event: EgEvent) -> bool {
-        match eg_event {
-            EgEvent::GateEvent { id, event } => {
+    fn handle_request(&mut self, request: EgRequest) -> bool {
+        match request {
+            EgRequest::GateEvent { id, event } => {
                 match id {
                     GateId::Gate1 => self.voice_1.handle_gate_event(event),
                     GateId::Gate2 => self.voice_2.handle_gate_event(event),
                 };
                 false
             }
-            EgEvent::SwitchEngineRequested(engine_type) => {
+            EgRequest::SwitchEngine(engine_type) => {
                 debug!("switching engine to {:?}", engine_type);
                 self.config.engine_type = engine_type;
                 true

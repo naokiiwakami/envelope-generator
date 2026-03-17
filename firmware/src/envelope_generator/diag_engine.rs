@@ -1,5 +1,3 @@
-use defmt::debug;
-
 use crate::input_reader::{InputReaderInfo, PotKind};
 
 use super::config::EgConfig;

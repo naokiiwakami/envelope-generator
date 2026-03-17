@@ -17,7 +17,7 @@ use embassy_sync::{
 use embassy_time::Timer;
 
 use crate::envelope_generator::{
-    EVENT_CHANNEL_SIZE, EgEvent, GateEventType, GateId, get_event_sender,
+    EgRequest, GateEventType, GateId, REQUEST_CHANNEL_SIZE, get_request_sender,
 };
 
 // communications ///////////////////////////////
@@ -280,7 +280,7 @@ struct AnalogGate {
     gate_id: GateId,
     state: AnalogGateState,
 
-    event_sender: channel::Sender<'static, ThreadModeRawMutex, EgEvent, EVENT_CHANNEL_SIZE>,
+    request_sender: channel::Sender<'static, ThreadModeRawMutex, EgRequest, REQUEST_CHANNEL_SIZE>,
 }
 
 impl AnalogGate {
@@ -296,7 +296,7 @@ impl AnalogGate {
             trigger,
             gate_id,
             state: AnalogGateState::Disabled,
-            event_sender: get_event_sender(),
+            request_sender: get_request_sender(),
         }
     }
 
@@ -312,8 +312,8 @@ impl AnalogGate {
                         );
                         self.state = AnalogGateState::GateOff;
                         self.ind_analog_gate.set_high();
-                        self.event_sender
-                            .send(EgEvent::GateEvent {
+                        self.request_sender
+                            .send(EgRequest::GateEvent {
                                 id: self.gate_id.clone(),
                                 event: GateEventType::AnalogGateEnabled,
                             })
@@ -369,8 +369,8 @@ impl AnalogGate {
         };
         // TODO: Calibrate and convert properly
         let velocity = 0xffff - (level << 4);
-        self.event_sender
-            .send(EgEvent::GateEvent {
+        self.request_sender
+            .send(EgRequest::GateEvent {
                 id: self.gate_id.clone(),
                 event: GateEventType::GateOn { velocity },
             })
@@ -379,8 +379,8 @@ impl AnalogGate {
 
     async fn handle_gate_off(&mut self) {
         self.state = AnalogGateState::GateOff;
-        self.event_sender
-            .send(EgEvent::GateEvent {
+        self.request_sender
+            .send(EgRequest::GateEvent {
                 id: self.gate_id.clone(),
                 event: GateEventType::GateOff,
             })
@@ -395,15 +395,15 @@ impl AnalogGate {
                 self.gate_id, self.state
             );
             if !matches!(self.state, AnalogGateState::GateOff) {
-                self.event_sender
-                    .send(EgEvent::GateEvent {
+                self.request_sender
+                    .send(EgRequest::GateEvent {
                         id: self.gate_id.clone(),
                         event: GateEventType::GateOff,
                     })
                     .await;
             }
-            self.event_sender
-                .send(EgEvent::GateEvent {
+            self.request_sender
+                .send(EgRequest::GateEvent {
                     id: self.gate_id.clone(),
                     event: GateEventType::AnalogGateDisabled,
                 })

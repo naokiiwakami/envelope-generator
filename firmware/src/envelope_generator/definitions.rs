@@ -12,9 +12,9 @@ pub struct VoiceParams {
 }
 
 /// Event for the envelope generator
-pub enum EgEvent {
+pub enum EgRequest {
     GateEvent { id: GateId, event: GateEventType },
-    SwitchEngineRequested(EngineType),
+    SwitchEngine(EngineType),
 }
 
 /// EG engine types

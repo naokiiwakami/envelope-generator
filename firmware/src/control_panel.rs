@@ -25,7 +25,7 @@ use self::{
 };
 
 use crate::envelope_generator::{
-    EVENT_CHANNEL_SIZE, EgEvent, get_event_sender as get_eg_event_sender,
+    EgRequest, REQUEST_CHANNEL_SIZE, get_request_sender as get_eg_event_sender,
 };
 
 pub fn start(
@@ -63,7 +63,8 @@ struct ControlPanel {
         channel::Sender<'static, ThreadModeRawMutex, DisplayRequest, DISPLAY_CHANNEL_LENGTH>,
 
     // EG
-    eg_event_sender: channel::Sender<'static, ThreadModeRawMutex, EgEvent, EVENT_CHANNEL_SIZE>,
+    eg_request_sender:
+        channel::Sender<'static, ThreadModeRawMutex, EgRequest, REQUEST_CHANNEL_SIZE>,
     engine_type_index: usize,
 
     // rotary encoder
@@ -91,7 +92,7 @@ impl ControlPanel {
         let encoder_origin = encoder.count() as i16 / 4;
         Self {
             display_request_sender,
-            eg_event_sender: get_eg_event_sender(),
+            eg_request_sender: get_eg_event_sender(),
             engine_type_index: 0,
             encoder,
             button: encoder_button,
@@ -253,8 +254,8 @@ impl ControlPanel {
     async fn switch_engine_type(&mut self) {
         match &ENGINE_TYPE_MENU_ITEMS[self.engine_type_index].selection {
             Some(engine_type) => {
-                self.eg_event_sender
-                    .send(EgEvent::SwitchEngineRequested(engine_type.clone()))
+                self.eg_request_sender
+                    .send(EgRequest::SwitchEngine(engine_type.clone()))
                     .await;
             }
             None => {} // do not switch the engine type

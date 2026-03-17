@@ -3,7 +3,7 @@ use embassy_time::{Duration, Instant, Timer};
 use embedded_graphics::prelude::Point;
 
 use crate::{
-    envelope_generator::{EgEvent, EngineType},
+    envelope_generator::{EgRequest, EngineType},
     input_reader::get_reader_info_receiver,
 };
 
@@ -29,8 +29,8 @@ impl<'a> Diagnoser<'a> {
             )
             .await;
         self.control_panel
-            .eg_event_sender
-            .send(EgEvent::SwitchEngineRequested(EngineType::Diag))
+            .eg_request_sender
+            .send(EgRequest::SwitchEngine(EngineType::Diag))
             .await;
         crate::analog3::trigger_diagnose().await;
         Timer::after_millis(6500).await;
