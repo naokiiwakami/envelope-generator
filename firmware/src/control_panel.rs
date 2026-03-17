@@ -406,7 +406,7 @@ impl ControlPanel {
                 reverse,
                 flush: true,
                 text: String::<32>::try_from(text).unwrap(),
-                size: 1,
+                size: display::FontSize::Medium,
                 position: Point::new(20, 20),
             })
             .await;

@@ -45,6 +45,12 @@ pub async fn run_display(i2c: I2c<'static, Async, Master>) {
     eg_display.run().await;
 }
 
+pub enum FontSize {
+    Small,
+    Medium,
+    Large,
+}
+
 #[derive(PartialEq)]
 enum Mode {
     Any,
@@ -54,15 +60,6 @@ enum Mode {
     AdminMenu,
     PotsDiag,
     CvDiag,
-}
-
-impl Mode {
-    fn is_menu_mode(&self) -> bool {
-        match self {
-            Mode::OpMenu | Mode::EngineTypeMenu | Mode::AdminMenu => true,
-            _ => false,
-        }
-    }
 }
 
 pub enum Request {
@@ -78,7 +75,7 @@ pub enum Request {
         reverse: bool,
         flush: bool,
         text: String<32>,
-        size: u32,
+        size: FontSize,
         position: Point,
     },
     // Menu requests
@@ -337,8 +334,14 @@ impl EgDisplay {
     // CV diag mode //////////////////////////////////////////////////////
     async fn into_cv_diag_mode(&mut self, pending_request: Request) {
         self.clear(false, false).await;
-        self.display_text(false, true, "Plug LFOs into CV jacks...", 0, Point::zero())
-            .await;
+        self.display_text(
+            false,
+            true,
+            "Plug LFOs into CV jacks...",
+            FontSize::Small,
+            Point::zero(),
+        )
+        .await;
         self.mode = Mode::CvDiag;
         self.pending_request = Some(pending_request);
     }
@@ -446,19 +449,19 @@ impl EgDisplay {
         reverse: bool,
         flush: bool,
         text: &str,
-        size: u32,
+        size: FontSize,
         position: Point,
     ) {
         let font = match size {
-            1 => {
+            FontSize::Small => &FONT_5X8,
+            FontSize::Medium => {
                 if reverse {
                     &FONT_8X13_BOLD
                 } else {
                     &FONT_8X13
                 }
             }
-            2 => &FONT_10X20,
-            _ => &FONT_5X8,
+            FontSize::Large => &FONT_10X20,
         };
         let text_style = MonoTextStyleBuilder::new()
             .font(font)

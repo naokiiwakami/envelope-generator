@@ -23,8 +23,8 @@ pub struct MenuMode<'a, ActionT> {
 
 impl<'a, ActionT> MenuMode<'a, ActionT> {
     const NUM_LINES: usize = 3; // three lines fit in the screen
-    const LINE_HEIGHT: i32 = 16;
-    const MARGIN_TOP: i32 = 1;
+    const LINE_HEIGHT: i32 = 21;
+    const MARGIN_TOP: i32 = 0;
     const INDENT: i32 = 16;
 
     pub fn new(
@@ -43,25 +43,6 @@ impl<'a, ActionT> MenuMode<'a, ActionT> {
 
     pub async fn run(&mut self) {
         debug!("Running menu mode, menu={}", self.title);
-        Rectangle::new(Point::zero(), Size::new(128, 16))
-            .into_styled(
-                PrimitiveStyleBuilder::new()
-                    .fill_color(BinaryColor::On)
-                    .build(),
-            )
-            .draw(&mut self.display.display)
-            .unwrap();
-        yield_now().await;
-        self.display
-            .display_text(
-                true,
-                false,
-                self.title,
-                1,
-                Point::new(Self::INDENT, Self::MARGIN_TOP),
-            )
-            .await;
-
         self.show_menu().await;
         self.display.display.flush().await.unwrap();
         loop {
@@ -101,20 +82,16 @@ impl<'a, ActionT> MenuMode<'a, ActionT> {
         }
         if index >= self.top_line && index < self.top_line + Self::NUM_LINES {
             // no need to scroll, just move the cursor
-            self.cursor(self.current_item - self.top_line, true).await;
-            self.cursor(index - self.top_line, false).await;
+            let ypos = (self.current_item - self.top_line) as i32 * Self::LINE_HEIGHT;
+            self.clear_line(false, ypos).await;
+            self.print_menu_item(false, self.current_item, ypos).await;
+
+            let ypos = (index - self.top_line) as i32 * Self::LINE_HEIGHT;
+            self.clear_line(true, ypos).await;
+            self.print_menu_item(true, index, ypos).await;
             self.current_item = index;
         } else {
             self.current_item = index;
-            Rectangle::new(Point::new(0, 16), Size::new(128, 48))
-                .into_styled(
-                    PrimitiveStyleBuilder::new()
-                        .fill_color(BinaryColor::Off)
-                        .build(),
-                )
-                .draw(&mut self.display.display)
-                .unwrap();
-            yield_now().await;
             if index < self.top_line {
                 // scroll up
                 self.top_line = index;
@@ -130,39 +107,61 @@ impl<'a, ActionT> MenuMode<'a, ActionT> {
     /// Build entire menu page.
     /// This method does not check line boundaries assuming the caller takes care of it.
     async fn show_menu(&mut self) {
-        let tail = min(3, self.menu_items.len());
+        self.display.clear(false, false).await;
+        let tail = min(Self::NUM_LINES, self.menu_items.len());
 
         for line in 0..tail {
-            let ypos = (line as i32 + 1) * Self::LINE_HEIGHT + Self::MARGIN_TOP;
-            let point = Point::new(20, ypos);
+            let ypos = line as i32 * Self::LINE_HEIGHT + Self::MARGIN_TOP;
+            // let point = Point::new(Self::INDENT, ypos);
             let index = line + self.top_line;
-            self.display
-                .display_text(false, false, self.menu_items[index].name, 1, point)
-                .await;
-            if index == self.current_item {
-                let point = Point::new(0, ypos);
-                self.display.display_text(false, false, ">", 1, point).await;
+            let is_selected = index == self.current_item;
+            if is_selected {
+                self.clear_line(true, ypos).await;
             }
+            self.print_menu_item(is_selected, index, ypos).await;
+            /*
+            self.display
+                .display_text(
+                    is_selected,
+                    false,
+                    self.menu_items[index].name,
+                    super::FontSize::Large,
+                    point,
+                )
+                .await;
+            */
         }
     }
 
-    /// Update cursor in the specified line.
-    async fn cursor(&mut self, line: usize, clear: bool) {
-        let ypos = (line as i32 + 1) * Self::LINE_HEIGHT + Self::MARGIN_TOP;
-        let position = Point::new(0, ypos);
-        if clear {
-            Rectangle::new(position, Size::new(20, 16))
-                .into_styled(
-                    PrimitiveStyleBuilder::new()
-                        .fill_color(BinaryColor::Off)
-                        .build(),
-                )
-                .draw(&mut self.display.display)
-                .unwrap();
-        } else {
-            self.display
-                .display_text(false, false, ">", 1, position)
-                .await;
-        }
+    async fn print_menu_item(&mut self, reverse: bool, index: usize, ypos: i32) {
+        let point = Point::new(Self::INDENT, ypos + Self::MARGIN_TOP);
+        self.display
+            .display_text(
+                reverse,
+                false,
+                self.menu_items[index].name,
+                super::FontSize::Large,
+                point,
+            )
+            .await;
+    }
+
+    async fn clear_line(&mut self, reverse: bool, ypos: i32) {
+        Rectangle::new(
+            Point::new(0, ypos),
+            Size::new(128, Self::LINE_HEIGHT as u32),
+        )
+        .into_styled(
+            PrimitiveStyleBuilder::new()
+                .fill_color(if reverse {
+                    BinaryColor::On
+                } else {
+                    BinaryColor::Off
+                })
+                .build(),
+        )
+        .draw(&mut self.display.display)
+        .unwrap();
+        yield_now().await;
     }
 }
