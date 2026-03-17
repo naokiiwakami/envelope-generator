@@ -11,12 +11,15 @@ use embassy_time::Timer;
 use heapless::{String, Vec};
 
 use crate::analog3::{
-    definitions::A3_MAX_PROP_DATA_SIZE,
+    definitions::{A3_MAX_PROP_DATA_SIZE, MAX_PROP_VECTOR_LENGTH},
     {Value, ValueType},
 };
 
 const PAGE_SIZE: usize = 0x800;
 const NUM_ROWS: usize = PAGE_SIZE / WRITE_SIZE - 1;
+// FLASH_SIZE is determined by the Embassy HAL so that the pages are guaranteed to locate
+// at the tail of available flash memory. But we still need to avoid carefully having
+// the pages conflict with the program code.
 const PAGE_0: u32 = (FLASH_SIZE - 2 * PAGE_SIZE) as u32;
 const PAGE_1: u32 = (FLASH_SIZE - PAGE_SIZE) as u32;
 const METADATA_OFFSET: u32 = (PAGE_SIZE - WRITE_SIZE) as u32; // the last row of the page
@@ -228,6 +231,8 @@ impl Storage {
             ValueType::U32 => self.load_u32(address).map(|v| Value::U32(v)),
             ValueType::Text => self.load_text(address).map(|v| Value::Text(v)),
             ValueType::Boolean => self.load_u8(address).map(|v| Value::Boolean(v != 0)),
+            ValueType::VectorU8 => self.load_vector_u8(address).map(|v| Value::VectorU8(v)),
+            ValueType::VectorU16 => self.load_vector_u16(address).map(|v| Value::VectorU16(v)),
         }
     }
 
@@ -255,6 +260,48 @@ impl Storage {
         )?;
         let src_vec = Vec::from_slice(&data[..len as usize]).unwrap();
         Ok(String::from_utf8(src_vec).unwrap())
+    }
+
+    pub fn load_vector_u8(
+        &mut self,
+        address: u16,
+    ) -> Result<Vec<u8, MAX_PROP_VECTOR_LENGTH>, Error> {
+        let mut vec = Vec::new();
+        let len = self.load_u8(address)?;
+        if len == u8::MAX {
+            return Ok(vec);
+        }
+        let mut data = [0u8; MAX_PROP_VECTOR_LENGTH];
+        self.flash.blocking_read(
+            self.page_offset + address as u32 + 1,
+            &mut data[..len as usize],
+        )?;
+        vec.extend_from_slice(&data[..len as usize]).unwrap();
+
+        Ok(vec)
+    }
+
+    pub fn load_vector_u16(
+        &mut self,
+        address: u16,
+    ) -> Result<Vec<u16, MAX_PROP_VECTOR_LENGTH>, Error> {
+        let mut vec = Vec::new();
+        let len = self.load_u8(address)?;
+        if len == u8::MAX {
+            return Ok(vec);
+        }
+        let mut data = [0u8; MAX_PROP_VECTOR_LENGTH];
+        self.flash.blocking_read(
+            self.page_offset + address as u32 + 1,
+            &mut data[..(len * 2) as usize],
+        )?;
+        for i in 0..len as usize {
+            let offset = i * 2;
+            let element: [u8; 2] = [data[offset], data[offset + 1]];
+            vec.push(u16::from_be_bytes(element)).unwrap();
+        }
+
+        Ok(vec)
     }
 
     fn read8(flash: &mut Flash<'static>, offset: u32) -> Result<u8, Error> {
@@ -288,6 +335,8 @@ impl Storage {
             Value::U32(data) => self.save_u32(address, data).await,
             Value::Text(data) => self.save_text(address, &data).await,
             Value::Boolean(data) => self.save_u8(address, if data { 1 } else { 0 }).await,
+            Value::VectorU8(data) => self.save_vector_u8(address, &data).await,
+            Value::VectorU16(data) => self.save_vector_u16(address, &data).await,
         }
     }
 
@@ -311,6 +360,31 @@ impl Storage {
         let mut data = [0xffu8; A3_MAX_PROP_DATA_SIZE + 1];
         data[0] = text.len() as u8;
         data[1..1 + text.len()].copy_from_slice(text.as_bytes());
+        self.write(address, &data).await
+    }
+
+    async fn save_vector_u8(
+        &mut self,
+        address: u16,
+        vec: &Vec<u8, MAX_PROP_VECTOR_LENGTH>,
+    ) -> Result<(), Error> {
+        let mut data = [0xffu8; MAX_PROP_VECTOR_LENGTH + 1];
+        data[0] = vec.len() as u8;
+        data[1..1 + vec.len()].copy_from_slice(vec.as_slice());
+        self.write(address, &data).await
+    }
+
+    async fn save_vector_u16(
+        &mut self,
+        address: u16,
+        vec: &Vec<u16, MAX_PROP_VECTOR_LENGTH>,
+    ) -> Result<(), Error> {
+        let mut data = [0xffu8; MAX_PROP_VECTOR_LENGTH * 2 + 1];
+        data[0] = (vec.len() * 2) as u8;
+        for i in 0..vec.len() {
+            let offset = i * 2 + 1;
+            data[offset..offset + 1].copy_from_slice(&vec[i].to_be_bytes());
+        }
         self.write(address, &data).await
     }
 

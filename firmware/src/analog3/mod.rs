@@ -520,6 +520,16 @@ impl<'a> TxStream<'a> {
                 self.put_data(&[prop_id, size_of_val(&value) as u8]).await;
                 self.put_data(&[if value { 1 } else { 0 }]).await;
             }
+            Value::VectorU8(vec) => {
+                self.put_data(&[prop_id, vec.len() as u8]).await;
+                self.put_data(&vec.as_slice()).await;
+            }
+            Value::VectorU16(vec) => {
+                self.put_data(&[prop_id, (vec.len() * 2) as u8]).await;
+                for entry in vec {
+                    self.put_data(&entry.to_be_bytes()).await;
+                }
+            }
         };
     }
 }

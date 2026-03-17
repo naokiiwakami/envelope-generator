@@ -53,8 +53,8 @@ pub enum PotKind {
     Release = 3,
     Extra1 = 4,
     Extra2 = 5,
-    Cv1Depth = 6,
-    Cv2Depth = 7,
+    CvADepth = 6,
+    CvBDepth = 7,
 }
 
 #[derive(Clone)]
@@ -141,8 +141,8 @@ static MUX_ADDRESSES: [(Level, Level, Level, PotKind); 8] = [
     (Level::Low, Level::High, Level::High, PotKind::Release),
     (Level::High, Level::Low, Level::Low, PotKind::Extra1),
     (Level::High, Level::Low, Level::High, PotKind::Extra2),
-    (Level::High, Level::High, Level::Low, PotKind::Cv1Depth),
-    (Level::High, Level::High, Level::High, PotKind::Cv2Depth),
+    (Level::High, Level::High, Level::Low, PotKind::CvADepth),
+    (Level::High, Level::High, Level::High, PotKind::CvBDepth),
 ];
 
 #[embassy_executor::task]
@@ -202,10 +202,10 @@ impl InputReader {
         let (pot_info, cv_info) = self.run_adc(self.pot_index).await;
         self.pot_index = (self.pot_index + 1) % MUX_ADDRESSES.len();
         match pot_info.kind {
-            PotKind::Cv1Depth => {
+            PotKind::CvADepth => {
                 self.cv1_depth = pot_info.value;
             }
-            PotKind::Cv2Depth => {
+            PotKind::CvBDepth => {
                 self.cv2_depth = pot_info.value;
             }
             _ => {

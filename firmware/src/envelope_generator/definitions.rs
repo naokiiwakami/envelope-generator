@@ -19,11 +19,12 @@ pub enum EgEvent {
 
 /// EG engine types
 #[derive(Clone)]
+#[repr(u8)]
 pub enum EngineType {
-    ADSR,
-    ADDSR,
-    Linear,
-    Diag,
+    ADSR = 0,
+    ADDSR = 1,
+    Linear = 2,
+    Diag = 3,
 }
 
 /// Gate identifiers

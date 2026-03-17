@@ -2,8 +2,8 @@
 use defmt;
 
 use super::config::EgConfig;
+use super::definitions::Engine;
 use super::definitions::VoiceParams;
-use super::{EngineType, definitions::Engine};
 
 use crate::input_reader::PotKind;
 
@@ -26,8 +26,6 @@ pub struct AdsrEngine {
     decay_ratio: u64,
     sustain_level: u64,
     release_ratio: u64,
-    initial_decay_ratio: u64,
-    decay_switch_level: u64,
 
     // Values that represent current EG state
 
@@ -60,8 +58,6 @@ impl Engine for AdsrEngine {
             decay_ratio: 0,
             sustain_level: 0xffffffff,
             release_ratio: 0,
-            initial_decay_ratio: 0,
-            decay_switch_level: 0xffffffff,
 
             current_value: 0,
             target_value: 0,

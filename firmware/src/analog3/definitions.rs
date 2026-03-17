@@ -2,7 +2,7 @@
 
 use embassy_stm32::can::frame::FdFrame;
 use embedded_can::{Frame, Id};
-use heapless::String;
+use heapless::{String, Vec};
 
 // ID assignments /////////////////////////////////
 pub const A3_ID_UNASSIGNED: u16 = 0xFFFF;
@@ -100,6 +100,8 @@ pub const A3_PROP_ID_MODULE_UID: u8 = 0;
 pub const A3_PROP_ID_MODULE_TYPE: u8 = 1;
 pub const A3_PROP_ID_NAME: u8 = 2;
 
+pub const MAX_PROP_VECTOR_LENGTH: usize = 16;
+
 #[allow(unused)]
 #[derive(Debug, Clone)]
 pub enum Value {
@@ -108,8 +110,8 @@ pub enum Value {
     U32(u32),
     Text(String<A3_MAX_PROP_DATA_SIZE>),
     Boolean(bool),
-    // VectorU8(Vec<u8>),
-    // VectorU16(Vec<u16>),
+    VectorU8(Vec<u8, MAX_PROP_VECTOR_LENGTH>),
+    VectorU16(Vec<u16, MAX_PROP_VECTOR_LENGTH>),
 }
 
 #[allow(unused)]
@@ -118,6 +120,8 @@ pub enum ValueType {
     U8,
     U16,
     U32,
+    VectorU8,
+    VectorU16,
     Text,
     Boolean,
 }

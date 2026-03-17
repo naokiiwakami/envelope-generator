@@ -282,6 +282,8 @@ async fn main(spawner: Spawner) {
     let p = init().await;
     let mut eg_resources = setup_peripherals(p).await;
 
+    // start the modules
+
     input_reader::start(
         spawner,
         eg_resources.adc_resources,
@@ -292,20 +294,14 @@ async fn main(spawner: Spawner) {
         eg_resources.gate_trigger_1,
         eg_resources.gate_trigger_2,
     );
+
     patch_controller::start(
         spawner,
         eg_resources.patch_button,
         eg_resources.patch_ind_red,
         eg_resources.patch_ind_green,
     );
-    control_panel::start(
-        spawner,
-        eg_resources.i2c,
-        eg_resources.encoder,
-        eg_resources.encoder_button,
-        eg_resources.encoder_ind_red,
-        eg_resources.encoder_ind_green,
-    );
+
     storage::start(spawner, eg_resources.flash);
 
     envelope_generator::start(
@@ -313,6 +309,15 @@ async fn main(spawner: Spawner) {
         eg_resources.dac_channels,
         eg_resources.ind_gate_1,
         eg_resources.ind_gate_2,
+    );
+
+    control_panel::start(
+        spawner,
+        eg_resources.i2c,
+        eg_resources.encoder,
+        eg_resources.encoder_button,
+        eg_resources.encoder_ind_red,
+        eg_resources.encoder_ind_green,
     );
 
     let uid = get_uid().await;
@@ -327,16 +332,8 @@ async fn main(spawner: Spawner) {
         spawner,
     );
 
-    // all modules have started, now enable the CAN transceiver
+    // all modules have started, enable the CAN transceiver
     eg_resources.can_stb.set_low();
 
     pending::<()>().await;
 }
-
-/*
-#[interrupt]
-unsafe fn TIM2() {
-    dac_triggered();
-    pac::TIM2.sr().modify(|r| r.set_uif(false));
-}
-    */

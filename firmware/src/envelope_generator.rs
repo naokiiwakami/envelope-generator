@@ -28,12 +28,6 @@ use embassy_time::{Duration, Timer};
 use heapless::String;
 use {defmt_rtt as _, panic_probe as _};
 
-pub use self::definitions::{EgEvent, EngineType, GateEventType, GateId};
-use self::{
-    addsr_engine::AddsrEngine, adsr_engine::AdsrEngine, config::EgConfig, definitions::VoiceParams,
-    diag_engine::DiagEngine, linear_engine::LinearEngine,
-};
-
 use crate::{
     analog3::{
         self,
@@ -42,9 +36,14 @@ use crate::{
         property::{PropRequest, Property},
         storage,
     },
-    input_reader::get_reader_info_receiver,
+    input_reader::{InputReaderInfo, get_reader_info_receiver},
 };
-use crate::{envelope_generator::definitions::Engine, input_reader::InputReaderInfo};
+
+pub use self::definitions::{EgEvent, EngineType, GateEventType, GateId};
+use self::{
+    addsr_engine::AddsrEngine, adsr_engine::AdsrEngine, config::EgConfig, definitions::Engine,
+    definitions::VoiceParams, diag_engine::DiagEngine, linear_engine::LinearEngine,
+};
 
 // parameter tweaks
 const POLLING_INTERVAL: Duration = Duration::from_micros(50); // 20 kHz
@@ -123,24 +122,24 @@ async fn run_envelope_generator(
     dac2.enable();
 
     let mut eg_resources = EgResources::new(ind_gate_1, ind_gate_2);
-    let mut engine_type = EngineType::ADSR;
+    // let engine_type = &mut eg_resources.config.engine_type;
     loop {
-        match engine_type {
+        match eg_resources.config.engine_type {
             EngineType::ADSR => {
                 let mut eg = EnvelopeGenerator::<AdsrEngine>::new(&mut eg_resources);
-                eg.run(&mut engine_type).await;
+                eg.run().await;
             }
             EngineType::ADDSR => {
                 let mut eg = EnvelopeGenerator::<AddsrEngine>::new(&mut eg_resources);
-                eg.run(&mut engine_type).await;
+                eg.run().await;
             }
             EngineType::Linear => {
                 let mut eg = EnvelopeGenerator::<LinearEngine>::new(&mut eg_resources);
-                eg.run(&mut engine_type).await;
+                eg.run().await;
             }
             EngineType::Diag => {
                 let mut eg = EnvelopeGenerator::<DiagEngine>::new(&mut eg_resources);
-                eg.run(&mut engine_type).await;
+                eg.run().await;
             }
         }
     }
@@ -157,7 +156,7 @@ struct EgResources {
 impl EgResources {
     pub fn new(ind_gate_1: Output<'static>, ind_gate_2: Output<'static>) -> Self {
         Self {
-            config: EgConfig::new(0x101, 0x102),
+            config: EgConfig::new(0x101, 0x102, EngineType::ADSR),
             gate_event_receiver: CHANNEL_EVENT.receiver(),
             ind_gate_1,
             ind_gate_2,
@@ -185,7 +184,7 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
         }
     }
 
-    pub async fn run(&mut self, engine_type: &mut EngineType) {
+    pub async fn run(&mut self) {
         let rx_receiver = analog3::get_forwarder_receiver();
         let prop_request_receiver = analog3::get_prop_request_receiver();
         let mut input_reader_info_receiver = get_reader_info_receiver().await;
@@ -200,6 +199,8 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
             .await
             {
                 Either5::First(rx_frame) => self.handle_a3_message(&rx_frame).await,
+                Either5::Second(prop_request) => self.config.handle_request(prop_request),
+                /*
                 Either5::Second(prop_request) => match prop_request {
                     PropRequest::GetNumProperties { reply } => {
                         reply.signal(Some(Property::new(0, Value::U8(1))));
@@ -225,9 +226,10 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
                         }
                     }
                 },
+                */
                 Either5::Third(()) => {}
                 Either5::Fourth(event) => {
-                    if self.handle_event(event, engine_type) {
+                    if self.handle_event(event) {
                         break;
                     }
                 }
@@ -252,7 +254,9 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
         self.voice_2.update();
     }
 
-    fn handle_event(&mut self, eg_event: EgEvent, engine_type: &mut EngineType) -> bool {
+    /// Handles the incoming event.
+    /// Returns true if the event causes exiting this engine type.
+    fn handle_event(&mut self, eg_event: EgEvent) -> bool {
         match eg_event {
             EgEvent::GateEvent { id, event } => {
                 match id {
@@ -261,8 +265,8 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
                 };
                 false
             }
-            EgEvent::SwitchEngineRequested(t) => {
-                *engine_type = t;
+            EgEvent::SwitchEngineRequested(engine_type) => {
+                self.config.engine_type = engine_type;
                 true
             }
         }
