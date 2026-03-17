@@ -393,7 +393,14 @@ impl ControlPanel {
             .await;
     }
 
-    async fn display_text(&mut self, text: &str, reverse: bool) {
+    async fn display_text(
+        &mut self,
+        text: &str,
+        reverse: bool,
+        flush: bool,
+        font_size: display::FontSize,
+        position: Point,
+    ) {
         debug!("display_text request; reverse={}", reverse);
         self.display_request_sender
             .send(DisplayRequest::Clear {
@@ -404,10 +411,10 @@ impl ControlPanel {
         self.display_request_sender
             .send(DisplayRequest::DisplayText {
                 reverse,
-                flush: true,
+                flush,
                 text: String::<32>::try_from(text).unwrap(),
-                size: display::FontSize::Medium,
-                position: Point::new(20, 20),
+                font_size,
+                position,
             })
             .await;
     }

@@ -1,9 +1,10 @@
 use embassy_futures::select::{Either, select};
 use embassy_time::{Duration, Instant, Timer};
-
-use super::{ControlPanel, DisplayRequest};
+use embedded_graphics::prelude::Point;
 
 use crate::input_reader::get_reader_info_receiver;
+
+use super::{ControlPanel, DisplayRequest, display::FontSize};
 
 pub struct Diagnoser<'a> {
     control_panel: &'a mut ControlPanel,
@@ -15,7 +16,15 @@ impl<'a> Diagnoser<'a> {
     }
 
     pub async fn diagnose(&mut self) {
-        self.control_panel.display_text("Diagnosing...", true).await;
+        self.control_panel
+            .display_text(
+                "DIAGNOSING...",
+                true,
+                true,
+                FontSize::Medium,
+                Point::new(10, 25),
+            )
+            .await;
         crate::analog3::trigger_diagnose().await;
         Timer::after_millis(6500).await;
         self.control_panel.blink_leds().await;
@@ -23,18 +32,27 @@ impl<'a> Diagnoser<'a> {
         self.diagnose_patch_controller().await;
         self.diagnose_pots().await;
         self.diagnose_cv().await;
-        self.control_panel.display_text("Done!", true).await;
+        self.control_panel
+            .display_text("DONE!", true, true, FontSize::Medium, Point::new(40, 25))
+            .await;
         Timer::after_secs(1).await;
         self.control_panel.show_initial_screen().await;
     }
     async fn diagnose_patch_controller(&mut self) {
         crate::patch_controller::diagnose_leds().await;
-        self.control_panel.display_text("Press button", false).await;
+        self.control_panel
+            .display_text(
+                "Press button",
+                false,
+                true,
+                FontSize::Medium,
+                Point::new(17, 25),
+            )
+            .await;
         crate::patch_controller::diagnose_button().await;
     }
 
     async fn diagnose_pots(&mut self) {
-        self.control_panel.display_text("Testing pots", false).await;
         let mut receiver = get_reader_info_receiver().await;
         let mut now = Instant::now();
         self.control_panel.button_pressed_at = if self.control_panel.button.is_low() {

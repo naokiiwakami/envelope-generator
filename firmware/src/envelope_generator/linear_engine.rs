@@ -1,10 +1,10 @@
 /// Default EG voice engine
 use defmt;
 
+use crate::input_reader::{InputReaderInfo, PotKind};
+
 use super::config::EgConfig;
 use super::definitions::{Engine, VoiceParams};
-
-use crate::input_reader::PotKind;
 
 #[derive(Debug, defmt::Format)]
 enum EnginePhase {
@@ -66,18 +66,18 @@ impl Engine for LinearEngine {
     }
 
     fn initialize(&mut self, voice_index: usize, config: &EgConfig) {
-        self.update_params(voice_index, config, &PotKind::Attack);
-        self.update_params(voice_index, config, &PotKind::Decay);
-        self.update_params(voice_index, config, &PotKind::Sustain);
-        self.update_params(voice_index, config, &PotKind::Release);
-        self.update_params(voice_index, config, &PotKind::Extra1);
-        self.update_params(voice_index, config, &PotKind::Extra2);
+        self.update_params(voice_index, config, &InputReaderInfo::new(PotKind::Attack));
+        self.update_params(voice_index, config, &InputReaderInfo::new(PotKind::Decay));
+        self.update_params(voice_index, config, &InputReaderInfo::new(PotKind::Sustain));
+        self.update_params(voice_index, config, &InputReaderInfo::new(PotKind::Release));
+        self.update_params(voice_index, config, &InputReaderInfo::new(PotKind::Extra1));
+        self.update_params(voice_index, config, &InputReaderInfo::new(PotKind::Extra2));
         self.current_value = 0;
         self.phase = EnginePhase::Initial;
     }
 
-    fn update_params(&mut self, voice_index: usize, config: &EgConfig, updated_pot: &PotKind) {
-        match updated_pot {
+    fn update_params(&mut self, voice_index: usize, config: &EgConfig, input: &InputReaderInfo) {
+        match input.pot_info.kind {
             PotKind::Attack => {
                 let time_param = config.attack[voice_index] as f64;
                 let attack_time_constant: f64 =

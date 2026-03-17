@@ -65,14 +65,27 @@ pub struct PotInfo {
 
 #[derive(Clone)]
 pub struct CvInfo {
-    pub cv_1: u16,
-    pub cv_2: u16,
+    pub cv_a: u16,
+    pub cv_b: u16,
 }
 
 #[derive(Clone)]
 pub struct InputReaderInfo {
     pub pot_info: PotInfo,
     pub cv_info: CvInfo,
+}
+
+impl InputReaderInfo {
+    /// create a blank info
+    pub fn new(pot_kind: PotKind) -> Self {
+        Self {
+            pot_info: PotInfo {
+                kind: pot_kind,
+                value: 0,
+            },
+            cv_info: CvInfo { cv_a: 0, cv_b: 0 },
+        }
+    }
 }
 
 pub enum InputReaderRequest {
@@ -242,8 +255,8 @@ impl InputReader {
                 value: buffer[2],
             },
             CvInfo {
-                cv_1: buffer[0],
-                cv_2: buffer[1],
+                cv_a: buffer[0],
+                cv_b: buffer[1],
             },
         )
     }

@@ -200,33 +200,6 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
             {
                 Either5::First(rx_frame) => self.handle_a3_message(&rx_frame).await,
                 Either5::Second(prop_request) => self.config.handle_request(prop_request),
-                /*
-                Either5::Second(prop_request) => match prop_request {
-                    PropRequest::GetNumProperties { reply } => {
-                        reply.signal(Some(Property::new(0, Value::U8(1))));
-                    }
-                    PropRequest::GetProperty { index, reply } => {
-                        if index == 0 {
-                            reply.signal(Some(Property::new(
-                                self.config.prop_id,
-                                Value::U32(self.config.value),
-                            )));
-                        } else {
-                            reply.signal(None)
-                        }
-                    }
-                    PropRequest::SetProperty {
-                        prop_id,
-                        length: _,
-                        value,
-                    } => {
-                        if prop_id == self.config.prop_id {
-                            let value = u32::from_be_bytes(value[..4].try_into().unwrap());
-                            self.config.set_count(value);
-                        }
-                    }
-                },
-                */
                 Either5::Third(()) => {}
                 Either5::Fourth(event) => {
                     if self.handle_event(event) {
@@ -381,8 +354,7 @@ impl<'a, EngineT: Engine> EgVoice<'a, EngineT> {
 
     pub fn update_params(&mut self, config: &EgConfig, input: &InputReaderInfo) {
         let index = self.params.voice_index;
-        self.engine
-            .update_params(index, config, &input.pot_info.kind);
+        self.engine.update_params(index, config, input);
     }
 
     pub fn update(&mut self) {

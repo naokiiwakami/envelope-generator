@@ -1,7 +1,7 @@
 use super::config::EgConfig;
 use super::definitions::{Engine, VoiceParams};
 
-use crate::input_reader::PotKind;
+use crate::input_reader::InputReaderInfo;
 
 pub struct DiagEngine {
     ascending: bool,
@@ -18,16 +18,15 @@ impl Engine for DiagEngine {
         }
     }
 
-    fn initialize(&mut self, voice_index: usize, config: &EgConfig) {
-        self.update_params(voice_index, config, &PotKind::Attack);
-        self.update_params(voice_index, config, &PotKind::Decay);
-        self.update_params(voice_index, config, &PotKind::Sustain);
-        self.update_params(voice_index, config, &PotKind::Release);
-        self.update_params(voice_index, config, &PotKind::Extra1);
-        self.update_params(voice_index, config, &PotKind::Extra2);
-    }
+    fn initialize(&mut self, _voice_index: usize, _config: &EgConfig) {}
 
-    fn update_params(&mut self, _voice_index: usize, _config: &EgConfig, _updated_pot: &PotKind) {}
+    fn update_params(
+        &mut self,
+        _voice_index: usize,
+        _config: &EgConfig,
+        _updated_pot: &InputReaderInfo,
+    ) {
+    }
 
     fn gate_on(&mut self, _params: &VoiceParams) {}
 

@@ -75,7 +75,7 @@ pub enum Request {
         reverse: bool,
         flush: bool,
         text: String<32>,
-        size: FontSize,
+        font_size: FontSize,
         position: Point,
     },
     // Menu requests
@@ -191,10 +191,10 @@ impl EgDisplay {
                     reverse,
                     flush,
                     text,
-                    size,
+                    font_size,
                     position,
                 } => {
-                    self.display_text(reverse, flush, text.as_str(), size, position)
+                    self.display_text(reverse, flush, text.as_str(), font_size, position)
                         .await
                 }
                 _ => self.switch_mode(request).await,
@@ -381,8 +381,8 @@ impl EgDisplay {
             let set_index = (i + 1 + cv_points.head) % data_len;
             if set_index == cv_points.head {
                 // scale value of range [0..0xfff] to [0..19]
-                cv_points.data1[set_index] = ((cv_info.cv_1 as u32 * 304) >> 16) as u8;
-                cv_points.data2[set_index] = ((cv_info.cv_2 as u32 * 304) >> 16) as u8;
+                cv_points.data1[set_index] = ((cv_info.cv_a as u32 * 304) >> 16) as u8;
+                cv_points.data2[set_index] = ((cv_info.cv_b as u32 * 304) >> 16) as u8;
             }
             let mut set_y = 16u32 + 22u32 - cv_points.data1[set_index] as u32;
             self.display.set_pixel(i as u32, set_y, true);

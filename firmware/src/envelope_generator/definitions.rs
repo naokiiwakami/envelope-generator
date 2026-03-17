@@ -2,7 +2,7 @@ use defmt;
 
 use super::config::EgConfig;
 
-use crate::input_reader::PotKind;
+use crate::input_reader::{InputReaderInfo, PotKind};
 
 /// Parameters shared between the EG voice controller and EG engine
 pub struct VoiceParams {
@@ -48,7 +48,7 @@ pub trait Engine {
 
     fn initialize(&mut self, voice_index: usize, config: &EgConfig);
 
-    fn update_params(&mut self, voice_index: usize, config: &EgConfig, updated_pot: &PotKind);
+    fn update_params(&mut self, voice_index: usize, config: &EgConfig, input: &InputReaderInfo);
 
     fn gate_on(&mut self, params: &VoiceParams);
 
