@@ -25,7 +25,7 @@ use self::{
 };
 
 use crate::envelope_generator::{
-    EgRequest, REQUEST_CHANNEL_SIZE, get_request_sender as get_eg_event_sender,
+    EgRequest, REQUEST_CHANNEL_SIZE, get_request_sender as get_eg_request_sender,
 };
 
 pub fn start(
@@ -92,7 +92,7 @@ impl ControlPanel {
         let encoder_origin = encoder.count() as i16 / 4;
         Self {
             display_request_sender,
-            eg_request_sender: get_eg_event_sender(),
+            eg_request_sender: get_eg_request_sender(),
             engine_type_index: 0,
             encoder,
             button: encoder_button,

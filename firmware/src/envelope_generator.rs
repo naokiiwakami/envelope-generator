@@ -48,7 +48,7 @@ static mut BUFFERS: [[u16; BUF_SIZE]; 2] = [[0; BUF_SIZE]; 2];
 static mut HEADS: [usize; 2] = [0; 2];
 static mut TAILS: [usize; 2] = [0; 2];
 
-// Event channel
+// Request channel
 pub const REQUEST_CHANNEL_SIZE: usize = 4;
 static CHANNEL_REQUEST: Channel<ThreadModeRawMutex, EgRequest, REQUEST_CHANNEL_SIZE> =
     Channel::new();
@@ -221,8 +221,8 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
         self.voice_2.update();
     }
 
-    /// Handles the incoming event.
-    /// Returns true if the event causes exiting this engine type.
+    /// Handles the incoming request.
+    /// Returns true if the request causes exiting this engine type.
     fn handle_request(&mut self, request: EgRequest) -> bool {
         match request {
             EgRequest::GateEvent { id, event } => {
