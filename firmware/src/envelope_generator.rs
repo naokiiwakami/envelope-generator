@@ -82,7 +82,8 @@ pub fn start(
     ind_gate_1: Output<'static>,
     ind_gate_2: Output<'static>,
 ) {
-    spawner.spawn(run_envelope_generator(dac_channels, ind_gate_1, ind_gate_2).unwrap());
+    let eg_resources = EgResources::new(ind_gate_1, ind_gate_2);
+    spawner.spawn(run_envelope_generator(dac_channels, eg_resources).unwrap());
 }
 
 pub async fn get_uid() -> u32 {
@@ -122,8 +123,7 @@ pub async fn get_name() -> String<A3_MAX_PROP_DATA_SIZE> {
 #[embassy_executor::task]
 async fn run_envelope_generator(
     dac_channels: Dac<'static, DAC1, Blocking>,
-    ind_gate_1: Output<'static>,
-    ind_gate_2: Output<'static>,
+    mut eg_resources: EgResources,
 ) {
     let (mut dac1, mut dac2) = dac_channels.split();
     dac1.set_trigger(dac::TriggerSel::Tim2);
@@ -133,7 +133,6 @@ async fn run_envelope_generator(
     dac2.set_triggering(true);
     dac2.enable();
 
-    let mut eg_resources = EgResources::new(ind_gate_1, ind_gate_2);
     // let engine_type = &mut eg_resources.config.engine_type;
     loop {
         match eg_resources.config.engine_type {

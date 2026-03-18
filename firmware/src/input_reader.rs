@@ -104,24 +104,20 @@ pub fn start(
 ) {
     let input_reader = InputReader::new(resources);
     spawner.spawn(run_input_reader(input_reader).unwrap());
-    spawner.spawn(
-        run_analog_gate(
-            gate_src_sw_1,
-            ind_analog_gate_1,
-            gate_trigger_1,
-            GateId::Gate1,
-        )
-        .unwrap(),
+    let analog_gate_1 = AnalogGate::new(
+        gate_src_sw_1,
+        ind_analog_gate_1,
+        gate_trigger_1,
+        GateId::Gate1,
     );
-    spawner.spawn(
-        run_analog_gate(
-            gate_src_sw_2,
-            ind_analog_gate_2,
-            gate_trigger_2,
-            GateId::Gate2,
-        )
-        .unwrap(),
+    let analog_gate_2 = AnalogGate::new(
+        gate_src_sw_2,
+        ind_analog_gate_2,
+        gate_trigger_2,
+        GateId::Gate2,
     );
+    spawner.spawn(run_analog_gate(analog_gate_1).unwrap());
+    spawner.spawn(run_analog_gate(analog_gate_2).unwrap());
 }
 
 #[inline]
@@ -263,13 +259,7 @@ impl InputReader {
 }
 
 #[embassy_executor::task(pool_size = 2)]
-async fn run_analog_gate(
-    src_sw: Input<'static>,
-    ind_analog_gate: Output<'static>,
-    trigger: ExtiInput<'static>,
-    gate_id: GateId,
-) {
-    let mut analog_gate = AnalogGate::new(src_sw, ind_analog_gate, trigger, gate_id);
+async fn run_analog_gate(mut analog_gate: AnalogGate) {
     analog_gate.run().await;
 }
 struct AnalogGate {

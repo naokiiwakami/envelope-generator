@@ -20,7 +20,8 @@ use heapless::String;
 use self::{
     diagnoser::Diagnoser,
     display::{
-        CHANNEL_LENGTH as DISPLAY_CHANNEL_LENGTH, Request as DisplayRequest, get_request_sender,
+        CHANNEL_LENGTH as DISPLAY_CHANNEL_LENGTH, EgDisplay, Request as DisplayRequest,
+        get_request_sender,
     },
     menu::{ADMIN_MENU_ITEMS, AdminAction, ENGINE_TYPE_MENU_ITEMS, OP_MENU_ITEMS, OpAction},
 };
@@ -38,7 +39,8 @@ pub fn start(
     encoder_ind_red: Output<'static>,
     encoder_ind_green: Output<'static>,
 ) {
-    spawner.spawn(display::run_display(i2c).unwrap());
+    let eg_display = EgDisplay::new(i2c);
+    spawner.spawn(display::run_display(eg_display).unwrap());
     let control_panel =
         ControlPanel::new(encoder, encoder_button, encoder_ind_red, encoder_ind_green);
     spawner.spawn(run_control_panel(control_panel).unwrap());

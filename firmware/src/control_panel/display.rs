@@ -41,8 +41,7 @@ pub const CHANNEL_LENGTH: usize = 4;
 static CHANNEL_REQUEST: Channel<ThreadModeRawMutex, Request, CHANNEL_LENGTH> = Channel::new();
 
 #[embassy_executor::task]
-pub async fn run_display(i2c: I2c<'static, Async, Master>) {
-    let mut eg_display = EgDisplay::new(i2c);
+pub async fn run_display(mut eg_display: EgDisplay) {
     eg_display.run().await;
 }
 
@@ -120,7 +119,7 @@ pub fn get_request_sender() -> channel::Sender<'static, ThreadModeRawMutex, Requ
     CHANNEL_REQUEST.sender()
 }
 
-struct EgDisplay {
+pub struct EgDisplay {
     display: Ssd1306Async<
         I2CInterface<I2c<'static, Async, Master>>,
         DisplaySize128x64,

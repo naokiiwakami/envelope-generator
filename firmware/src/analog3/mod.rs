@@ -84,7 +84,8 @@ pub fn start(
     spawner: Spawner,
 ) {
     spawner.spawn(run_indicator(a3_red_led, a3_blue_led).unwrap());
-    spawner.spawn(run_analog3(a3_config, spawner).unwrap());
+    let analog3 = Analog3::new(a3_config, spawner);
+    spawner.spawn(run_analog3(analog3).unwrap());
     spawner.spawn(can_handler(can).unwrap());
 }
 
@@ -94,8 +95,7 @@ pub async fn trigger_diagnose() {
 }
 
 #[embassy_executor::task]
-async fn run_analog3(a3_config: Analog3Config, spawner: Spawner) {
-    let mut analog3 = Analog3::new(a3_config, spawner);
+async fn run_analog3(mut analog3: Analog3) {
     analog3.run().await;
 }
 
