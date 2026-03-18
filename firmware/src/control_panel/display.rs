@@ -211,7 +211,44 @@ impl EgDisplay {
     pub async fn show_initial_screen(&mut self, engine_type: EngineType) {
         self.mode = Mode::Fundamental;
         self.current_engine_type = engine_type;
-        self.display.clear(BinaryColor::Off).unwrap();
+        match self.current_engine_type {
+            EngineType::ADSR => self.show_adsr_initial_screen().await,
+            _ => self.show_default_initial_screen().await,
+        }
+    }
+
+    async fn show_adsr_initial_screen(&mut self) {
+        self.clear(false, false).await;
+        yield_now().await;
+        let fill = PrimitiveStyleBuilder::new()
+            .fill_color(BinaryColor::On)
+            .stroke_width(5)
+            .build();
+        yield_now().await;
+        Circle::new(Point::new(0, 20), 24)
+            .into_styled(fill)
+            .draw(&mut self.display)
+            .unwrap();
+        yield_now().await;
+        Circle::new(Point::new(33, 0), 24)
+            .into_styled(fill)
+            .draw(&mut self.display)
+            .unwrap();
+        yield_now().await;
+        Circle::new(Point::new(67, 0), 24)
+            .into_styled(fill)
+            .draw(&mut self.display)
+            .unwrap();
+        yield_now().await;
+        Circle::new(Point::new(104, 20), 24)
+            .into_styled(fill)
+            .draw(&mut self.display)
+            .unwrap();
+        self.display.flush().await.unwrap();
+    }
+
+    async fn show_default_initial_screen(&mut self) {
+        self.clear(false, false).await;
         let text_style = MonoTextStyleBuilder::new()
             .font(&FONT_10X20)
             .text_color(BinaryColor::On)
