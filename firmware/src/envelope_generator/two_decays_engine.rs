@@ -1,32 +1,39 @@
 /// Default EG voice engine
 use defmt;
-use fixed::types::U32F32;
-
-use super::config::EgConfig;
-use super::definitions::Engine;
-use super::definitions::VoiceParams;
+use fixed::types::{I32F32, U32F32};
 
 use crate::input_reader::{InputReaderInfo, PotKind};
+
+use super::config::EgConfig;
+use super::definitions::VoiceParams;
+use super::{EngineType, definitions::Engine};
 
 #[derive(Debug, defmt::Format)]
 enum EnginePhase {
     Released,
     Attack,
+    InitialDecay,
     Decay,
 }
 
 /// The fundamental envelope EG voice engine that generates traditional ADSR curve.
-pub struct AdsrEngine {
+pub struct TwoDecaysEngine {
+    engine_type: EngineType,
+
     // Values are UQ32.32 fixed point integers.
     // This equal integer and fractional assignment is convenient for EG curve
     // calculation as most of values are in range of [0:1) that fit within
-    // 32-bit LSB part. Multiplying these values never overflows in UQ32.32 format.
+    // 32-bit LSB part. Multiplying these vlaues never overflows in UQ32.32 format.
 
     // Parameters translated by the EG configuration.
     attack_ratio: U32F32,
     decay_ratio: U32F32,
     sustain_level: U32F32,
     release_ratio: U32F32,
+    initial_decay_ratio: U32F32,
+    decay_switch_level: I32F32,
+
+    initial_decay_scale_factor: I32F32,
 
     // Values that represent current EG state
 
@@ -45,15 +52,21 @@ pub struct AdsrEngine {
     phase: EnginePhase,
 }
 
-impl AdsrEngine {}
+impl TwoDecaysEngine {}
 
-impl Engine for AdsrEngine {
+impl Engine for TwoDecaysEngine {
     fn new() -> Self {
         Self {
+            engine_type: EngineType::ADDSR,
+
             attack_ratio: U32F32::from_num(0u32),
             decay_ratio: U32F32::from_num(0u32),
             sustain_level: U32F32::from_bits(0xffffffff),
             release_ratio: U32F32::from_num(0u32),
+            initial_decay_ratio: U32F32::from_num(0u32),
+            decay_switch_level: I32F32::from_bits(0xffffffff),
+
+            initial_decay_scale_factor: I32F32::from_num(6) / I32F32::from_num(5),
 
             current_value: U32F32::from_num(0u32),
             target_value: U32F32::from_num(0u32),
@@ -109,10 +122,22 @@ impl Engine for AdsrEngine {
                 self.release_ratio = U32F32::from_num(1u32) / release_time_constant;
             }
             PotKind::Extra1 => {
-                // TBD
+                if matches!(self.engine_type, EngineType::ADDSR) {
+                    let extra1_time = U32F32::from_num(config.extra1[voice_index] as u32);
+                    let decay_time_constant = (U32F32::from_num(15u32) / U32F32::from_num(2u32))
+                        + (U32F32::from_num(5u32) / U32F32::from_num(2_000_000_000u32))
+                            * extra1_time
+                            * extra1_time
+                            * extra1_time;
+                    self.initial_decay_ratio = U32F32::from_num(1u32) / decay_time_constant;
+                }
             }
             PotKind::Extra2 => {
-                // TBD
+                if matches!(self.engine_type, EngineType::ADDSR) {
+                    let level = config.extra2[voice_index] as u64;
+                    self.decay_switch_level =
+                        I32F32::from_bits((((level >> 1) + 32768) * level) as i64);
+                }
             }
             _ => {} // TODO interpret CV1_DEPTH and CV2_DEPTH
         }
@@ -147,20 +172,58 @@ impl Engine for AdsrEngine {
                 delta *= self.attack_ratio;
                 self.current_value += delta;
                 if self.current_value >= self.peak_value {
-                    self.phase = EnginePhase::Decay;
+                    self.phase = EnginePhase::InitialDecay;
                     self.current_value = self.peak_value;
+                }
+            }
+            EnginePhase::InitialDecay => {
+                let peak = I32F32::from_bits(self.peak_value.to_bits() as i64);
+                let switch = peak * self.decay_switch_level;
+
+                // Precompute externally if possible
+                // let k = I32F32::from_num(6) / I32F32::from_num(5);
+                let target = peak + (switch - peak) * self.initial_decay_scale_factor;
+
+                let mut current = I32F32::from_bits(self.current_value.to_bits() as i64);
+
+                let delta = (target - current)
+                    * I32F32::from_bits(self.initial_decay_ratio.to_bits() as i64);
+
+                current += delta;
+
+                // --- Branchless clamp ---
+                let diff = switch - current;
+
+                // sign masks (all 1s or 0)
+                let delta_neg = (delta.to_bits() >> 63) as i64; // -1 if delta < 0 else 0
+                let diff_neg = (diff.to_bits() >> 63) as i64; // -1 if current < switch else 0
+
+                // crossing happens when signs differ
+                let crossed_mask = delta_neg ^ diff_neg;
+
+                // Select switch or current without branching
+                let current_bits = current.to_bits();
+                let switch_bits = switch.to_bits();
+
+                // mask-based select
+                let final_bits = (current_bits & !crossed_mask) | (switch_bits & crossed_mask);
+
+                self.current_value = U32F32::from_bits(final_bits as u64);
+
+                // --- Single remaining branch (state change) ---
+                if crossed_mask != 0 {
+                    self.phase = EnginePhase::Decay;
                 }
             }
             EnginePhase::Decay => {
                 // update the target value every cycle as the sustain level may have changed.
                 self.target_value = self.peak_value * self.sustain_level;
-
-                let current_signed = fixed::types::I32F32::from_num(self.current_value);
-                let target_signed = fixed::types::I32F32::from_num(self.target_value);
+                let current_signed = I32F32::from_num(self.current_value);
+                let target_signed = I32F32::from_num(self.target_value);
                 let diff = target_signed - current_signed;
-                let delta = diff * fixed::types::I32F32::from_num(self.decay_ratio);
-                let next_value = current_signed + delta;
-                let next_bits = next_value.to_bits();
+                let delta = diff * I32F32::from_num(self.decay_ratio);
+                let next = current_signed + delta;
+                let next_bits = next.to_bits();
                 self.current_value = if next_bits < 0 {
                     U32F32::from_num(0u32)
                 } else {
