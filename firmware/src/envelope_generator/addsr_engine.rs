@@ -1,5 +1,6 @@
 /// Default EG voice engine
 use defmt;
+use fixed::types::U32F32;
 
 use crate::input_reader::{InputReaderInfo, PotKind};
 
@@ -85,33 +86,49 @@ impl Engine for AddsrEngine {
     fn update_params(&mut self, voice_index: usize, config: &EgConfig, input: &InputReaderInfo) {
         match input.pot_info.kind {
             PotKind::Attack => {
-                let attack_time = config.attack[voice_index] as f64;
-                let attack_time_constant: f64 =
-                    1.0 + 1.5e-9 * attack_time * attack_time * attack_time;
-                self.attack_ratio = 0xffffffff / attack_time_constant as u64;
+                let attack_time = U32F32::from_num(config.attack[voice_index] as u32);
+                let attack_time_constant = U32F32::from_num(1u32)
+                    + (U32F32::from_num(3u32) / U32F32::from_num(2_000_000_000u32))
+                        * attack_time
+                        * attack_time
+                        * attack_time;
+                let attack_ratio = U32F32::from_num(1u32) / attack_time_constant;
+                self.attack_ratio = attack_ratio.to_bits();
             }
             PotKind::Decay => {
-                let new_decay_time = config.decay[voice_index] as f64;
-                let decay_time_constant =
-                    7.5 + 2.5e-9 * new_decay_time * new_decay_time * new_decay_time;
-                self.decay_ratio = 0xffffffff / decay_time_constant as u64;
+                let decay_time = U32F32::from_num(config.decay[voice_index] as u32);
+                let decay_time_constant = (U32F32::from_num(15u32) / U32F32::from_num(2u32))
+                    + (U32F32::from_num(5u32) / U32F32::from_num(2_000_000_000u32))
+                        * decay_time
+                        * decay_time
+                        * decay_time;
+                let decay_ratio = U32F32::from_num(1u32) / decay_time_constant;
+                self.decay_ratio = decay_ratio.to_bits();
             }
             PotKind::Sustain => {
                 let sustain_level = config.sustain[voice_index] as u64;
                 self.sustain_level = ((sustain_level >> 1) + 32768) * sustain_level;
             }
             PotKind::Release => {
-                let new_release_time = config.release[voice_index] as f64;
-                let release_time_constant =
-                    7.5 + 2.5e-9 * new_release_time * new_release_time * new_release_time;
-                self.release_ratio = 0xffffffff / release_time_constant as u64;
+                let release_time = U32F32::from_num(config.release[voice_index] as u32);
+                let release_time_constant = (U32F32::from_num(15u32) / U32F32::from_num(2u32))
+                    + (U32F32::from_num(5u32) / U32F32::from_num(2_000_000_000u32))
+                        * release_time
+                        * release_time
+                        * release_time;
+                let release_ratio = U32F32::from_num(1u32) / release_time_constant;
+                self.release_ratio = release_ratio.to_bits();
             }
             PotKind::Extra1 => {
                 if matches!(self.engine_type, EngineType::ADDSR) {
-                    let new_decay_time = config.extra1[voice_index] as f64;
-                    let decay_time_constant =
-                        7.5 + 2.5e-9 * new_decay_time * new_decay_time * new_decay_time;
-                    self.initial_decay_ratio = 0xffffffff / decay_time_constant as u64;
+                    let extra1_time = U32F32::from_num(config.extra1[voice_index] as u32);
+                    let decay_time_constant = (U32F32::from_num(15u32) / U32F32::from_num(2u32))
+                        + (U32F32::from_num(5u32) / U32F32::from_num(2_000_000_000u32))
+                            * extra1_time
+                            * extra1_time
+                            * extra1_time;
+                    let initial_decay_ratio = U32F32::from_num(1u32) / decay_time_constant;
+                    self.initial_decay_ratio = initial_decay_ratio.to_bits();
                 }
             }
             PotKind::Extra2 => {
