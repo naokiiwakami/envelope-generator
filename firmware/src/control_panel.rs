@@ -4,6 +4,7 @@ mod menu;
 
 use defmt::debug;
 use embassy_executor::Spawner;
+use embassy_futures::select::{Either, select};
 use embassy_stm32::{
     gpio::{Input, Level, Output},
     i2c::{I2c, Master},
@@ -11,7 +12,7 @@ use embassy_stm32::{
     peripherals::TIM3,
     timer::qei::Qei,
 };
-use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel};
+use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel, pubsub};
 use embassy_time::{Duration, Instant, Timer};
 use embedded_graphics::prelude::Point;
 use heapless::String;
@@ -25,7 +26,8 @@ use self::{
 };
 
 use crate::envelope_generator::{
-    EgRequest, REQUEST_CHANNEL_SIZE, get_request_sender as get_eg_request_sender,
+    EG_CHANNEL_SIZE, EG_PUBS, EG_SUBS, EgEvent, EgRequest, EngineType, get_eg_event_subscriber,
+    get_eg_request_sender,
 };
 
 pub fn start(
@@ -63,9 +65,11 @@ struct ControlPanel {
         channel::Sender<'static, ThreadModeRawMutex, DisplayRequest, DISPLAY_CHANNEL_LENGTH>,
 
     // EG
-    eg_request_sender:
-        channel::Sender<'static, ThreadModeRawMutex, EgRequest, REQUEST_CHANNEL_SIZE>,
+    eg_request_sender: channel::Sender<'static, ThreadModeRawMutex, EgRequest, EG_CHANNEL_SIZE>,
+    eg_event_subscriber:
+        pubsub::Subscriber<'static, ThreadModeRawMutex, EgEvent, EG_CHANNEL_SIZE, EG_SUBS, EG_PUBS>,
     engine_type_index: usize,
+    current_engine_type: EngineType,
 
     // rotary encoder
     encoder: Qei<'static, TIM3>,
@@ -93,7 +97,9 @@ impl ControlPanel {
         Self {
             display_request_sender,
             eg_request_sender: get_eg_request_sender(),
+            eg_event_subscriber: get_eg_event_subscriber(),
             engine_type_index: 0,
+            current_engine_type: EngineType::ADSR,
             encoder,
             button: encoder_button,
             ind_red: encoder_ind_red,
@@ -110,8 +116,22 @@ impl ControlPanel {
         self.show_initial_screen().await;
         // self.blink_leds().await;
         loop {
-            Timer::after_millis(10).await;
+            match select(
+                self.eg_event_subscriber.next_message_pure(),
+                Timer::after_millis(10),
+            )
+            .await
+            {
+                Either::First(event) => self.handle_eg_event(event).await,
+                Either::Second(()) => {}
+            };
             self.update().await;
+        }
+    }
+
+    async fn handle_eg_event(&mut self, event: EgEvent) {
+        match event {
+            EgEvent::EngineSwitched(engine_type) => self.switch_engine_type(engine_type).await,
         }
     }
 
@@ -176,8 +196,14 @@ impl ControlPanel {
                 self.execute_op_action().await;
             }
             ControlPanelMode::EngineTypeSelected => {
-                self.engine_type_index = self.menu_item_index;
-                self.switch_engine_type().await;
+                match &ENGINE_TYPE_MENU_ITEMS[self.menu_item_index].selection {
+                    Some(engine_type) => {
+                        self.request_switching_engine(&engine_type).await;
+                        self.switch_engine_type(engine_type.clone()).await;
+                    }
+                    None => {} // do not switch the engine type
+                }
+                self.into_normal_mode().await;
             }
             ControlPanelMode::AdminActionSelected => {
                 self.ind_red.set_low();
@@ -250,17 +276,19 @@ impl ControlPanel {
         self.display_request_sender.send(request).await;
     }
 
-    /// Called on button release in OpActionSelected mode to execute the next action.
-    async fn switch_engine_type(&mut self) {
-        match &ENGINE_TYPE_MENU_ITEMS[self.engine_type_index].selection {
-            Some(engine_type) => {
-                self.eg_request_sender
-                    .send(EgRequest::SwitchEngine(engine_type.clone()))
-                    .await;
-            }
-            None => {} // do not switch the engine type
+    /// Called to request EnvelopeGenerator to switch engine mode.
+    async fn request_switching_engine(&mut self, engine_type: &EngineType) {
+        self.eg_request_sender
+            .send(EgRequest::SwitchEngine(engine_type.clone()))
+            .await;
+    }
+
+    async fn switch_engine_type(&mut self, next_engine_type: EngineType) {
+        if next_engine_type != self.current_engine_type {
+            self.engine_type_index = (next_engine_type.clone() as u8) as usize;
+            self.current_engine_type = next_engine_type;
+            self.show_initial_screen().await;
         }
-        self.into_normal_mode().await;
     }
 
     // Admin mode ////////////////////////////////////////////////////////////
@@ -390,7 +418,9 @@ impl ControlPanel {
 
     async fn show_initial_screen(&self) {
         self.display_request_sender
-            .send(DisplayRequest::ShowInitialScreen)
+            .send(DisplayRequest::ShowInitialScreen {
+                engine_type: self.current_engine_type.clone(),
+            })
             .await;
     }
 

@@ -17,7 +17,7 @@ use embassy_sync::{
 use embassy_time::Timer;
 
 use crate::envelope_generator::{
-    EgRequest, GateEventType, GateId, REQUEST_CHANNEL_SIZE, get_request_sender,
+    EG_CHANNEL_SIZE, EgRequest, GateEventType, GateId, get_eg_request_sender,
 };
 
 // communications ///////////////////////////////
@@ -280,7 +280,7 @@ struct AnalogGate {
     gate_id: GateId,
     state: AnalogGateState,
 
-    request_sender: channel::Sender<'static, ThreadModeRawMutex, EgRequest, REQUEST_CHANNEL_SIZE>,
+    request_sender: channel::Sender<'static, ThreadModeRawMutex, EgRequest, EG_CHANNEL_SIZE>,
 }
 
 impl AnalogGate {
@@ -296,7 +296,7 @@ impl AnalogGate {
             trigger,
             gate_id,
             state: AnalogGateState::Disabled,
-            request_sender: get_request_sender(),
+            request_sender: get_eg_request_sender(),
         }
     }
 

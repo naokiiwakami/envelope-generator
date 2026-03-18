@@ -22,6 +22,7 @@ use embassy_stm32::{
 use embassy_sync::{
     blocking_mutex::raw::ThreadModeRawMutex,
     channel::{self, Channel},
+    pubsub::{self, PubSubChannel},
 };
 use embassy_time::{Duration, Timer};
 use heapless::String;
@@ -32,7 +33,7 @@ use crate::{
     input_reader::{InputReaderInfo, get_reader_info_receiver},
 };
 
-pub use self::definitions::{EgRequest, EngineType, GateEventType, GateId};
+pub use self::definitions::{EgEvent, EgRequest, EngineType, GateEventType, GateId};
 use self::{
     addsr_engine::AddsrEngine, adsr_engine::AdsrEngine, config::EgConfig, definitions::Engine,
     definitions::VoiceParams, diag_engine::DiagEngine, linear_engine::LinearEngine,
@@ -48,14 +49,31 @@ static mut BUFFERS: [[u16; BUF_SIZE]; 2] = [[0; BUF_SIZE]; 2];
 static mut HEADS: [usize; 2] = [0; 2];
 static mut TAILS: [usize; 2] = [0; 2];
 
-// Request channel
-pub const REQUEST_CHANNEL_SIZE: usize = 4;
-static CHANNEL_REQUEST: Channel<ThreadModeRawMutex, EgRequest, REQUEST_CHANNEL_SIZE> =
-    Channel::new();
+pub const EG_CHANNEL_SIZE: usize = 4;
 
-pub fn get_request_sender()
--> channel::Sender<'static, ThreadModeRawMutex, EgRequest, REQUEST_CHANNEL_SIZE> {
+// Request channel
+static CHANNEL_REQUEST: Channel<ThreadModeRawMutex, EgRequest, EG_CHANNEL_SIZE> = Channel::new();
+
+pub fn get_eg_request_sender()
+-> channel::Sender<'static, ThreadModeRawMutex, EgRequest, EG_CHANNEL_SIZE> {
     CHANNEL_REQUEST.sender()
+}
+
+pub const EG_PUBS: usize = 1;
+pub const EG_SUBS: usize = 2;
+
+// Event channel
+static CHANNEL_EVENT: PubSubChannel<
+    ThreadModeRawMutex,
+    EgEvent,
+    EG_CHANNEL_SIZE,
+    EG_SUBS,
+    EG_PUBS,
+> = PubSubChannel::new();
+
+pub fn get_eg_event_subscriber()
+-> pubsub::Subscriber<'static, ThreadModeRawMutex, EgEvent, EG_CHANNEL_SIZE, EG_SUBS, EG_PUBS> {
+    CHANNEL_EVENT.subscriber().unwrap()
 }
 
 pub fn start(
@@ -141,8 +159,9 @@ async fn run_envelope_generator(
 
 struct EgResources {
     config: EgConfig,
-    request_receiver:
-        channel::Receiver<'static, ThreadModeRawMutex, EgRequest, REQUEST_CHANNEL_SIZE>,
+    request_receiver: channel::Receiver<'static, ThreadModeRawMutex, EgRequest, EG_CHANNEL_SIZE>,
+    event_publisher:
+        pubsub::Publisher<'static, ThreadModeRawMutex, EgEvent, EG_CHANNEL_SIZE, EG_SUBS, EG_PUBS>,
     ind_gate_1: Output<'static>,
     ind_gate_2: Output<'static>,
 }
@@ -152,6 +171,7 @@ impl EgResources {
         Self {
             config: EgConfig::new(0x101, 0x102, EngineType::ADSR),
             request_receiver: CHANNEL_REQUEST.receiver(),
+            event_publisher: CHANNEL_EVENT.publisher().unwrap(),
             ind_gate_1,
             ind_gate_2,
         }
@@ -161,7 +181,15 @@ impl EgResources {
 struct EnvelopeGenerator<'a, EngineT: Engine> {
     config: &'a mut EgConfig,
     request_receiver:
-        &'a mut channel::Receiver<'static, ThreadModeRawMutex, EgRequest, REQUEST_CHANNEL_SIZE>,
+        &'a mut channel::Receiver<'static, ThreadModeRawMutex, EgRequest, EG_CHANNEL_SIZE>,
+    event_publisher: &'a mut pubsub::Publisher<
+        'static,
+        ThreadModeRawMutex,
+        EgEvent,
+        EG_CHANNEL_SIZE,
+        EG_SUBS,
+        EG_PUBS,
+    >,
     voice_1: EgVoice<'a, EngineT>,
     voice_2: EgVoice<'a, EngineT>,
 }
@@ -173,6 +201,7 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
         Self {
             config: &mut resources.config,
             request_receiver: &mut resources.request_receiver,
+            event_publisher: &mut resources.event_publisher,
             voice_1,
             voice_2,
         }
@@ -182,6 +211,9 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
         let rx_receiver = analog3::get_forwarder_receiver();
         let prop_request_receiver = analog3::get_prop_request_receiver();
         let mut input_reader_info_receiver = get_reader_info_receiver().await;
+        self.event_publisher
+            .publish(EgEvent::EngineSwitched(self.config.engine_type.clone()))
+            .await;
         loop {
             match select5(
                 rx_receiver.receive(),
@@ -233,7 +265,7 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
                 false
             }
             EgRequest::SwitchEngine(engine_type) => {
-                debug!("switching engine to {:?}", engine_type);
+                debug!("switching engine to {}", engine_type.name());
                 self.config.engine_type = engine_type;
                 true
             }

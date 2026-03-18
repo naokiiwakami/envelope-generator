@@ -11,20 +11,31 @@ pub struct VoiceParams {
     pub velocity: u16,
 }
 
-/// Event for the envelope generator
+/// Request for the envelope generator
 pub enum EgRequest {
     GateEvent { id: GateId, event: GateEventType },
     SwitchEngine(EngineType),
 }
 
 /// EG engine types
-#[derive(Clone, Debug, defmt::Format)]
+#[derive(Clone, PartialEq)]
 #[repr(u8)]
 pub enum EngineType {
     ADSR = 0,
     ADDSR = 1,
     Linear = 2,
     Diag = 3,
+}
+
+impl EngineType {
+    pub fn name(&self) -> &'static str {
+        match self {
+            EngineType::ADSR => "ADSR",
+            EngineType::ADDSR => "Two Decays",
+            EngineType::Linear => "Linear",
+            EngineType::Diag => "Diagnose",
+        }
+    }
 }
 
 /// Gate identifiers
@@ -41,6 +52,12 @@ pub enum GateEventType {
     AnalogGateDisabled,
     GateOn { velocity: u16 },
     GateOff,
+}
+
+/// Event occurred in the EnvelopeGenerator
+#[derive(Clone)]
+pub enum EgEvent {
+    EngineSwitched(EngineType),
 }
 
 pub trait Engine {

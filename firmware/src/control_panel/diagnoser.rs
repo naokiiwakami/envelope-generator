@@ -2,10 +2,7 @@ use embassy_futures::select::{Either, select};
 use embassy_time::{Duration, Instant, Timer};
 use embedded_graphics::prelude::Point;
 
-use crate::{
-    envelope_generator::{EgRequest, EngineType},
-    input_reader::get_reader_info_receiver,
-};
+use crate::{envelope_generator::EngineType, input_reader::get_reader_info_receiver};
 
 use super::{ControlPanel, DisplayRequest, display::FontSize};
 
@@ -28,9 +25,9 @@ impl<'a> Diagnoser<'a> {
                 Point::new(10, 25),
             )
             .await;
+        let orig_engine_type = self.control_panel.current_engine_type.clone();
         self.control_panel
-            .eg_request_sender
-            .send(EgRequest::SwitchEngine(EngineType::Diag))
+            .request_switching_engine(&EngineType::Diag)
             .await;
         crate::analog3::trigger_diagnose().await;
         Timer::after_millis(6500).await;
@@ -39,7 +36,13 @@ impl<'a> Diagnoser<'a> {
         self.diagnose_patch_controller().await;
         self.diagnose_pots().await;
         self.diagnose_cv().await;
-        self.control_panel.switch_engine_type().await;
+        self.control_panel
+            .request_switching_engine(&orig_engine_type)
+            .await;
+        self.control_panel
+            .switch_engine_type(orig_engine_type)
+            .await;
+        self.control_panel.into_normal_mode().await;
         self.control_panel
             .display_text("DONE!", true, true, FontSize::Medium, Point::new(40, 25))
             .await;

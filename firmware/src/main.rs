@@ -304,13 +304,6 @@ async fn main(spawner: Spawner) {
 
     storage::start(spawner, eg_resources.flash);
 
-    envelope_generator::start(
-        spawner,
-        eg_resources.dac_channels,
-        eg_resources.ind_gate_1,
-        eg_resources.ind_gate_2,
-    );
-
     control_panel::start(
         spawner,
         eg_resources.i2c,
@@ -318,6 +311,13 @@ async fn main(spawner: Spawner) {
         eg_resources.encoder_button,
         eg_resources.encoder_ind_red,
         eg_resources.encoder_ind_green,
+    );
+
+    envelope_generator::start(
+        spawner,
+        eg_resources.dac_channels,
+        eg_resources.ind_gate_1,
+        eg_resources.ind_gate_2,
     );
 
     let uid = get_uid().await;

@@ -31,6 +31,7 @@ use ssd1306::{
 
 use crate::{
     control_panel::{display::menu_mode::MenuMode, menu::ENGINE_TYPE_MENU_ITEMS},
+    envelope_generator::EngineType,
     input_reader::{CvInfo, PotInfo},
 };
 
@@ -70,7 +71,9 @@ pub enum Request {
     },
     Flush,
     // Fundamental requests
-    ShowInitialScreen,
+    ShowInitialScreen {
+        engine_type: EngineType,
+    },
     DisplayText {
         reverse: bool,
         flush: bool,
@@ -102,7 +105,7 @@ impl Request {
     fn mode(&self) -> Mode {
         match self {
             Request::Clear { .. } | Request::Flush => Mode::Any,
-            Request::ShowInitialScreen | Request::DisplayText { .. } => Mode::Fundamental,
+            Request::ShowInitialScreen { .. } | Request::DisplayText { .. } => Mode::Fundamental,
             Request::DisplayOpMenuItem { .. } => Mode::OpMenu,
             Request::DisplayEngineTypeMenuItem { .. } => Mode::EngineTypeMenu,
             Request::DisplayAdminMenuItem { .. } => Mode::AdminMenu,
@@ -125,6 +128,7 @@ struct EgDisplay {
     >,
 
     mode: Mode,
+    current_engine_type: EngineType,
     request_receiver: channel::Receiver<'static, ThreadModeRawMutex, Request, CHANNEL_LENGTH>,
     pending_request: Option<Request>,
 }
@@ -138,6 +142,7 @@ impl EgDisplay {
         Self {
             display,
             mode: Mode::Fundamental,
+            current_engine_type: EngineType::ADSR,
             request_receiver: CHANNEL_REQUEST.receiver(),
             pending_request: None,
         }
@@ -186,7 +191,9 @@ impl EgDisplay {
                 Request::Clear { .. } | Request::Flush => {
                     self.handle_generic_request(request).await
                 }
-                Request::ShowInitialScreen => self.show_initial_screen().await,
+                Request::ShowInitialScreen { engine_type } => {
+                    self.show_initial_screen(engine_type).await
+                }
                 Request::DisplayText {
                     reverse,
                     flush,
@@ -202,23 +209,17 @@ impl EgDisplay {
         }
     }
 
-    pub async fn show_initial_screen(&mut self) {
+    pub async fn show_initial_screen(&mut self, engine_type: EngineType) {
         self.mode = Mode::Fundamental;
+        self.current_engine_type = engine_type;
         self.display.clear(BinaryColor::Off).unwrap();
         let text_style = MonoTextStyleBuilder::new()
             .font(&FONT_10X20)
             .text_color(BinaryColor::On)
             .build();
 
-        Text::with_baseline("Humps Rev.0", Point::new(12, 0), text_style, Baseline::Top)
-            .draw(&mut self.display)
-            .unwrap();
-
-        Text::with_baseline("UNDER", Point::new(40, 21), text_style, Baseline::Top)
-            .draw(&mut self.display)
-            .unwrap();
-
-        Text::with_baseline("CONSTRUCTION", Point::new(5, 42), text_style, Baseline::Top)
+        let name = ENGINE_TYPE_MENU_ITEMS[(self.current_engine_type.clone() as u8) as usize].name;
+        Text::with_baseline(name, Point::new(20, 20), text_style, Baseline::Top)
             .draw(&mut self.display)
             .unwrap();
 
