@@ -17,7 +17,7 @@ enum EnginePhase {
 }
 
 /// The fundamental envelope EG voice engine that generates traditional ADSR curve.
-pub struct AddsrEngine {
+pub struct TwoDecaysEngine {
     engine_type: EngineType,
 
     // Values are UQ32.32 fixed point integers.
@@ -52,9 +52,9 @@ pub struct AddsrEngine {
     phase: EnginePhase,
 }
 
-impl AddsrEngine {}
+impl TwoDecaysEngine {}
 
-impl Engine for AddsrEngine {
+impl Engine for TwoDecaysEngine {
     fn new() -> Self {
         Self {
             engine_type: EngineType::ADDSR,

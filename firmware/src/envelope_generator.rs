@@ -1,9 +1,9 @@
-mod addsr_engine;
 mod adsr_engine;
 mod config;
 mod definitions;
 mod diag_engine;
 mod linear_engine;
+mod two_decays_engine;
 
 use defmt::{debug, warn};
 use embassy_executor::Spawner;
@@ -35,8 +35,8 @@ use crate::{
 
 pub use self::definitions::{EgEvent, EgRequest, EngineType, GateEventType, GateId};
 use self::{
-    addsr_engine::AddsrEngine, adsr_engine::AdsrEngine, config::EgConfig, definitions::Engine,
-    definitions::VoiceParams, diag_engine::DiagEngine, linear_engine::LinearEngine,
+    adsr_engine::AdsrEngine, config::EgConfig, definitions::Engine, definitions::VoiceParams,
+    diag_engine::DiagEngine, linear_engine::LinearEngine, two_decays_engine::TwoDecaysEngine,
 };
 
 // parameter tweaks
@@ -141,7 +141,7 @@ async fn run_envelope_generator(
                 eg.run().await;
             }
             EngineType::ADDSR => {
-                let mut eg = EnvelopeGenerator::<AddsrEngine>::new(&mut eg_resources);
+                let mut eg = EnvelopeGenerator::<TwoDecaysEngine>::new(&mut eg_resources);
                 eg.run().await;
             }
             EngineType::Linear => {
