@@ -186,13 +186,13 @@ impl Engine for AddsrEngine {
 
                 let mut current = I32F32::from_bits(self.current_value.to_bits() as i64);
 
-                let delta = (current - target)
+                let delta = (target - current)
                     * I32F32::from_bits(self.initial_decay_ratio.to_bits() as i64);
 
-                current -= delta;
+                current += delta;
 
                 // --- Branchless clamp ---
-                let diff = current - switch;
+                let diff = switch - current;
 
                 // sign masks (all 1s or 0)
                 let delta_neg = (delta.to_bits() >> 63) as i64; // -1 if delta < 0 else 0
