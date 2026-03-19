@@ -360,7 +360,7 @@ impl EgDisplay {
             position,
             28,
             Angle::from_degrees(120.0),
-            Angle::from_degrees((300.0 / 0xfff as f32) * pot_info.value as f32),
+            Angle::from_degrees((300.0 / 0xffff as f32) * pot_info.value as f32),
         )
         .into_styled(*stroke)
         .draw(&mut self.display)
