@@ -1,6 +1,6 @@
 /// Default EG voice engine
 use defmt;
-use fixed::types::U32F32;
+use fixed::types::{I32F32, U32F32};
 
 use super::config::EgConfig;
 use super::definitions::Engine;
@@ -17,47 +17,42 @@ enum EnginePhase {
 
 /// The fundamental envelope EG voice engine that generates traditional ADSR curve.
 pub struct AdsrEngine {
-    // Values are UQ32.32 fixed point integers.
-    // This equal integer and fractional assignment is convenient for EG curve
-    // calculation as most of values are in range of [0:1) that fit within
-    // 32-bit LSB part. Multiplying these values never overflows in UQ32.32 format.
-
     // Parameters translated by the EG configuration.
-    attack_ratio: U32F32,
-    decay_ratio: U32F32,
-    sustain_level: U32F32,
-    release_ratio: U32F32,
+    attack_ratio: I32F32,
+    decay_ratio: I32F32,
+    sustain_level: I32F32,
+    release_ratio: I32F32,
 
     // Values that represent current EG state
 
     // Current values are calculated to fit within range [0:0.5) in UQ32.32 representation
     // where actual range is [0..0x7fffffff].
-    current_value: U32F32,
+    current_value: I32F32,
     // The engine simulates RC charging/discharging for this target value.
     // Different transient ratio (attack_ratio, decay_ratio, or release_ratio) is used
     // according to the current phase.
-    target_value: U32F32,
+    target_value: I32F32,
     // The peak value is used for switching phases between attack and decay. When the
     // current value reaches the peak value during attack phase, the engine swithces its
     // phase to decay.
-    peak_value: U32F32,
+    peak_value: I32F32,
 
     phase: EnginePhase,
 }
 
-impl AdsrEngine {}
+const SIX_FIFTHS: I32F32 = I32F32::from_bits(((6i64 << 32) / 5) as i64);
 
 impl Engine for AdsrEngine {
     fn new() -> Self {
         Self {
-            attack_ratio: U32F32::from_num(0u32),
-            decay_ratio: U32F32::from_num(0u32),
-            sustain_level: U32F32::from_bits(0xffffffff),
-            release_ratio: U32F32::from_num(0u32),
+            attack_ratio: I32F32::from_num(0i32),
+            decay_ratio: I32F32::from_num(0i32),
+            sustain_level: I32F32::from_bits(0xffffffff),
+            release_ratio: I32F32::from_num(0i32),
 
-            current_value: U32F32::from_num(0u32),
-            target_value: U32F32::from_num(0u32),
-            peak_value: U32F32::from_num(0u32),
+            current_value: I32F32::from_num(0i32),
+            target_value: I32F32::from_num(0i32),
+            peak_value: I32F32::from_num(0i32),
             phase: EnginePhase::Released,
         }
     }
@@ -69,8 +64,8 @@ impl Engine for AdsrEngine {
         self.update_params(voice_index, config, &InputReaderInfo::new(PotKind::Release));
         self.update_params(voice_index, config, &InputReaderInfo::new(PotKind::Extra1));
         self.update_params(voice_index, config, &InputReaderInfo::new(PotKind::Extra2));
-        self.current_value = U32F32::from_num(0u32);
-        self.target_value = U32F32::from_num(0u32);
+        self.current_value = I32F32::from_num(0i32);
+        self.target_value = I32F32::from_num(0i32);
         self.phase = EnginePhase::Released;
     }
 
@@ -83,7 +78,8 @@ impl Engine for AdsrEngine {
                         * attack_time
                         * attack_time
                         * attack_time;
-                self.attack_ratio = U32F32::from_num(1u32) / attack_time_constant;
+                let ratio_u = U32F32::from_num(1u32) / attack_time_constant;
+                self.attack_ratio = I32F32::from_bits(ratio_u.to_bits() as i64);
             }
             PotKind::Decay => {
                 let decay_time = U32F32::from_num(config.decay[voice_index] as u32);
@@ -92,12 +88,13 @@ impl Engine for AdsrEngine {
                         * decay_time
                         * decay_time
                         * decay_time;
-                self.decay_ratio = U32F32::from_num(1u32) / decay_time_constant;
+                let ratio_u = U32F32::from_num(1u32) / decay_time_constant;
+                self.decay_ratio = I32F32::from_bits(ratio_u.to_bits() as i64);
             }
             PotKind::Sustain => {
                 let sustain_level = config.sustain[voice_index] as u64;
-                self.sustain_level =
-                    U32F32::from_bits(((sustain_level >> 1) + 32768) * sustain_level);
+                let level_u = U32F32::from_bits(((sustain_level >> 1) + 32768) * sustain_level);
+                self.sustain_level = I32F32::from_bits(level_u.to_bits() as i64);
             }
             PotKind::Release => {
                 let release_time = U32F32::from_num(config.release[voice_index] as u32);
@@ -106,7 +103,8 @@ impl Engine for AdsrEngine {
                         * release_time
                         * release_time
                         * release_time;
-                self.release_ratio = U32F32::from_num(1u32) / release_time_constant;
+                let ratio_u = U32F32::from_num(1u32) / release_time_constant;
+                self.release_ratio = I32F32::from_bits(ratio_u.to_bits() as i64);
             }
             PotKind::Extra1 => {
                 // TBD
@@ -125,16 +123,15 @@ impl Engine for AdsrEngine {
         // Add an offset of 1/32 level to avoid silence with low velocity
         let velocity = params.velocity as u64;
         let level_bits = ((velocity * velocity) * 31 + 0xffffffff) >> 6;
-        let level = U32F32::from_bits(level_bits);
-        // target = level * 1.2
-        self.target_value = level * U32F32::from_num(6u32) / U32F32::from_num(5u32);
+        let level = I32F32::from_bits(level_bits as i64);
+        self.target_value = level * SIX_FIFTHS;
         self.peak_value = level;
         self.phase = EnginePhase::Attack;
     }
 
     /// Handles a gate-off event.
     fn gate_off(&mut self) {
-        self.target_value = U32F32::from_num(0u32);
+        self.target_value = I32F32::from_num(0i32);
         self.peak_value = self.current_value;
         self.phase = EnginePhase::Released;
     }
@@ -155,17 +152,12 @@ impl Engine for AdsrEngine {
                 // update the target value every cycle as the sustain level may have changed.
                 self.target_value = self.peak_value * self.sustain_level;
 
-                let current_signed = fixed::types::I32F32::from_num(self.current_value);
-                let target_signed = fixed::types::I32F32::from_num(self.target_value);
-                let diff = target_signed - current_signed;
-                let delta = diff * fixed::types::I32F32::from_num(self.decay_ratio);
-                let next_value = current_signed + delta;
-                let next_bits = next_value.to_bits();
-                self.current_value = if next_bits < 0 {
-                    U32F32::from_num(0u32)
-                } else {
-                    U32F32::from_bits(next_bits as u64)
-                };
+                let delta = (self.target_value - self.current_value) * self.decay_ratio;
+                self.current_value += delta;
+
+                // clamp to zero (branchless-ish)
+                let bits = self.current_value.to_bits();
+                self.current_value = I32F32::from_bits(bits & !(bits >> 63));
             }
             EnginePhase::Released => {
                 let delta = self.current_value * self.release_ratio;

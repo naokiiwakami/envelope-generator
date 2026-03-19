@@ -140,7 +140,7 @@ async fn run_envelope_generator(
                 let mut eg = EnvelopeGenerator::<AdsrEngine>::new(&mut eg_resources);
                 eg.run().await;
             }
-            EngineType::ADDSR => {
+            EngineType::TwoDecays => {
                 let mut eg = EnvelopeGenerator::<TwoDecaysEngine>::new(&mut eg_resources);
                 eg.run().await;
             }

@@ -26,7 +26,7 @@ pub static ENGINE_TYPE_MENU_ITEMS: [MenuItem<Option<EngineType>>; 4] = [
     },
     MenuItem {
         name: "TWO DECAYS",
-        selection: Some(EngineType::ADDSR),
+        selection: Some(EngineType::TwoDecays),
     },
     MenuItem {
         name: "LINEAR",

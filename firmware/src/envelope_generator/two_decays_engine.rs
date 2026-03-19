@@ -5,8 +5,8 @@ use fixed::types::{I32F32, U32F32};
 use crate::input_reader::{InputReaderInfo, PotKind};
 
 use super::config::EgConfig;
+use super::definitions::Engine;
 use super::definitions::VoiceParams;
-use super::{EngineType, definitions::Engine};
 
 #[derive(Debug, defmt::Format)]
 enum EnginePhase {
@@ -18,8 +18,6 @@ enum EnginePhase {
 
 /// The fundamental envelope EG voice engine that generates traditional ADSR curve.
 pub struct TwoDecaysEngine {
-    engine_type: EngineType,
-
     // Parameters translated by the EG configuration.
     attack_ratio: I32F32,
     decay_ratio: I32F32,
@@ -54,8 +52,6 @@ const SIX_FIFTHS: I32F32 = I32F32::from_bits(((6i64 << 32) / 5) as i64);
 impl Engine for TwoDecaysEngine {
     fn new() -> Self {
         Self {
-            engine_type: EngineType::ADDSR,
-
             attack_ratio: I32F32::from_num(0),
             decay_ratio: I32F32::from_num(0),
             release_ratio: I32F32::from_num(0),
@@ -124,23 +120,19 @@ impl Engine for TwoDecaysEngine {
                 self.release_ratio = I32F32::from_bits(ratio_u.to_bits() as i64);
             }
             PotKind::Extra1 => {
-                if matches!(self.engine_type, EngineType::ADDSR) {
-                    let extra1_time = U32F32::from_num(config.extra1[voice_index] as u32);
-                    let decay_time_constant = (U32F32::from_num(15u32) / U32F32::from_num(2u32))
-                        + (U32F32::from_num(5u32) / U32F32::from_num(2_000_000_000u32))
-                            * extra1_time
-                            * extra1_time
-                            * extra1_time;
-                    let ratio_u = U32F32::from_num(1u32) / decay_time_constant;
-                    self.initial_decay_ratio = I32F32::from_bits(ratio_u.to_bits() as i64);
-                }
+                let extra1_time = U32F32::from_num(config.extra1[voice_index] as u32);
+                let decay_time_constant = (U32F32::from_num(15u32) / U32F32::from_num(2u32))
+                    + (U32F32::from_num(5u32) / U32F32::from_num(2_000_000_000u32))
+                        * extra1_time
+                        * extra1_time
+                        * extra1_time;
+                let ratio_u = U32F32::from_num(1u32) / decay_time_constant;
+                self.initial_decay_ratio = I32F32::from_bits(ratio_u.to_bits() as i64);
             }
             PotKind::Extra2 => {
-                if matches!(self.engine_type, EngineType::ADDSR) {
-                    let level = config.extra2[voice_index] as u64;
-                    self.decay_switch_level =
-                        I32F32::from_bits((((level >> 1) + 32768) * level) as i64);
-                }
+                let level = config.extra2[voice_index] as u64;
+                self.decay_switch_level =
+                    I32F32::from_bits((((level >> 1) + 32768) * level) as i64);
             }
             _ => {} // TODO interpret CV1_DEPTH and CV2_DEPTH
         }
