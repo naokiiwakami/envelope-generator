@@ -11,8 +11,11 @@ use definitions::*;
 use defmt::debug;
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
-use embassy_stm32::can::{Can, frame::FdFrame};
-use embassy_stm32::gpio::Output;
+use embassy_stm32::{
+    can::{Can, frame::FdFrame},
+    flash::Error,
+    gpio::Output,
+};
 use embassy_sync::{
     blocking_mutex::raw::ThreadModeRawMutex,
     channel::{self, Channel},
@@ -43,7 +46,7 @@ pub const CFG_CHANNEL_SIZE: usize = 2;
 static CFG_CHANNEL: Channel<ThreadModeRawMutex, PropRequest<'static>, CFG_CHANNEL_SIZE> =
     Channel::new();
 
-pub static WIRE_SIGNAL: Signal<ThreadModeRawMutex, LV> = Signal::new();
+pub static SIGNAL_WIRE: Signal<ThreadModeRawMutex, LV> = Signal::new();
 
 pub fn get_forwarder_receiver()
 -> channel::Receiver<'static, ThreadModeRawMutex, A3Datagram, MSG_FWD_CHANNEL_SIZE> {
@@ -56,6 +59,8 @@ pub fn get_prop_request_receiver()
 }
 
 static CHANNEL_A3_REQUEST: Channel<ThreadModeRawMutex, Analog3Request, 8> = Channel::new();
+
+static SIGNAL_STORAGE: Signal<ThreadModeRawMutex, Result<Value, Error>> = Signal::new();
 
 // config
 #[non_exhaustive]
@@ -89,9 +94,10 @@ pub fn start(
     spawner.spawn(can_handler(can).unwrap());
 }
 
-pub async fn trigger_diagnose() {
+pub async fn diagnose(done: &'static Signal<ThreadModeRawMutex, ()>) {
     let sender = CHANNEL_A3_REQUEST.sender();
-    sender.send(Analog3Request::Diagnose).await;
+    sender.send(Analog3Request::Diagnose { done }).await;
+    done.wait().await;
 }
 
 #[embassy_executor::task]
@@ -108,7 +114,9 @@ enum Analog3Request {
         length: usize,
         value: [u8; A3_MAX_PROP_DATA_SIZE],
     },
-    Diagnose,
+    Diagnose {
+        done: &'static Signal<ThreadModeRawMutex, ()>,
+    },
 }
 
 pub struct Analog3 {
@@ -177,12 +185,19 @@ impl Analog3 {
                 if prop_id == A3_PROP_ID_NAME {
                     bytes.extend_from_slice(&value[..length]).unwrap();
                     self.name = String::from_utf8(bytes).unwrap();
-                    storage::save(A3_ADDR_MODULE_NAME, Value::Text(self.name.clone()))
-                        .await
-                        .unwrap();
+                    storage::save(
+                        A3_ADDR_MODULE_NAME,
+                        Value::Text(self.name.clone()),
+                        &SIGNAL_STORAGE,
+                    )
+                    .await
+                    .unwrap();
                 }
             }
-            Analog3Request::Diagnose => self.diagnose().await,
+            Analog3Request::Diagnose { done } => {
+                self.diagnose().await;
+                done.signal(());
+            }
         };
     }
 
@@ -272,7 +287,7 @@ impl Analog3 {
             return;
         };
         if raw_id == wire_id {
-            WIRE_SIGNAL.signal(LV::from_frame(rx_frame));
+            SIGNAL_WIRE.signal(LV::from_frame(rx_frame));
         }
     }
 
@@ -483,7 +498,7 @@ impl<'a> TxStream<'a> {
         debug!("throttling");
         // TODO: put timeout
         // just wait without reading the content, the peer would send empty frames
-        WIRE_SIGNAL.wait().await;
+        SIGNAL_WIRE.wait().await;
         self.flush().await;
     }
 
@@ -733,7 +748,7 @@ impl<'a> ModifyConfigStream<'a> {
 
     /// receives data from the peer and handle it. Returns true when the stream is done
     async fn receive(&mut self) -> bool {
-        let data = WIRE_SIGNAL.wait().await;
+        let data = SIGNAL_WIRE.wait().await;
         let mut payload_index = 0;
         while payload_index < data.length {
             match self.parser_state {

@@ -1,13 +1,7 @@
 use defmt::debug;
 use embassy_executor::Spawner;
 use embassy_stm32::flash::{Error, FLASH_SIZE, Flash, WRITE_SIZE};
-use embassy_sync::{
-    blocking_mutex::raw::ThreadModeRawMutex,
-    channel::Channel,
-    mutex::Mutex,
-    watch::{self, Watch},
-};
-use embassy_time::Timer;
+use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel, signal::Signal};
 use heapless::{String, Vec};
 
 use crate::analog3::{
@@ -27,120 +21,54 @@ const NULL_SEQ_NUMBER: u16 = u16::MAX;
 const LAST_SEQ_NUMBER: u16 = u16::MAX - 1;
 
 static CHANNEL_STORAGE: Channel<ThreadModeRawMutex, StorageRequest, 2> = Channel::new();
-static WATCH_STORAGE_REPLY: Watch<ThreadModeRawMutex, StorageReply, 2> = Watch::new();
-static NEXT_STREAM_ID: Mutex<ThreadModeRawMutex, u32> = Mutex::new(0);
 
 pub fn start(spawner: Spawner, flash: Flash<'static>) {
     spawner.spawn(run_storage(flash).unwrap());
 }
 
-pub async fn load(address: u16, value_type: ValueType) -> Result<Value, Error> {
-    let mut stream = Stream::create().await;
-    debug!(
-        "loading from addr {=u16:#x} sid={}",
-        address, stream.stream_id
-    );
+pub async fn load(
+    address: u16,
+    value_type: ValueType,
+    reply: &'static Signal<ThreadModeRawMutex, Result<Value, Error>>,
+) -> Result<Value, Error> {
     let request_sender = CHANNEL_STORAGE.sender();
     request_sender
         .send(StorageRequest::Load {
             address,
             value_type,
-            stream_id: stream.stream_id,
+            reply,
         })
         .await;
-    let result = stream.receive_reply().await;
-    debug!("result received sid={}", stream.stream_id);
-    result
+    reply.wait().await
 }
 
-pub async fn save(address: u16, value: Value) -> Result<(), Error> {
-    let mut stream = Stream::create().await;
-    debug!("saving to addr {=u16:#x} sid={}", address, stream.stream_id);
+pub async fn save(
+    address: u16,
+    value: Value,
+    reply: &'static Signal<ThreadModeRawMutex, Result<Value, Error>>,
+) -> Result<(), Error> {
     let request_sender = CHANNEL_STORAGE.sender();
     request_sender
         .send(StorageRequest::Save {
             address,
             value,
-            stream_id: stream.stream_id,
+            reply,
         })
         .await;
-    debug!("saving request sent sid={}", stream.stream_id);
-    stream.receive_reply().await.map(|_| {})
-}
-
-#[non_exhaustive]
-struct Stream {
-    receiver: watch::Receiver<'static, ThreadModeRawMutex, StorageReply, 2>,
-    stream_id: u32,
-}
-
-impl Stream {
-    pub async fn create() -> Self {
-        let receiver = Self::get_reply_receiver().await;
-        let stream_id = Self::get_next_stream_id().await;
-        Self {
-            receiver,
-            stream_id,
-        }
-    }
-
-    pub async fn receive_reply(&mut self) -> Result<Value, Error> {
-        debug!("receiving on sid {}", self.stream_id);
-        let mut log_count = 0;
-        loop {
-            let reply = self.receiver.changed().await;
-            if log_count < 5 {
-                debug!(
-                    "got a reply, mysid={}, theirsid={}",
-                    self.stream_id, reply.stream_id
-                );
-                log_count += 1;
-            }
-            if reply.stream_id == self.stream_id {
-                debug!("HIT!");
-                return reply.result;
-            }
-        }
-    }
-
-    async fn get_reply_receiver() -> watch::Receiver<'static, ThreadModeRawMutex, StorageReply, 2> {
-        let mut sleep_millis = 1;
-        loop {
-            if let Some(receiver) = WATCH_STORAGE_REPLY.receiver() {
-                return receiver;
-            }
-            // exponential back off
-            Timer::after_millis(sleep_millis).await;
-            sleep_millis *= 2;
-        }
-    }
-
-    async fn get_next_stream_id() -> u32 {
-        let mut guard = NEXT_STREAM_ID.lock().await;
-        let current = *guard;
-        *guard += 1;
-        current
-    }
+    reply.wait().await.map(|_| {})
 }
 
 enum StorageRequest {
     Load {
         address: u16,
         value_type: ValueType,
-        stream_id: u32,
+        reply: &'static Signal<ThreadModeRawMutex, Result<Value, Error>>,
     },
     Save {
         address: u16,
         value: Value,
-        stream_id: u32,
+        reply: &'static Signal<ThreadModeRawMutex, Result<Value, Error>>,
     },
-}
-
-#[derive(Debug, Clone)]
-#[non_exhaustive]
-struct StorageReply {
-    stream_id: u32,
-    result: Result<Value, Error>,
 }
 
 #[embassy_executor::task]
@@ -200,25 +128,24 @@ impl Storage {
 
     pub async fn run(&mut self) {
         let request_receiver = CHANNEL_STORAGE.receiver();
-        let reply_sender = WATCH_STORAGE_REPLY.sender();
         loop {
             let request = request_receiver.receive().await;
             match request {
                 StorageRequest::Load {
                     address,
                     value_type,
-                    stream_id,
+                    reply,
                 } => {
                     let result = self.load(address, value_type);
-                    reply_sender.send(StorageReply { stream_id, result });
+                    reply.signal(result);
                 }
                 StorageRequest::Save {
                     address,
                     value,
-                    stream_id,
+                    reply,
                 } => {
                     let result = self.save(address, value).await.map(|_| Value::U8(0));
-                    reply_sender.send(StorageReply { stream_id, result });
+                    reply.signal(result);
                 }
             };
         }

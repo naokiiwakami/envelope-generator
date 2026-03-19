@@ -426,6 +426,12 @@ impl ControlPanel {
             .await;
     }
 
+    async fn clear_screen(&mut self, reverse: bool, flush: bool) {
+        self.display_request_sender
+            .send(DisplayRequest::Clear { reverse, flush })
+            .await;
+    }
+
     async fn display_text(
         &mut self,
         text: &str,

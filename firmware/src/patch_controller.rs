@@ -1,17 +1,10 @@
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Input, Output};
-use embassy_sync::{
-    blocking_mutex::raw::ThreadModeRawMutex,
-    channel::Channel,
-    mutex::Mutex,
-    watch::{self, Watch},
-};
+use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel, signal::Signal};
 use embassy_time::Timer;
 
 static CHANNEL_PATCH_CONTROLLER: Channel<ThreadModeRawMutex, PatchControllerRequest, 2> =
     Channel::new();
-static WATCH_PATCH_CONTROLLER: Watch<ThreadModeRawMutex, PatchControllerReply, 2> = Watch::new();
-static NEXT_STREAM_ID: Mutex<ThreadModeRawMutex, u32> = Mutex::new(0);
 
 pub fn start(
     spawner: Spawner,
@@ -23,33 +16,29 @@ pub fn start(
     spawner.spawn(run_patch_controller(patch_controller).unwrap());
 }
 
-pub async fn diagnose_leds() {
-    let stream_id = PatchController::get_next_stream_id().await;
+pub async fn diagnose_leds(reply: &'static Signal<ThreadModeRawMutex, ()>) {
     let request_sender = CHANNEL_PATCH_CONTROLLER.sender();
     request_sender
-        .send(PatchControllerRequest::DiagnoseLeds { stream_id })
+        .send(PatchControllerRequest::DiagnoseLeds { reply })
         .await;
-    PatchController::receive_reply(stream_id).await;
+    reply.wait().await;
 }
 
-pub async fn diagnose_button() {
-    let stream_id = PatchController::get_next_stream_id().await;
+pub async fn diagnose_button(reply: &'static Signal<ThreadModeRawMutex, ()>) {
     let request_sender = CHANNEL_PATCH_CONTROLLER.sender();
     request_sender
-        .send(PatchControllerRequest::DiagnoseButton { stream_id })
+        .send(PatchControllerRequest::DiagnoseButton { reply })
         .await;
-    PatchController::receive_reply(stream_id).await;
+    reply.wait().await;
 }
 
 pub enum PatchControllerRequest {
-    DiagnoseLeds { stream_id: u32 },
-    DiagnoseButton { stream_id: u32 },
-}
-
-#[derive(Clone)]
-struct PatchControllerReply {
-    stream_id: u32,
-    // result: Result<Value, Error>,
+    DiagnoseLeds {
+        reply: &'static Signal<ThreadModeRawMutex, ()>,
+    },
+    DiagnoseButton {
+        reply: &'static Signal<ThreadModeRawMutex, ()>,
+    },
 }
 
 #[embassy_executor::task]
@@ -77,19 +66,17 @@ impl PatchController {
     }
 
     pub async fn run(&mut self) {
-        // self.blink_leds().await;
         let request_receiver = CHANNEL_PATCH_CONTROLLER.receiver();
-        let reply_sender = WATCH_PATCH_CONTROLLER.sender();
         loop {
             let request = request_receiver.receive().await;
             match request {
-                PatchControllerRequest::DiagnoseLeds { stream_id } => {
+                PatchControllerRequest::DiagnoseLeds { reply } => {
                     self.diagnose_leds().await;
-                    reply_sender.send(PatchControllerReply { stream_id });
+                    reply.signal(());
                 }
-                PatchControllerRequest::DiagnoseButton { stream_id } => {
+                PatchControllerRequest::DiagnoseButton { reply } => {
                     self.diagnose_button().await;
-                    reply_sender.send(PatchControllerReply { stream_id });
+                    reply.signal(());
                 }
             };
         }
@@ -128,36 +115,6 @@ impl PatchController {
             }
             prev_button_pressed = button_pressed;
             Timer::after_millis(10).await;
-        }
-    }
-
-    async fn get_next_stream_id() -> u32 {
-        let mut guard = NEXT_STREAM_ID.lock().await;
-        let current = *guard;
-        *guard += 1;
-        current
-    }
-
-    async fn get_reply_receiver()
-    -> watch::Receiver<'static, ThreadModeRawMutex, PatchControllerReply, 2> {
-        let mut sleep_millis = 1;
-        loop {
-            if let Some(receiver) = WATCH_PATCH_CONTROLLER.receiver() {
-                return receiver;
-            }
-            // exponential back off
-            Timer::after_millis(sleep_millis).await;
-            sleep_millis *= 2;
-        }
-    }
-
-    pub async fn receive_reply(stream_id: u32) {
-        let mut receiver = Self::get_reply_receiver().await;
-        loop {
-            let reply = receiver.changed().await;
-            if reply.stream_id == stream_id {
-                return;
-            }
         }
     }
 }

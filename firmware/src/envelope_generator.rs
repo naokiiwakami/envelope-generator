@@ -13,6 +13,7 @@ use embassy_futures::{
 };
 use embassy_stm32::{
     dac::{self, Dac},
+    flash::Error,
     gpio::Output,
     interrupt,
     mode::Blocking,
@@ -23,6 +24,7 @@ use embassy_sync::{
     blocking_mutex::raw::ThreadModeRawMutex,
     channel::{self, Channel},
     pubsub::{self, PubSubChannel},
+    signal::Signal,
 };
 use embassy_time::{Duration, Timer};
 use heapless::String;
@@ -76,6 +78,8 @@ pub fn get_eg_event_subscriber()
     CHANNEL_EVENT.subscriber().unwrap()
 }
 
+static SIGNAL_STORAGE: Signal<ThreadModeRawMutex, Result<Value, Error>> = Signal::new();
+
 pub fn start(
     spawner: Spawner,
     dac_channels: Dac<'static, DAC1, Blocking>,
@@ -87,7 +91,7 @@ pub fn start(
 }
 
 pub async fn get_uid() -> u32 {
-    let Value::U32(mut uid) = storage::load(A3_ADDR_MODULE_UID, ValueType::U32)
+    let Value::U32(mut uid) = storage::load(A3_ADDR_MODULE_UID, ValueType::U32, &SIGNAL_STORAGE)
         .await
         .unwrap()
     else {
@@ -96,7 +100,7 @@ pub async fn get_uid() -> u32 {
     debug!("loaded UID: {=u32:#x}", uid);
     if uid == u32::MAX {
         uid = 0xe9de9d;
-        storage::save(A3_ADDR_MODULE_UID, Value::U32(uid))
+        storage::save(A3_ADDR_MODULE_UID, Value::U32(uid), &SIGNAL_STORAGE)
             .await
             .unwrap();
     }
@@ -104,18 +108,23 @@ pub async fn get_uid() -> u32 {
 }
 
 pub async fn get_name() -> String<A3_MAX_PROP_DATA_SIZE> {
-    let Value::Text(mut name) = storage::load(A3_ADDR_MODULE_NAME, ValueType::Text)
-        .await
-        .unwrap()
+    let Value::Text(mut name) =
+        storage::load(A3_ADDR_MODULE_NAME, ValueType::Text, &SIGNAL_STORAGE)
+            .await
+            .unwrap()
     else {
         panic!("wrong type returned");
     };
     debug!("loaded name: {}", name.as_str());
     if name.len() == 0 {
         name = String::try_from("Humps RS D").unwrap();
-        storage::save(A3_ADDR_MODULE_NAME, Value::Text(name.clone()))
-            .await
-            .unwrap();
+        storage::save(
+            A3_ADDR_MODULE_NAME,
+            Value::Text(name.clone()),
+            &SIGNAL_STORAGE,
+        )
+        .await
+        .unwrap();
     }
     name
 }

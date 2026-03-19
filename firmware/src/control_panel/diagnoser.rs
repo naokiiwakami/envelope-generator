@@ -1,10 +1,14 @@
 use embassy_futures::select::{Either, select};
+use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, signal::Signal};
 use embassy_time::{Duration, Instant, Timer};
 use embedded_graphics::prelude::Point;
 
 use crate::{envelope_generator::EngineType, input_reader::get_reader_info_receiver};
 
 use super::{ControlPanel, DisplayRequest, display::FontSize};
+
+// signal to receive nudges.
+static SIGNAL_REPLY: Signal<ThreadModeRawMutex, ()> = Signal::new();
 
 pub struct Diagnoser<'a> {
     control_panel: &'a mut ControlPanel,
@@ -29,8 +33,8 @@ impl<'a> Diagnoser<'a> {
         self.control_panel
             .request_switching_engine(&EngineType::Diag)
             .await;
-        crate::analog3::trigger_diagnose().await;
-        Timer::after_millis(6500).await;
+        crate::analog3::diagnose(&SIGNAL_REPLY).await;
+        Timer::after_millis(500).await;
         self.control_panel.blink_leds().await;
         Timer::after_millis(500).await;
         self.diagnose_patch_controller().await;
@@ -42,16 +46,15 @@ impl<'a> Diagnoser<'a> {
         self.control_panel
             .switch_engine_type(orig_engine_type)
             .await;
-        self.control_panel.into_normal_mode().await;
+        self.control_panel.clear_screen(true, false).await;
         self.control_panel
             .display_text("DONE!", true, true, FontSize::Medium, Point::new(40, 25))
             .await;
         Timer::after_secs(1).await;
-        self.control_panel.show_initial_screen().await;
     }
 
     async fn diagnose_patch_controller(&mut self) {
-        crate::patch_controller::diagnose_leds().await;
+        crate::patch_controller::diagnose_leds(&SIGNAL_REPLY).await;
         self.control_panel
             .display_text(
                 "Press button",
@@ -61,7 +64,7 @@ impl<'a> Diagnoser<'a> {
                 Point::new(17, 25),
             )
             .await;
-        crate::patch_controller::diagnose_button().await;
+        crate::patch_controller::diagnose_button(&SIGNAL_REPLY).await;
     }
 
     async fn diagnose_pots(&mut self) {
