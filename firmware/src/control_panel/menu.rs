@@ -19,10 +19,10 @@ pub enum OpAction {
 /// EG Engine type.
 /// IMPORTANT: The menu index must be the same as u8 representation of the
 /// EngineType entry, otherwise ControlPanel misbehaves on switching engine types.
-pub static ENGINE_TYPE_MENU_ITEMS: [MenuItem<Option<EngineType>>; 4] = [
+pub static ENGINE_TYPE_MENU_ITEMS: [MenuItem<Option<EngineType>>; 5] = [
     MenuItem {
         name: "ADSR",
-        selection: Some(EngineType::ADSR),
+        selection: Some(EngineType::Adsr),
     },
     MenuItem {
         name: "TWO DECAYS",
@@ -31,6 +31,10 @@ pub static ENGINE_TYPE_MENU_ITEMS: [MenuItem<Option<EngineType>>; 4] = [
     MenuItem {
         name: "LINEAR",
         selection: Some(EngineType::Linear),
+    },
+    MenuItem {
+        name: "ADSR-DD",
+        selection: Some(EngineType::AdsrDd),
     },
     MenuItem {
         name: "CANCEL",

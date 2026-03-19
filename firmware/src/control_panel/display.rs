@@ -141,7 +141,7 @@ impl EgDisplay {
         Self {
             display,
             mode: Mode::Fundamental,
-            current_engine_type: EngineType::ADSR,
+            current_engine_type: EngineType::Adsr,
             request_receiver: CHANNEL_REQUEST.receiver(),
             pending_request: None,
         }
@@ -212,7 +212,8 @@ impl EgDisplay {
         self.mode = Mode::Fundamental;
         self.current_engine_type = engine_type;
         match self.current_engine_type {
-            EngineType::ADSR => self.show_adsr_initial_screen().await,
+            EngineType::Adsr => self.show_adsr_initial_screen().await,
+            EngineType::Diag => {}
             _ => self.show_default_initial_screen().await,
         }
     }

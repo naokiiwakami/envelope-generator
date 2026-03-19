@@ -1,3 +1,4 @@
+mod adsr_dd_engine;
 mod adsr_engine;
 mod config;
 mod definitions;
@@ -37,8 +38,9 @@ use crate::{
 
 pub use self::definitions::{EgEvent, EgRequest, EngineType, GateEventType, GateId};
 use self::{
-    adsr_engine::AdsrEngine, config::EgConfig, definitions::Engine, definitions::VoiceParams,
-    diag_engine::DiagEngine, linear_engine::LinearEngine, two_decays_engine::TwoDecaysEngine,
+    adsr_dd_engine::AdsrDdEngine, adsr_engine::AdsrEngine, config::EgConfig, definitions::Engine,
+    definitions::VoiceParams, diag_engine::DiagEngine, linear_engine::LinearEngine,
+    two_decays_engine::TwoDecaysEngine,
 };
 
 // parameter tweaks
@@ -145,7 +147,7 @@ async fn run_envelope_generator(
     // let engine_type = &mut eg_resources.config.engine_type;
     loop {
         match eg_resources.config.engine_type {
-            EngineType::ADSR => {
+            EngineType::Adsr => {
                 let mut eg = EnvelopeGenerator::<AdsrEngine>::new(&mut eg_resources);
                 eg.run().await;
             }
@@ -159,6 +161,10 @@ async fn run_envelope_generator(
             }
             EngineType::Diag => {
                 let mut eg = EnvelopeGenerator::<DiagEngine>::new(&mut eg_resources);
+                eg.run().await;
+            }
+            EngineType::AdsrDd => {
+                let mut eg = EnvelopeGenerator::<AdsrDdEngine>::new(&mut eg_resources);
                 eg.run().await;
             }
         }
@@ -177,7 +183,7 @@ struct EgResources {
 impl EgResources {
     pub fn new(ind_gate_1: Output<'static>, ind_gate_2: Output<'static>) -> Self {
         Self {
-            config: EgConfig::new(0x101, 0x102, EngineType::ADSR),
+            config: EgConfig::new(0x101, 0x102, EngineType::Adsr),
             request_receiver: CHANNEL_REQUEST.receiver(),
             event_publisher: CHANNEL_EVENT.publisher().unwrap(),
             ind_gate_1,

@@ -21,18 +21,20 @@ pub enum EgRequest {
 #[derive(Clone, PartialEq)]
 #[repr(u8)]
 pub enum EngineType {
-    ADSR = 0,
+    Adsr = 0,
     TwoDecays = 1,
     Linear = 2,
-    Diag = 3,
+    AdsrDd = 3,
+    Diag = 4,
 }
 
 impl EngineType {
     pub fn name(&self) -> &'static str {
         match self {
-            EngineType::ADSR => "ADSR",
+            EngineType::Adsr => "ADSR",
             EngineType::TwoDecays => "Two Decays",
             EngineType::Linear => "Linear",
+            EngineType::AdsrDd => "ADSR-DD",
             EngineType::Diag => "Diagnose",
         }
     }
