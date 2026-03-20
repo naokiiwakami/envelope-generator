@@ -74,3 +74,24 @@ pub trait Engine {
     // Calculate the next sample and return value in range 0..0xfff.
     fn update(&mut self, params: &VoiceParams) -> u16;
 }
+
+// Fixed point arithmetic /////////////////////////////////////////
+
+/// Multiplies two UQ0.32 numbers and returns UQ0.32 result.
+#[inline(always)]
+pub fn mul_uq0_32(a: u32, b: u32) -> u32 {
+    ((a as u64 * b as u64) >> 32) as u32
+}
+
+/*
+#[inline(always)]
+pub fn div_uq0_32(dividend: u32, divisor: u32) -> u32 {
+    (((dividend as u64) << 32) / divisor as u64) as u32
+}
+*/
+
+/// Calculate a UQ32.32 fraction.
+#[inline(always)]
+pub fn fraction_uq32_32(numerator: u32, denominator: u32) -> u64 {
+    ((numerator as u64) << 32) / denominator as u64
+}

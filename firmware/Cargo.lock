@@ -606,7 +606,6 @@ dependencies = [
  "embedded-can",
  "embedded-graphics",
  "embedded-hal 0.2.7",
- "fixed",
  "heapless 0.8.0",
  "num_enum",
  "panic-probe",

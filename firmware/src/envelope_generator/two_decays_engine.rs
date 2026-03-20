@@ -1,12 +1,12 @@
 /// Default EG voice engine
 use defmt;
-use fixed::types::{I32F32, U32F32};
 
 use crate::input_reader::{InputReaderInfo, PotKind};
 
-use super::config::EgConfig;
-use super::definitions::Engine;
-use super::definitions::VoiceParams;
+use super::{
+    config::EgConfig,
+    definitions::{Engine, VoiceParams, fraction_uq32_32, mul_uq0_32},
+};
 
 #[derive(Debug, defmt::Format)]
 enum EnginePhase {
@@ -19,52 +19,50 @@ enum EnginePhase {
 /// The fundamental envelope EG voice engine that generates traditional ADSR curve.
 pub struct TwoDecaysEngine {
     // Parameters translated by the EG configuration.
-    attack_ratio: I32F32,
-    decay_ratio: I32F32,
-    release_ratio: I32F32,
-    initial_decay_ratio: I32F32,
+    attack_ratio: u32,
+    decay_ratio: u32,
+    release_ratio: u32,
+    initial_decay_ratio: u32,
 
-    sustain_level: I32F32,
-    decay_switch_level: I32F32,
+    sustain_level: u32,
+    decay_switch_level: u32,
 
     // Precomputed constant
-    initial_decay_scale_factor: I32F32,
+    initial_decay_scale_factor: u64,
 
     // Values that represent current EG state
 
     // Current values are calculated to fit within range [0:0.5) in UQ32.32 representation
     // where actual range is [0..0x7fffffff].
-    current_value: I32F32,
+    current_value: u32,
     // The engine simulates RC charging/discharging for this target value.
     // Different transient ratio (attack_ratio, decay_ratio, or release_ratio) is used
     // according to the current phase.
-    target_value: I32F32,
+    target_value: u32,
     // The peak value is used for switching phases between attack and decay. When the
     // current value reaches the peak value during attack phase, the engine swithces its
     // phase to decay.
-    peak_value: I32F32,
+    peak_value: u32,
 
     phase: EnginePhase,
 }
 
-const SIX_FIFTHS: I32F32 = I32F32::from_bits(((6i64 << 32) / 5) as i64);
-
 impl Engine for TwoDecaysEngine {
     fn new() -> Self {
         Self {
-            attack_ratio: I32F32::from_num(0),
-            decay_ratio: I32F32::from_num(0),
-            release_ratio: I32F32::from_num(0),
-            initial_decay_ratio: I32F32::from_num(0),
+            attack_ratio: 0,
+            decay_ratio: 0,
+            release_ratio: 0,
+            initial_decay_ratio: 0,
 
-            sustain_level: I32F32::from_num(1),
-            decay_switch_level: I32F32::from_num(1),
+            sustain_level: 0,
+            decay_switch_level: 0,
 
-            initial_decay_scale_factor: SIX_FIFTHS,
+            initial_decay_scale_factor: fraction_uq32_32(6, 5),
 
-            current_value: I32F32::from_num(0),
-            target_value: I32F32::from_num(0),
-            peak_value: I32F32::from_num(0),
+            current_value: 0,
+            target_value: 0,
+            peak_value: 0,
 
             phase: EnginePhase::Released,
         }
@@ -77,62 +75,44 @@ impl Engine for TwoDecaysEngine {
         self.update_params(voice_index, config, &InputReaderInfo::new(PotKind::Release));
         self.update_params(voice_index, config, &InputReaderInfo::new(PotKind::Extra1));
         self.update_params(voice_index, config, &InputReaderInfo::new(PotKind::Extra2));
-        self.current_value = I32F32::from_num(0i32);
-        self.target_value = I32F32::from_num(0i32);
+        self.current_value = 0;
+        self.target_value = 0;
         self.phase = EnginePhase::Released;
     }
 
     fn update_params(&mut self, voice_index: usize, config: &EgConfig, input: &InputReaderInfo) {
         match input.pot_info.kind {
             PotKind::Attack => {
-                let attack_time = U32F32::from_num(config.attack[voice_index] as u32);
-                let attack_time_constant = U32F32::from_num(1u32)
-                    + (U32F32::from_num(3u32) / U32F32::from_num(2_000_000_000u32))
-                        * attack_time
-                        * attack_time
-                        * attack_time;
-                let ratio_u = U32F32::from_num(1u32) / attack_time_constant;
-                self.attack_ratio = I32F32::from_bits(ratio_u.to_bits() as i64);
+                let attack_param = config.attack[voice_index] as u64;
+                // approximately 1 + 1.5e-9 * attack_param^3
+                let attack_time: u64 = 1 + ((7 * attack_param * attack_param * attack_param) >> 32);
+                self.attack_ratio = 0xffffffff / attack_time as u32;
             }
             PotKind::Decay => {
-                let decay_time = U32F32::from_num(config.decay[voice_index] as u32);
-                let decay_time_constant = (U32F32::from_num(15u32) / U32F32::from_num(2u32))
-                    + (U32F32::from_num(5u32) / U32F32::from_num(2_000_000_000u32))
-                        * decay_time
-                        * decay_time
-                        * decay_time;
-                let ratio_u = U32F32::from_num(1u32) / decay_time_constant;
-                self.decay_ratio = I32F32::from_bits(ratio_u.to_bits() as i64);
+                let decay_param = config.decay[voice_index] as u64;
+                // approximately 7 + 2.5e-9 * decay_param^3
+                let decay_time = 7 + ((11 * decay_param * decay_param * decay_param) >> 32);
+                self.decay_ratio = 0xffffffff / decay_time as u32;
             }
             PotKind::Sustain => {
-                let sustain_level = config.sustain[voice_index] as u64;
-                let level_u = U32F32::from_bits(((sustain_level >> 1) + 32768) * sustain_level);
-                self.sustain_level = I32F32::from_bits(level_u.to_bits() as i64);
+                let sustain_param = config.sustain[voice_index] as u32;
+                self.sustain_level = ((sustain_param >> 1) + 32768) * sustain_param;
             }
             PotKind::Release => {
-                let release_time = U32F32::from_num(config.release[voice_index] as u32);
-                let release_time_constant = (U32F32::from_num(15u32) / U32F32::from_num(2u32))
-                    + (U32F32::from_num(5u32) / U32F32::from_num(2_000_000_000u32))
-                        * release_time
-                        * release_time
-                        * release_time;
-                let ratio_u = U32F32::from_num(1u32) / release_time_constant;
-                self.release_ratio = I32F32::from_bits(ratio_u.to_bits() as i64);
+                let release_param = config.release[voice_index] as u64;
+                // approximately 7 + 2.5e-9 * decay_param^3
+                let release_time = 7 + ((11 * release_param * release_param * release_param) >> 32);
+                self.release_ratio = 0xffffffff / release_time as u32;
             }
             PotKind::Extra1 => {
-                let extra1_time = U32F32::from_num(config.extra1[voice_index] as u32);
-                let decay_time_constant = (U32F32::from_num(15u32) / U32F32::from_num(2u32))
-                    + (U32F32::from_num(5u32) / U32F32::from_num(2_000_000_000u32))
-                        * extra1_time
-                        * extra1_time
-                        * extra1_time;
-                let ratio_u = U32F32::from_num(1u32) / decay_time_constant;
-                self.initial_decay_ratio = I32F32::from_bits(ratio_u.to_bits() as i64);
+                let decay_param = config.extra1[voice_index] as u64;
+                // approximately 7 + 2.5e-9 * decay_param^3
+                let decay_time = 7 + ((11 * decay_param * decay_param * decay_param) >> 32);
+                self.initial_decay_ratio = 0xffffffff / decay_time as u32;
             }
             PotKind::Extra2 => {
-                let level = config.extra2[voice_index] as u64;
-                self.decay_switch_level =
-                    I32F32::from_bits((((level >> 1) + 32768) * level) as i64);
+                let level = config.extra2[voice_index] as u32;
+                self.decay_switch_level = ((level >> 1) + 32768) * level;
             }
             _ => {} // TODO interpret CV1_DEPTH and CV2_DEPTH
         }
@@ -144,16 +124,18 @@ impl Engine for TwoDecaysEngine {
     fn gate_on(&mut self, params: &VoiceParams) {
         // Add an offset of 1/32 level to avoid silence with low velocity
         let velocity = params.velocity as u64;
-        let level_bits = ((velocity * velocity) * 31 + 0xffffffff) >> 6;
-        let level = I32F32::from_bits(level_bits as i64);
-        self.target_value = level * SIX_FIFTHS;
-        self.peak_value = level;
+        let peak_uq32_32 = ((velocity * velocity) * 31 + 0xffffffff) >> 6;
+        // target = peak * 1.2, assuming peak does not exceed 1.0
+        let target_uq32_32: u64 = (peak_uq32_32 * self.initial_decay_scale_factor) >> 32;
+        // UQ32.32 to UQ0.32
+        self.target_value = target_uq32_32 as u32;
+        self.peak_value = peak_uq32_32 as u32;
         self.phase = EnginePhase::Attack;
     }
 
     /// Handles a gate-off event.
     fn gate_off(&mut self) {
-        self.target_value = I32F32::from_num(0i32);
+        self.target_value = 0;
         self.peak_value = self.current_value;
         self.phase = EnginePhase::Released;
     }
@@ -162,8 +144,8 @@ impl Engine for TwoDecaysEngine {
     fn update(&mut self, _params: &VoiceParams) -> u16 {
         match self.phase {
             EnginePhase::Attack => {
-                let mut delta = self.target_value - self.current_value;
-                delta *= self.attack_ratio;
+                let diff = self.target_value - self.current_value;
+                let delta = mul_uq0_32(diff, self.attack_ratio);
                 self.current_value += delta;
                 if self.current_value >= self.peak_value {
                     self.phase = EnginePhase::InitialDecay;
@@ -171,47 +153,59 @@ impl Engine for TwoDecaysEngine {
                 }
             }
             EnginePhase::InitialDecay => {
-                let peak = self.peak_value;
-                let switch = peak * self.decay_switch_level;
+                let peak_q32_32 = self.peak_value as i64;
+                let switch_q32_32 = mul_uq0_32(self.peak_value, self.decay_switch_level) as i64;
+                let mut current_q32_32 = self.current_value as i64;
+                let target_q32_32 = (switch_q32_32 - peak_q32_32) * 6 / 5 + peak_q32_32;
 
-                let target = peak + (switch - peak) * self.initial_decay_scale_factor;
-
-                let delta = (target - self.current_value) * self.initial_decay_ratio;
-                self.current_value += delta;
-
-                let crossed = if delta >= I32F32::from_num(0) {
-                    self.current_value >= switch
+                let crossed = if target_q32_32 < current_q32_32 {
+                    let diff_uq0_32 = (current_q32_32 - target_q32_32) as u32;
+                    let delta_uq0_32 = mul_uq0_32(diff_uq0_32, self.initial_decay_ratio);
+                    current_q32_32 -= delta_uq0_32 as i64;
+                    current_q32_32 <= switch_q32_32
                 } else {
-                    self.current_value <= switch
+                    let diff_uq0_32 = (target_q32_32 - current_q32_32) as u32;
+                    let delta_uq0_32 = mul_uq0_32(diff_uq0_32, self.initial_decay_ratio);
+                    current_q32_32 += delta_uq0_32 as i64;
+                    current_q32_32 >= switch_q32_32
                 };
 
                 if crossed {
-                    self.current_value = switch;
+                    self.current_value = switch_q32_32 as u32;
                     self.phase = EnginePhase::Decay;
+                } else {
+                    self.current_value = current_q32_32 as u32;
                 }
             }
             EnginePhase::Decay => {
                 // update the target value every cycle as the sustain level may have changed.
-                self.target_value = self.peak_value * self.sustain_level;
-
-                let delta = (self.target_value - self.current_value) * self.decay_ratio;
-                self.current_value += delta;
-
-                // clamp to zero (branchless-ish)
-                let bits = self.current_value.to_bits();
-                self.current_value = I32F32::from_bits(bits & !(bits >> 63));
+                self.target_value = mul_uq0_32(self.peak_value, self.sustain_level);
+                if self.target_value < self.current_value {
+                    let delta =
+                        mul_uq0_32(self.current_value - self.target_value, self.decay_ratio);
+                    self.current_value -= delta;
+                } else {
+                    let delta =
+                        mul_uq0_32(self.target_value - self.current_value, self.decay_ratio);
+                    self.current_value += delta;
+                }
             }
             EnginePhase::Released => {
-                let delta = self.current_value * self.release_ratio;
+                let delta = mul_uq0_32(self.current_value, self.release_ratio);
                 self.current_value -= delta;
             }
         }
 
+        // scale range of 31 bit (0..7fffffff) down to 12 bit (0..fff).
+        (self.current_value >> 19) as u16
+
+        /*
         // Generate the final output
         let bits = self.current_value.to_bits();
         // clamp negative → 0
         let bits = bits & !(bits >> 63);
         // scale to 12-bit
         (bits as u64 >> 19) as u16
+        */
     }
 }
