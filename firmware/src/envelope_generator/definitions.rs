@@ -21,17 +21,19 @@ pub enum EgRequest {
 #[derive(Clone, PartialEq)]
 #[repr(u8)]
 pub enum EngineType {
-    ADSR = 0,
-    TwoDecays = 1,
-    Linear = 2,
-    Diag = 3,
+    ParaDecays = 0,
+    Addsr = 1,
+    Adsr = 2,
+    Linear = 3,
+    Diag = 4,
 }
 
 impl EngineType {
     pub fn name(&self) -> &'static str {
         match self {
-            EngineType::ADSR => "ADSR",
-            EngineType::TwoDecays => "Two Decays",
+            EngineType::ParaDecays => "ParaDecays",
+            EngineType::Addsr => "ADDSR",
+            EngineType::Adsr => "ADSR",
             EngineType::Linear => "Linear",
             EngineType::Diag => "Diagnose",
         }
@@ -82,13 +84,6 @@ pub trait Engine {
 pub fn mul_uq0_32(a: u32, b: u32) -> u32 {
     ((a as u64 * b as u64) >> 32) as u32
 }
-
-/*
-#[inline(always)]
-pub fn div_uq0_32(dividend: u32, divisor: u32) -> u32 {
-    (((dividend as u64) << 32) / divisor as u64) as u32
-}
-*/
 
 /// Calculate a UQ32.32 fraction.
 #[inline(always)]

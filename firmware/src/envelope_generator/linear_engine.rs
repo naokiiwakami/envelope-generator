@@ -84,7 +84,7 @@ impl Engine for LinearEngine {
                 self.sustain_level = ((sustain_param >> 1) + 32768) * sustain_param;
             }
             PotKind::Release => {
-                let release_param = config.decay[voice_index] as u64;
+                let release_param = config.release[voice_index] as u64;
                 // approximately 2 + 1.7e-8 * attack_param^3
                 let time_constant: u64 =
                     2 + ((9 * release_param * release_param * release_param) >> 29);

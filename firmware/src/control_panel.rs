@@ -101,7 +101,7 @@ impl ControlPanel {
             eg_request_sender: get_eg_request_sender(),
             eg_event_subscriber: get_eg_event_subscriber(),
             engine_type_index: 0,
-            current_engine_type: EngineType::ADSR,
+            current_engine_type: EngineType::Adsr,
             encoder,
             button: encoder_button,
             ind_red: encoder_ind_red,

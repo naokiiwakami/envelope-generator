@@ -25,7 +25,7 @@ impl<'a, ActionT> MenuMode<'a, ActionT> {
     const NUM_LINES: usize = 3; // three lines fit in the screen
     const LINE_HEIGHT: i32 = 21;
     const MARGIN_TOP: i32 = 0;
-    const INDENT: i32 = 16;
+    const INDENT: i32 = 4;
 
     pub fn new(
         display: &'a mut EgDisplay,
@@ -112,24 +112,12 @@ impl<'a, ActionT> MenuMode<'a, ActionT> {
 
         for line in 0..tail {
             let ypos = line as i32 * Self::LINE_HEIGHT + Self::MARGIN_TOP;
-            // let point = Point::new(Self::INDENT, ypos);
             let index = line + self.top_line;
             let is_selected = index == self.current_item;
             if is_selected {
                 self.clear_line(true, ypos).await;
             }
             self.print_menu_item(is_selected, index, ypos).await;
-            /*
-            self.display
-                .display_text(
-                    is_selected,
-                    false,
-                    self.menu_items[index].name,
-                    super::FontSize::Large,
-                    point,
-                )
-                .await;
-            */
         }
     }
 
