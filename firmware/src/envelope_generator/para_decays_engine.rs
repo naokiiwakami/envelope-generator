@@ -16,7 +16,7 @@ enum EnginePhase {
 }
 
 /// The fundamental envelope EG voice engine that generates traditional ADSR curve.
-pub struct AdsrDdEngine {
+pub struct ParaDecaysEngine {
     // Parameters translated by the EG configuration.
     attack_ratio: u32,
     decay_ratio: u32,
@@ -25,11 +25,7 @@ pub struct AdsrDdEngine {
 
     strum_decay_ratio: u32,
 
-    decay_time_scale: u32,
-    decay_time_constant: u32,
-
-    speed: u32,
-    depth: u32,
+    balance: u32,
 
     // Values that represent current EG state
 
@@ -38,7 +34,6 @@ pub struct AdsrDdEngine {
     current_value: u32,
     strum: u32,
     main_decay: u32,
-    distortion: u32,
     // The engine simulates RC charging/discharging for this target value.
     // Different transient ratio (attack_ratio, decay_ratio, or release_ratio) is used
     // according to the current phase.
@@ -51,10 +46,7 @@ pub struct AdsrDdEngine {
     phase: EnginePhase,
 }
 
-// const SIX_FIFTHS: I32F32 = I32F32::from_bits(((6i64 << 32) / 5) as i64);
-// const SEVEN_POINT_FIVE: U32F32 = U32F32::from_bits(0x7_7fffffff);
-
-impl Engine for AdsrDdEngine {
+impl Engine for ParaDecaysEngine {
     fn new() -> Self {
         Self {
             attack_ratio: 0,
@@ -64,16 +56,11 @@ impl Engine for AdsrDdEngine {
 
             strum_decay_ratio: 0,
 
-            decay_time_scale: 0,
-            decay_time_constant: 1,
-
-            speed: 0,
-            depth: 0x7fffffff,
+            balance: 0x7fffffff,
 
             current_value: 0,
             strum: 0,
             main_decay: 0,
-            distortion: 0,
 
             target_value: 0,
             peak_value: 0,
@@ -124,7 +111,7 @@ impl Engine for AdsrDdEngine {
                 self.strum_decay_ratio = 0xffffffff / decay_time as u32;
             }
             PotKind::Extra2 => {
-                self.depth = (config.extra2[voice_index] as u32) << 16;
+                self.balance = (config.extra2[voice_index] as u32) << 16;
             }
             _ => {} // TODO interpret CV1_DEPTH and CV2_DEPTH
         }
@@ -167,8 +154,6 @@ impl Engine for AdsrDdEngine {
                 }
             }
             EnginePhase::Decay => {
-                // let ratio_u = U32F32::from_bits(0x1_00000000) / self.decay_time_constant;
-                // self.decay_ratio = I32F32::from_bits(ratio_u.to_bits() as i64);
                 self.target_value = mul_uq0_32(self.peak_value, self.sustain_level);
 
                 // update the main decay curve
@@ -190,9 +175,9 @@ impl Engine for AdsrDdEngine {
                 }
 
                 // mix two
-                let strum_depth = u32::MAX - self.depth;
+                let strum_depth = u32::MAX - self.balance;
                 self.current_value =
-                    mul_uq0_32(self.main_decay, self.depth) + mul_uq0_32(self.strum, strum_depth);
+                    mul_uq0_32(self.main_decay, self.balance) + mul_uq0_32(self.strum, strum_depth);
             }
             EnginePhase::Released => {
                 let delta = mul_uq0_32(self.current_value, self.release_ratio);

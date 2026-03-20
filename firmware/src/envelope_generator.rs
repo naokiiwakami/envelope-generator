@@ -1,9 +1,9 @@
-mod adsr_dd_engine;
 mod adsr_engine;
 mod config;
 mod definitions;
 mod diag_engine;
 mod linear_engine;
+mod para_decays_engine;
 mod two_decays_engine;
 
 use defmt::{debug, warn};
@@ -38,8 +38,8 @@ use crate::{
 
 pub use self::definitions::{EgEvent, EgRequest, EngineType, GateEventType, GateId};
 use self::{
-    adsr_dd_engine::AdsrDdEngine, adsr_engine::AdsrEngine, config::EgConfig, definitions::Engine,
-    definitions::VoiceParams, diag_engine::DiagEngine, linear_engine::LinearEngine,
+    adsr_engine::AdsrEngine, config::EgConfig, definitions::Engine, definitions::VoiceParams,
+    diag_engine::DiagEngine, linear_engine::LinearEngine, para_decays_engine::ParaDecaysEngine,
     two_decays_engine::TwoDecaysEngine,
 };
 
@@ -147,12 +147,16 @@ async fn run_envelope_generator(
     // let engine_type = &mut eg_resources.config.engine_type;
     loop {
         match eg_resources.config.engine_type {
-            EngineType::Adsr => {
-                let mut eg = EnvelopeGenerator::<AdsrEngine>::new(&mut eg_resources);
+            EngineType::ParaDecays => {
+                let mut eg = EnvelopeGenerator::<ParaDecaysEngine>::new(&mut eg_resources);
                 eg.run().await;
             }
-            EngineType::TwoDecays => {
+            EngineType::Addsr => {
                 let mut eg = EnvelopeGenerator::<TwoDecaysEngine>::new(&mut eg_resources);
+                eg.run().await;
+            }
+            EngineType::Adsr => {
+                let mut eg = EnvelopeGenerator::<AdsrEngine>::new(&mut eg_resources);
                 eg.run().await;
             }
             EngineType::Linear => {
@@ -161,10 +165,6 @@ async fn run_envelope_generator(
             }
             EngineType::Diag => {
                 let mut eg = EnvelopeGenerator::<DiagEngine>::new(&mut eg_resources);
-                eg.run().await;
-            }
-            EngineType::AdsrDd => {
-                let mut eg = EnvelopeGenerator::<AdsrDdEngine>::new(&mut eg_resources);
                 eg.run().await;
             }
         }
@@ -183,7 +183,7 @@ struct EgResources {
 impl EgResources {
     pub fn new(ind_gate_1: Output<'static>, ind_gate_2: Output<'static>) -> Self {
         Self {
-            config: EgConfig::new(0x101, 0x102, EngineType::Adsr),
+            config: EgConfig::new(0x101, 0x102, EngineType::ParaDecays),
             request_receiver: CHANNEL_REQUEST.receiver(),
             event_publisher: CHANNEL_EVENT.publisher().unwrap(),
             ind_gate_1,

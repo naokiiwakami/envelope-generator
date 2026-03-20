@@ -256,7 +256,7 @@ impl EgDisplay {
             .build();
 
         let name = ENGINE_TYPE_MENU_ITEMS[(self.current_engine_type.clone() as u8) as usize].name;
-        Text::with_baseline(name, Point::new(20, 20), text_style, Baseline::Top)
+        Text::with_baseline(name, Point::new(10, 20), text_style, Baseline::Top)
             .draw(&mut self.display)
             .unwrap();
 

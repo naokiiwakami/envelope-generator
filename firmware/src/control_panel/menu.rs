@@ -21,20 +21,20 @@ pub enum OpAction {
 /// EngineType entry, otherwise ControlPanel misbehaves on switching engine types.
 pub static ENGINE_TYPE_MENU_ITEMS: [MenuItem<Option<EngineType>>; 5] = [
     MenuItem {
+        name: "PARA DECAYS",
+        selection: Some(EngineType::ParaDecays),
+    },
+    MenuItem {
+        name: "ADDSR",
+        selection: Some(EngineType::Addsr),
+    },
+    MenuItem {
         name: "ADSR",
         selection: Some(EngineType::Adsr),
     },
     MenuItem {
-        name: "TWO DECAYS",
-        selection: Some(EngineType::TwoDecays),
-    },
-    MenuItem {
         name: "LINEAR",
         selection: Some(EngineType::Linear),
-    },
-    MenuItem {
-        name: "ADSR-DD",
-        selection: Some(EngineType::AdsrDd),
     },
     MenuItem {
         name: "CANCEL",
