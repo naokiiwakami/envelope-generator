@@ -2,10 +2,11 @@ use embassy_futures::select::{Either, select};
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, signal::Signal};
 use embassy_time::{Duration, Instant, Timer};
 use embedded_graphics::prelude::Point;
+use ssd1306_lite::FontSize;
 
 use crate::{envelope_generator::EngineType, input_reader::get_reader_info_receiver};
 
-use super::{ControlPanel, DisplayRequest, display::FontSize};
+use super::{ControlPanel, DisplayRequest};
 
 // signal to receive nudges.
 static SIGNAL_REPLY: Signal<ThreadModeRawMutex, ()> = Signal::new();
