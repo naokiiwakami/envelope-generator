@@ -321,16 +321,6 @@ impl EgDisplay {
         self.driver
             .draw_arc(position.x + 14, position.y + 14, 14, start, end, true)
             .await;
-        /*
-        let styled = Arc::new(
-            position,
-            28,
-            Angle::from_degrees(120.0),
-            Angle::from_degrees((300.0 / 0xffff as f32) * pot_info.value as f32),
-        )
-        .into_styled(*stroke);
-        self.display.draw_styled(styled).await;
-        */
     }
 
     // CV diag mode //////////////////////////////////////////////////////
@@ -339,7 +329,7 @@ impl EgDisplay {
         self.display_text(
             false,
             true,
-            "Plug LFOs into CV jacks...",
+            "Put something into CV",
             FontSize::Small,
             Point::zero(),
         )
