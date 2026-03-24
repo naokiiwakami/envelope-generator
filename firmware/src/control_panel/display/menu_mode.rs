@@ -1,7 +1,6 @@
 use core::cmp::min;
 
 use defmt::{debug, error};
-use embassy_futures::yield_now;
 use embedded_graphics::{
     pixelcolor::BinaryColor,
     prelude::*,
@@ -44,7 +43,7 @@ impl<'a, ActionT> MenuMode<'a, ActionT> {
     pub async fn run(&mut self) {
         debug!("Running menu mode, menu={}", self.title);
         self.show_menu().await;
-        self.display.display.flush().await.unwrap();
+        self.display.driver.flush().await;
         loop {
             // while self.display.mode.is_menu_mode() {
             let request = self.display.fetch_request().await;
@@ -101,7 +100,7 @@ impl<'a, ActionT> MenuMode<'a, ActionT> {
             }
             self.show_menu().await;
         }
-        self.display.display.flush().await.unwrap();
+        self.display.driver.flush().await;
     }
 
     /// Build entire menu page.
@@ -135,21 +134,23 @@ impl<'a, ActionT> MenuMode<'a, ActionT> {
     }
 
     async fn clear_line(&mut self, reverse: bool, ypos: i32) {
-        Rectangle::new(
-            Point::new(0, ypos),
-            Size::new(128, Self::LINE_HEIGHT as u32),
-        )
-        .into_styled(
-            PrimitiveStyleBuilder::new()
-                .fill_color(if reverse {
-                    BinaryColor::On
-                } else {
-                    BinaryColor::Off
-                })
-                .build(),
-        )
-        .draw(&mut self.display.display)
-        .unwrap();
-        yield_now().await;
+        self.display
+            .driver
+            .draw_styled(
+                Rectangle::new(
+                    Point::new(0, ypos),
+                    Size::new(128, Self::LINE_HEIGHT as u32),
+                )
+                .into_styled(
+                    PrimitiveStyleBuilder::new()
+                        .fill_color(if reverse {
+                            BinaryColor::On
+                        } else {
+                            BinaryColor::Off
+                        })
+                        .build(),
+                ),
+            )
+            .await;
     }
 }

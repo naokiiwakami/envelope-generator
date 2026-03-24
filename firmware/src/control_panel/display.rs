@@ -1,7 +1,7 @@
 mod menu_mode;
 
 use core::cmp::min;
-use defmt::{debug, error};
+use defmt::error;
 use embassy_futures::yield_now;
 use embassy_stm32::{
     i2c::{I2c, Master},
@@ -11,23 +11,14 @@ use embassy_sync::{
     blocking_mutex::raw::ThreadModeRawMutex,
     channel::{self, Channel},
 };
+use embassy_time::{Duration, Instant};
 use embedded_graphics::{
-    mono_font::{
-        MonoTextStyleBuilder,
-        ascii::{FONT_5X8, FONT_8X13, FONT_8X13_BOLD, FONT_10X20},
-    },
     pixelcolor::BinaryColor,
     prelude::*,
-    primitives::{Arc, Circle, PrimitiveStyle, PrimitiveStyleBuilder},
-    text::{Baseline, Text},
+    primitives::{Circle, PrimitiveStyle, PrimitiveStyleBuilder},
 };
 use heapless::String;
-use ssd1306::{
-    I2CDisplayInterface, Ssd1306Async,
-    mode::{BufferedGraphicsModeAsync, DisplayConfigAsync},
-    prelude::{DisplayRotation, I2CInterface},
-    size::DisplaySize128x64,
-};
+use ssd1306_lite::{Angle, FontSize, Ssd1306Lite};
 
 use crate::{
     control_panel::{display::menu_mode::MenuMode, menu::ENGINE_TYPE_MENU_ITEMS},
@@ -43,12 +34,6 @@ static CHANNEL_REQUEST: Channel<ThreadModeRawMutex, Request, CHANNEL_LENGTH> = C
 #[embassy_executor::task]
 pub async fn run_display(mut eg_display: EgDisplay) {
     eg_display.run().await;
-}
-
-pub enum FontSize {
-    Small,
-    Medium,
-    Large,
 }
 
 #[derive(PartialEq)]
@@ -120,11 +105,7 @@ pub fn get_request_sender() -> channel::Sender<'static, ThreadModeRawMutex, Requ
 }
 
 pub struct EgDisplay {
-    display: Ssd1306Async<
-        I2CInterface<I2c<'static, Async, Master>>,
-        DisplaySize128x64,
-        BufferedGraphicsModeAsync<DisplaySize128x64>,
-    >,
+    driver: Ssd1306Lite<I2c<'static, Async, Master>>,
 
     mode: Mode,
     current_engine_type: EngineType,
@@ -134,12 +115,11 @@ pub struct EgDisplay {
 
 impl EgDisplay {
     pub fn new(i2c: I2c<'static, Async, Master>) -> Self {
-        let interface = I2CDisplayInterface::new(i2c);
-        let display = Ssd1306Async::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
-            .into_buffered_graphics_mode();
+        let mut driver = Ssd1306Lite::new(i2c);
+        driver.set_yield_interval(Duration::from_micros(15));
 
         Self {
-            display,
+            driver,
             mode: Mode::Fundamental,
             current_engine_type: EngineType::Adsr,
             request_receiver: CHANNEL_REQUEST.receiver(),
@@ -148,7 +128,7 @@ impl EgDisplay {
     }
 
     pub async fn run(&mut self) {
-        self.display.init().await.unwrap();
+        self.driver.initialize().await;
         loop {
             match self.mode {
                 Mode::Any => {} // Generic requests don't have a specific mode
@@ -164,14 +144,8 @@ impl EgDisplay {
 
     async fn handle_generic_request(&mut self, request: Request) {
         match request {
-            Request::Clear { reverse, flush } => {
-                debug!(
-                    "received clear request; reverse={}, flush={}",
-                    reverse, flush
-                );
-                self.clear(reverse, flush).await
-            }
-            Request::Flush => self.display.flush().await.unwrap(),
+            Request::Clear { reverse, flush } => self.clear(reverse, flush).await,
+            Request::Flush => self.driver.flush().await,
             _ => {} // Other requests shouldn't reach here
         }
     }
@@ -226,41 +200,32 @@ impl EgDisplay {
             .stroke_width(5)
             .build();
         yield_now().await;
-        Circle::new(Point::new(0, 20), 24)
-            .into_styled(fill)
-            .draw(&mut self.display)
-            .unwrap();
+        self.driver
+            .draw_styled(Circle::new(Point::new(0, 20), 24).into_styled(fill))
+            .await;
         yield_now().await;
-        Circle::new(Point::new(33, 0), 24)
-            .into_styled(fill)
-            .draw(&mut self.display)
-            .unwrap();
+        self.driver
+            .draw_styled(Circle::new(Point::new(33, 0), 24).into_styled(fill))
+            .await;
         yield_now().await;
-        Circle::new(Point::new(67, 0), 24)
-            .into_styled(fill)
-            .draw(&mut self.display)
-            .unwrap();
+        self.driver
+            .draw_styled(Circle::new(Point::new(67, 0), 24).into_styled(fill))
+            .await;
         yield_now().await;
-        Circle::new(Point::new(104, 20), 24)
-            .into_styled(fill)
-            .draw(&mut self.display)
-            .unwrap();
-        self.display.flush().await.unwrap();
+        self.driver
+            .draw_styled(Circle::new(Point::new(104, 20), 24).into_styled(fill))
+            .await;
+        self.driver.flush().await;
     }
 
     async fn show_default_initial_screen(&mut self) {
         self.clear(false, false).await;
-        let text_style = MonoTextStyleBuilder::new()
-            .font(&FONT_10X20)
-            .text_color(BinaryColor::On)
-            .build();
-
         let name = ENGINE_TYPE_MENU_ITEMS[(self.current_engine_type.clone() as u8) as usize].name;
-        Text::with_baseline(name, Point::new(10, 20), text_style, Baseline::Top)
-            .draw(&mut self.display)
-            .unwrap();
+        self.driver
+            .draw_string(name, 10, 20, FontSize::Large, BinaryColor::On)
+            .await;
 
-        self.display.flush().await.unwrap();
+        self.driver.flush().await;
     }
 
     // op menu mode /////////////////////////////////////////////////////////
@@ -303,11 +268,7 @@ impl EgDisplay {
             (Point::new(34, 34), Point::new(42, 42)),
             (Point::new(66, 34), Point::new(74, 42)),
         ];
-        self.display.clear(BinaryColor::Off).unwrap();
-        let stroke = PrimitiveStyleBuilder::new()
-            .stroke_width(1)
-            .stroke_color(BinaryColor::On)
-            .build();
+        self.driver.clear(BinaryColor::Off).await;
         let erase = PrimitiveStyleBuilder::new()
             .stroke_width(5)
             .stroke_color(BinaryColor::Off)
@@ -318,10 +279,9 @@ impl EgDisplay {
             .build();
         for index in 0..positions.len() {
             let (_, position) = positions[index];
-            Circle::new(position, 12)
-                .into_styled(fill)
-                .draw(&mut self.display)
-                .unwrap();
+            self.driver
+                .draw_styled(Circle::new(position, 12).into_styled(fill))
+                .await;
         }
 
         while matches!(self.mode, Mode::PotsDiag) {
@@ -331,8 +291,7 @@ impl EgDisplay {
                     self.handle_generic_request(request).await
                 }
                 Request::UpdatePotValue { pot_info: info } => {
-                    self.update_pot_value(info, &stroke, &erase, &positions)
-                        .await
+                    self.update_pot_value(info, &erase, &positions).await
                 }
                 _ => self.switch_mode(request).await,
             }
@@ -342,7 +301,6 @@ impl EgDisplay {
     async fn update_pot_value(
         &mut self,
         pot_info: PotInfo,
-        stroke: &PrimitiveStyle<BinaryColor>,
         erase: &PrimitiveStyle<BinaryColor>,
         positions: &[(Point, Point); 8],
     ) {
@@ -352,21 +310,27 @@ impl EgDisplay {
             return;
         }
         let (position, _) = positions[index];
-        Circle::new(position, 28)
-            .into_styled(*erase)
-            .draw(&mut self.display)
-            .unwrap();
-        yield_now().await;
-        Arc::new(
+        self.driver
+            .draw_styled(Circle::new(position, 28).into_styled(*erase))
+            .await;
+
+        let start = Angle::from_degrees(120);
+        let mut sweep: u32 = 300 * pot_info.value as u32;
+        sweep >>= 16;
+        let end = Angle::from_degrees(120 + sweep as i32);
+        self.driver
+            .draw_arc(position.x + 14, position.y + 14, 14, start, end, true)
+            .await;
+        /*
+        let styled = Arc::new(
             position,
             28,
             Angle::from_degrees(120.0),
             Angle::from_degrees((300.0 / 0xffff as f32) * pot_info.value as f32),
         )
-        .into_styled(*stroke)
-        .draw(&mut self.display)
-        .unwrap();
-        yield_now().await;
+        .into_styled(*stroke);
+        self.display.draw_styled(styled).await;
+        */
     }
 
     // CV diag mode //////////////////////////////////////////////////////
@@ -408,13 +372,14 @@ impl EgDisplay {
     async fn update_cv_info(&mut self, cv_info: CvInfo, cv_points: &mut CvPoints) {
         let data_len = min(cv_points.data_len + 1, cv_points.data1.len());
         let erase_needed = data_len == cv_points.data1.len();
+        let mut last_yield = Instant::now();
         for i in 0..data_len {
             if erase_needed {
                 let erase_index = (i + cv_points.head) % data_len;
                 let mut erase_y = 16u32 + 22u32 - cv_points.data1[erase_index] as u32;
-                self.display.set_pixel(i as u32, erase_y, false);
+                self.driver.unset_pixel(i as u32, erase_y);
                 erase_y = 16u32 + 24u32 + 22u32 - cv_points.data2[erase_index] as u32;
-                self.display.set_pixel(i as u32, erase_y, false);
+                self.driver.unset_pixel(i as u32, erase_y);
             }
             let set_index = (i + 1 + cv_points.head) % data_len;
             if set_index == cv_points.head {
@@ -425,12 +390,15 @@ impl EgDisplay {
                     (((cv_info.cv_b as i32 + 32768) as u32 * 304) >> 20) as u8;
             }
             let mut set_y = 16u32 + 22u32 - cv_points.data1[set_index] as u32;
-            self.display.set_pixel(i as u32, set_y, true);
+            self.driver.set_pixel(i as u32, set_y);
             set_y = 16u32 + 24u32 + 22u32 - cv_points.data2[set_index] as u32;
-            self.display.set_pixel(i as u32, set_y, true);
-            yield_now().await;
+            self.driver.set_pixel(i as u32, set_y);
+            if last_yield.elapsed().as_micros() > 15 {
+                yield_now().await;
+                last_yield = Instant::now();
+            }
         }
-        self.display.flush().await.unwrap();
+        self.driver.flush().await;
 
         cv_points.data_len = data_len;
         cv_points.head = (cv_points.head + 1) % cv_points.data1.len();
@@ -469,16 +437,15 @@ impl EgDisplay {
     }
 
     async fn clear(&mut self, reverse: bool, flush: bool) {
-        debug!("clear; reverse={}, flush={}", reverse, flush);
-        self.display
+        self.driver
             .clear(if reverse {
                 BinaryColor::On
             } else {
                 BinaryColor::Off
             })
-            .unwrap();
+            .await;
         if flush {
-            self.display.flush().await.unwrap();
+            self.driver.flush_full().await;
         } else {
             yield_now().await;
         }
@@ -492,31 +459,16 @@ impl EgDisplay {
         size: FontSize,
         position: Point,
     ) {
-        let font = match size {
-            FontSize::Small => &FONT_5X8,
-            FontSize::Medium => {
-                if reverse {
-                    &FONT_8X13_BOLD
-                } else {
-                    &FONT_8X13
-                }
-            }
-            FontSize::Large => &FONT_10X20,
+        let color = if reverse {
+            BinaryColor::Off
+        } else {
+            BinaryColor::On
         };
-        let text_style = MonoTextStyleBuilder::new()
-            .font(font)
-            .text_color(if reverse {
-                BinaryColor::Off
-            } else {
-                BinaryColor::On
-            })
-            .build();
-        yield_now().await;
-        Text::with_baseline(text, position, text_style, Baseline::Top)
-            .draw(&mut self.display)
-            .unwrap();
+        self.driver
+            .draw_string(text, position.x as usize, position.y as usize, size, color)
+            .await;
         if flush {
-            self.display.flush().await.unwrap();
+            self.driver.flush_full().await;
         } else {
             yield_now().await;
         }

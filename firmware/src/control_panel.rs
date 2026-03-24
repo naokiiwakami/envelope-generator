@@ -16,6 +16,7 @@ use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel, pubsub};
 use embassy_time::{Duration, Instant, Timer};
 use embedded_graphics::prelude::Point;
 use heapless::String;
+use ssd1306_lite::FontSize;
 
 use self::{
     diagnoser::Diagnoser,
@@ -437,7 +438,7 @@ impl ControlPanel {
         text: &str,
         reverse: bool,
         flush: bool,
-        font_size: display::FontSize,
+        font_size: FontSize,
         position: Point,
     ) {
         debug!("display_text request; reverse={}", reverse);
