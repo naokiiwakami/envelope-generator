@@ -27,7 +27,6 @@ embassy-time = { path = "../../embassy/embassy-time", features = [
   "defmt-timestamp-uptime",
   "tick-hz-32_768",
 ] }
-
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"
 
@@ -43,7 +42,7 @@ static_cell = "2.1.1"
 portable-atomic = { version = "1.13.0", features = ["critical-section"] }
 num_enum = { version = "0.7.5", default-features = false }
 ssd1306-lite = { path = "../../ssd1306-lite" }
-embedded-graphics = { path = "../../embedded-graphics" }
+embedded-graphics = { git = "https://github.com/naokiiwakami/embedded-graphics.git", tag = "embedded-graphics-v0.8.2-fork" }
 
 [profile.release]
 debug = 2
