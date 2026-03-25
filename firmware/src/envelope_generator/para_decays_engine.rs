@@ -5,7 +5,7 @@ use crate::input_reader::{InputReaderInfo, PotKind};
 
 use super::{
     config::EgConfig,
-    definitions::{Engine, VoiceParams, mul_uq0_32},
+    definitions::{Engine, VoiceParams, mul_uq0_32, uq0_32_to_output_positive},
 };
 
 #[derive(Debug, defmt::Format)]
@@ -44,6 +44,8 @@ pub struct ParaDecaysEngine {
     peak_value: u32,
 
     phase: EnginePhase,
+
+    value_to_output: &'static dyn Fn(u32) -> u16,
 }
 
 impl Engine for ParaDecaysEngine {
@@ -65,6 +67,8 @@ impl Engine for ParaDecaysEngine {
             target_value: 0,
             peak_value: 0,
             phase: EnginePhase::Released,
+
+            value_to_output: &uq0_32_to_output_positive,
         }
     }
 
@@ -186,6 +190,6 @@ impl Engine for ParaDecaysEngine {
         }
 
         // scale range of 31 bit (0..7fffffff) down to 12 bit (0..fff).
-        (self.current_value >> 19) as u16
+        (*self.value_to_output)(self.current_value)
     }
 }
