@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 # Change stm32c031c6 to your chip name, if necessary.
-embassy-stm32 = { path = "../../embassy/embassy-stm32", features = [
+embassy-stm32 = { git = "https://github.com/naokiiwakami/embassy.git", tag = "embassy-stm32-v0.6.0-canfd-tdc", features = [
   "defmt",
   "time-driver-any",
   "stm32g0b1ce",
@@ -16,18 +16,18 @@ embassy-stm32 = { path = "../../embassy/embassy-stm32", features = [
   "exti",
   "chrono",
 ] }
-embassy-sync = { path = "../../embassy/embassy-sync", features = ["defmt"] }
-embassy-executor = { path = "../../embassy/embassy-executor", features = [
+embassy-sync = { version = "0.8.0", features = ["defmt"] }
+embassy-executor = { version = "0.10.0", features = [
   "platform-cortex-m",
   "executor-thread",
   "defmt",
 ] }
-embassy-time = { path = "../../embassy/embassy-time", features = [
+embassy-time = { version = "0.5.1", features = [
   "defmt",
   "defmt-timestamp-uptime",
   "tick-hz-32_768",
 ] }
-embassy-futures = { path = "../../embassy/embassy-futures" }
+embassy-futures = "0.1.2"
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"
 
@@ -41,7 +41,7 @@ embedded-can = "0.4"
 static_cell = "2.1.1"
 portable-atomic = { version = "1.13.0", features = ["critical-section"] }
 num_enum = { version = "0.7.5", default-features = false }
-ssd1306-lite = { path = "../../ssd1306-lite" }
+ssd1306-lite = { git = "https://github.com/naokiiwakami/ssd1306-lite.git", branch = "main" }
 embedded-graphics = { git = "https://github.com/naokiiwakami/embedded-graphics.git", tag = "embedded-graphics-v0.8.2-fork" }
 
 [profile.release]
