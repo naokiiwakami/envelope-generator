@@ -12,15 +12,7 @@ use embassy_futures::{
     select::{Either5, select5},
     yield_now,
 };
-use embassy_stm32::{
-    dac::{self, Dac},
-    flash::Error,
-    gpio::Output,
-    interrupt,
-    mode::Blocking,
-    pac,
-    peripherals::DAC1,
-};
+use embassy_stm32::{dac::Dac, flash::Error, gpio::Output, interrupt, mode::Blocking, pac};
 use embassy_sync::{
     blocking_mutex::raw::ThreadModeRawMutex,
     channel::{self, Channel},
@@ -84,7 +76,7 @@ static SIGNAL_STORAGE: Signal<ThreadModeRawMutex, Result<Value, Error>> = Signal
 
 pub fn start(
     spawner: Spawner,
-    dac_channels: Dac<'static, DAC1, Blocking>,
+    dac_channels: Dac<'static, Blocking>,
     ind_gate_1: Output<'static>,
     ind_gate_2: Output<'static>,
 ) {
@@ -133,18 +125,13 @@ pub async fn get_name() -> String<A3_MAX_PROP_DATA_SIZE> {
 
 #[embassy_executor::task]
 async fn run_envelope_generator(
-    dac_channels: Dac<'static, DAC1, Blocking>,
+    dac_channels: Dac<'static, Blocking>,
     mut eg_resources: EgResources,
 ) {
     let (mut dac1, mut dac2) = dac_channels.split();
-    dac1.set_trigger(dac::TriggerSel::Tim2);
-    dac1.set_triggering(true);
     dac1.enable();
-    dac2.set_trigger(dac::TriggerSel::Tim2);
-    dac2.set_triggering(true);
     dac2.enable();
 
-    // let engine_type = &mut eg_resources.config.engine_type;
     loop {
         match eg_resources.config.engine_type {
             EngineType::ParaDecays => {

@@ -13,13 +13,14 @@ use embassy_executor::Spawner;
 use embassy_stm32::adc::{Adc, AdcChannel};
 use embassy_stm32::can::{self, Can};
 use embassy_stm32::dac::Dac;
+use embassy_stm32::dma;
 use embassy_stm32::exti::{self, ExtiInput};
 use embassy_stm32::flash::{self, Flash};
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::i2c::{self, I2c, Master};
 use embassy_stm32::mode::{Async, Blocking};
 use embassy_stm32::pac;
-use embassy_stm32::peripherals::{self, DAC1, TIM3};
+use embassy_stm32::peripherals::{self, TIM3};
 use embassy_stm32::rcc::{
     AHBPrescaler, APBPrescaler, Hse, HseMode, Pll, PllMul, PllPreDiv, PllRDiv, PllSource, Sysclk,
 };
@@ -43,6 +44,7 @@ bind_interrupts!(struct FlashIrqs {
 
 bind_interrupts!(struct I2cIrqs {
     I2C2_3 => i2c::EventInterruptHandler<peripherals::I2C2>, i2c::ErrorInterruptHandler<peripherals::I2C2>;
+    DMA1_CH4_7_DMA2_CH1_5_DMAMUX1_OVR => dma::InterruptHandler<peripherals::DMA1_CH4>, dma::InterruptHandler<peripherals::DMA1_CH5>;
 });
 bind_interrupts!(struct ExtiIrqsGate1 {
     EXTI2_3 => exti::InterruptHandler<interrupt::typelevel::EXTI2_3>;
@@ -95,8 +97,8 @@ struct EgResources {
     gate_src_sw_2: Input<'static>,
     ind_analog_gate_1: Output<'static>,
     ind_analog_gate_2: Output<'static>,
-    gate_trigger_1: ExtiInput<'static>,
-    gate_trigger_2: ExtiInput<'static>,
+    gate_trigger_1: ExtiInput<'static, Async>,
+    gate_trigger_2: ExtiInput<'static, Async>,
     patch_button: Input<'static>,
     patch_ind_red: Output<'static>,
     patch_ind_green: Output<'static>,
@@ -106,7 +108,7 @@ struct EgResources {
     encoder_ind_red: Output<'static>,
     encoder_ind_green: Output<'static>,
     i2c: I2c<'static, Async, Master>,
-    dac_channels: Dac<'static, DAC1, Blocking>,
+    dac_channels: Dac<'static, Blocking>,
     adc_resources: AdcResources,
 }
 
@@ -185,7 +187,7 @@ async fn setup_peripherals(p: Peripherals) -> EgResources {
         let sda = p.PB14;
         let tx_dma = p.DMA1_CH4;
         let rx_dma = p.DMA1_CH5;
-        I2c::new(i2c_peri, scl, sda, I2cIrqs, tx_dma, rx_dma, i2c_config)
+        I2c::new(i2c_peri, scl, sda, tx_dma, rx_dma, I2cIrqs, i2c_config)
     };
 
     // Configure TIM2 for 40 kHz (25 us) using direct register access
@@ -217,7 +219,13 @@ async fn setup_peripherals(p: Peripherals) -> EgResources {
 
     // DAC
     let dac_channels = Dac::new_blocking(p.DAC1, p.PA4, p.PA5);
-    // Triggering and channel setup is handled by envelope_generator.rs
+    // enable triggers
+    pac::DAC1.cr().modify(|w| {
+        w.set_ten(0, true);
+        w.set_tsel(0, 0b0010); // dac_chx_trg2 -> TIM2 TRGO
+        w.set_ten(1, true);
+        w.set_tsel(1, 0b0010); // dac_chx_trg2 -> TIM2 TRGO
+    });
 
     // ADC
     let adc = Adc::new(p.ADC1);

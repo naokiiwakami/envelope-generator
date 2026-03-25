@@ -1,11 +1,14 @@
 use defmt::{self, debug};
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
+use embassy_stm32::bind_interrupts;
 use embassy_stm32::{
     Peri,
     adc::{Adc, AnyAdcChannel, SampleTime},
+    dma,
     exti::ExtiInput,
     gpio::{Input, Level, Output},
+    mode::Async,
     peripherals::*,
 };
 use embassy_sync::{
@@ -19,6 +22,10 @@ use embassy_time::Timer;
 use crate::envelope_generator::{
     EG_CHANNEL_SIZE, EgRequest, GateEventType, GateId, get_eg_request_sender,
 };
+
+bind_interrupts!(struct Irqs {
+    DMA1_CHANNEL1 => dma::InterruptHandler<DMA1_CH1>;
+});
 
 // communications ///////////////////////////////
 static WATCH_READER: Watch<ThreadModeRawMutex, InputReaderInfo, 2> = Watch::new();
@@ -99,8 +106,8 @@ pub fn start(
     gate_src_sw_2: Input<'static>,
     ind_analog_gate_1: Output<'static>,
     ind_analog_gate_2: Output<'static>,
-    gate_trigger_1: ExtiInput<'static>,
-    gate_trigger_2: ExtiInput<'static>,
+    gate_trigger_1: ExtiInput<'static, Async>,
+    gate_trigger_2: ExtiInput<'static, Async>,
 ) {
     let input_reader = InputReader::new(resources);
     spawner.spawn(run_input_reader(input_reader).unwrap());
@@ -215,7 +222,7 @@ impl InputReader {
         .into_iter();
         self.resources
             .adc
-            .read(self.resources.dma.reborrow(), sequence, &mut buffer)
+            .read(self.resources.dma.reborrow(), Irqs, sequence, &mut buffer)
             .await;
 
         // Pots pick up noise so their values do not drop to zero at the bottoms.
@@ -249,7 +256,7 @@ impl InputReader {
         let sequence = [(channel, SampleTime::CYCLES160_5)].into_iter();
         self.resources
             .adc
-            .read(self.resources.dma.reborrow(), sequence, &mut buffer)
+            .read(self.resources.dma.reborrow(), Irqs, sequence, &mut buffer)
             .await;
         match gate_id {
             GateId::Gate1 => SIGNAL_GATE_1_READING.signal(buffer[0]),
@@ -265,7 +272,7 @@ async fn run_analog_gate(mut analog_gate: AnalogGate) {
 struct AnalogGate {
     src_sw: Input<'static>,
     ind_analog_gate: Output<'static>,
-    trigger: ExtiInput<'static>,
+    trigger: ExtiInput<'static, Async>,
 
     gate_id: GateId,
     state: AnalogGateState,
@@ -277,7 +284,7 @@ impl AnalogGate {
     pub fn new(
         src_sw: Input<'static>,
         ind_analog_gate: Output<'static>,
-        trigger: ExtiInput<'static>,
+        trigger: ExtiInput<'static, Async>,
         gate_id: GateId,
     ) -> Self {
         Self {
