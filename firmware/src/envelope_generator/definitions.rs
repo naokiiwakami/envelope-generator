@@ -90,3 +90,21 @@ pub fn mul_uq0_32(a: u32, b: u32) -> u32 {
 pub fn fraction_uq32_32(numerator: u32, denominator: u32) -> u64 {
     ((numerator as u64) << 32) / denominator as u64
 }
+
+// Engine helper functions ////////////////////////////////////////
+
+/// Converts a UQ0.32 value of range [0..0.5) to 12-bit positive output.
+/// Zero value is 0x800.
+/// The function does not check boundary intentionally for performance.
+/// The call should ensure the input is less than 0x80000000.
+pub fn uq0_32_to_output_positive(value: u32) -> u16 {
+    (value >> 20) as u16 + 0x800
+}
+
+/// Converts a Q0.32 value of range [0..0.5) to 12-bit negative output.
+/// Zero value is 0x800
+/// The function does not check boundary intentionally for performance.
+/// The call should ensure the input is less than 0x80000000.
+pub fn uq0_32_to_output_negative(value: u32) -> u16 {
+    0x800 - (value >> 20) as u16
+}

@@ -415,17 +415,19 @@ unsafe fn TIM2() {
         if HEADS[0] == TAILS[0] {
             // warn!("queue empty");
         } else {
-            pac::DAC1
-                .dhr12r(0)
-                .write(|reg| reg.set_dhr(BUFFERS[0][TAILS[0]]));
+            core::ptr::write_volatile(
+                pac::DAC1.dhr12r(0).as_ptr() as *mut u32,
+                BUFFERS[0][TAILS[0]] as u32,
+            );
             TAILS[0] = (TAILS[0] + 1) % BUF_SIZE;
         }
         if HEADS[1] == TAILS[1] {
             // warn!("queue empty");
         } else {
-            pac::DAC1
-                .dhr12r(1)
-                .write(|reg| reg.set_dhr(BUFFERS[1][TAILS[1]]));
+            core::ptr::write_volatile(
+                pac::DAC1.dhr12r(1).as_ptr() as *mut u32,
+                BUFFERS[1][TAILS[1]] as u32,
+            );
             TAILS[1] = (TAILS[1] + 1) % BUF_SIZE;
         }
     }
