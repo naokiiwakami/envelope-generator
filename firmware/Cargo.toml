@@ -41,7 +41,7 @@ embedded-can = "0.4"
 static_cell = "2.1.1"
 portable-atomic = { version = "1.13.0", features = ["critical-section"] }
 num_enum = { version = "0.7.5", default-features = false }
-ssd1306-lite = { git = "https://github.com/naokiiwakami/ssd1306-lite.git", branch = "main" }
+ssd1306-lite = { path = "../../ssd1306-lite" }
 embedded-graphics = { git = "https://github.com/naokiiwakami/embedded-graphics.git", tag = "embedded-graphics-v0.8.2-fork" }
 
 [profile.release]

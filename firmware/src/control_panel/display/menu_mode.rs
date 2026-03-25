@@ -6,6 +6,7 @@ use embedded_graphics::{
     prelude::*,
     primitives::{PrimitiveStyleBuilder, Rectangle},
 };
+use ssd1306_lite::TextBox;
 
 use crate::control_panel::menu::MenuItem;
 
@@ -121,14 +122,21 @@ impl<'a, ActionT> MenuMode<'a, ActionT> {
     }
 
     async fn print_menu_item(&mut self, reverse: bool, index: usize, ypos: i32) {
-        let point = Point::new(Self::INDENT, ypos + Self::MARGIN_TOP);
+        let color = if reverse {
+            BinaryColor::Off
+        } else {
+            BinaryColor::On
+        };
         self.display
             .display_text(
-                reverse,
-                false,
                 self.menu_items[index].name,
+                TextBox::simple(
+                    Self::INDENT as usize,
+                    (ypos + Self::MARGIN_TOP) as usize,
+                    color,
+                ),
                 super::FontSize::Large,
-                point,
+                false,
             )
             .await;
     }

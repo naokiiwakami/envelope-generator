@@ -101,6 +101,7 @@ pub fn uq0_32_to_output_positive(value: u32) -> u16 {
     (value >> 20) as u16 + 0x800
 }
 
+/*
 /// Converts a Q0.32 value of range [0..0.5) to 12-bit negative output.
 /// Zero value is 0x800
 /// The function does not check boundary intentionally for performance.
@@ -108,3 +109,4 @@ pub fn uq0_32_to_output_positive(value: u32) -> u16 {
 pub fn uq0_32_to_output_negative(value: u32) -> u16 {
     0x800 - (value >> 20) as u16
 }
+*/

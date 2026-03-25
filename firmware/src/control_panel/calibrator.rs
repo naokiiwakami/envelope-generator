@@ -1,35 +1,32 @@
 use embassy_futures::select::{Either, select};
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, signal::Signal};
 use embassy_time::{Duration, Instant, Timer};
-use embedded_graphics::{
-    pixelcolor::BinaryColor, prelude::Point, primitives::PrimitiveStyleBuilder,
-};
 use ssd1306_lite::{FontSize, TextBox};
 
-use crate::{
-    envelope_generator::EngineType,
-    input_reader::get_reader_info_receiver,
-    patch_controller::{diagnose_button, diagnose_leds},
-};
+use crate::{envelope_generator::EngineType, input_reader::get_reader_info_receiver};
 
 use super::{ControlPanel, DisplayRequest};
 
 // signal to receive nudges.
 static SIGNAL_REPLY: Signal<ThreadModeRawMutex, ()> = Signal::new();
 
-pub struct Diagnoser<'a> {
+pub struct Calibrator<'a> {
     control_panel: &'a mut ControlPanel,
 }
 
-impl<'a> Diagnoser<'a> {
+impl<'a> Calibrator<'a> {
     pub fn new(control_panel: &'a mut ControlPanel) -> Self {
         Self { control_panel }
     }
 
     pub async fn execute(&mut self) {
-        let text_box = TextBox::center().fg_color(BinaryColor::Off).build();
         self.control_panel
-            .display_text("Diagnosing...", text_box.clone(), FontSize::Medium, true)
+            .display_text(
+                "PLUG OFF",
+                TextBox::top_center().build(),
+                FontSize::Medium,
+                true,
+            )
             .await;
         let orig_engine_type = self.control_panel.current_engine_type.clone();
         self.control_panel
@@ -39,7 +36,6 @@ impl<'a> Diagnoser<'a> {
         Timer::after_millis(500).await;
         self.control_panel.blink_leds().await;
         Timer::after_millis(500).await;
-        self.diagnose_patch_controller().await;
         self.diagnose_pots().await;
         self.diagnose_cv().await;
         self.control_panel
@@ -49,43 +45,7 @@ impl<'a> Diagnoser<'a> {
             .switch_engine_type(orig_engine_type)
             .await;
         self.control_panel.clear_screen(true, false).await;
-        self.control_panel
-            .display_text("DONE!", text_box, FontSize::Medium, true)
-            .await;
         Timer::after_secs(1).await;
-    }
-
-    async fn diagnose_patch_controller(&mut self) {
-        diagnose_leds(&SIGNAL_REPLY).await;
-        let text_box = TextBox::top_center().build();
-        self.control_panel
-            .display_text("Press button", text_box, FontSize::Medium, false)
-            .await;
-        self.control_panel
-            .display_request_sender
-            .send(DisplayRequest::DrawLine {
-                start: Point::new(95, 39),
-                end: Point::new(122, 58),
-                style: PrimitiveStyleBuilder::new()
-                    .stroke_color(BinaryColor::On)
-                    .stroke_width(2)
-                    .build(),
-                flush: false,
-            })
-            .await;
-        self.control_panel
-            .display_request_sender
-            .send(DisplayRequest::DrawTriangle {
-                vertex1: Point::new(122, 58),
-                vertex2: Point::new(113, 57),
-                vertex3: Point::new(118, 50),
-                style: PrimitiveStyleBuilder::new()
-                    .fill_color(BinaryColor::On)
-                    .build(),
-                flush: true,
-            })
-            .await;
-        diagnose_button(&SIGNAL_REPLY).await;
     }
 
     async fn diagnose_pots(&mut self) {

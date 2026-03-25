@@ -1007,7 +1007,6 @@ checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
 [[package]]
 name = "ssd1306-lite"
 version = "0.1.0"
-source = "git+https://github.com/naokiiwakami/ssd1306-lite.git?branch=main#e6954849d4515ec6d04cb26aac69a8fa657dfe88"
 dependencies = [
  "defmt 1.0.1",
  "defmt-rtt",
