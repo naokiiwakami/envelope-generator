@@ -1,18 +1,14 @@
-use defmt::debug;
 use heapless::Vec;
 
 use crate::{
-    addresses::ADDR_OUT_ZERO_POINT_1,
     analog3::{
-        definitions::{A3_PROP_ID_NAME, MAX_PROP_VECTOR_LENGTH, Value, ValueType},
+        definitions::{A3_PROP_ID_NAME, MAX_PROP_VECTOR_LENGTH, Value},
         property::{PropRequest, Property},
-        storage,
     },
-    envelope_generator::definitions::DEFAULT_OUT_ZERO_POINT,
     input_reader::{PotInfo, PotKind},
 };
 
-use super::{EngineType, SIGNAL_STORAGE};
+use super::EngineType;
 
 pub struct EgConfig {
     pub prop_id: u8,
@@ -29,8 +25,6 @@ pub struct EgConfig {
     pub extra2: [u16; 2],
     pub cv_a_depth: u16,
     pub cv_b_depth: u16,
-
-    pub out_zero_point: [u16; 2],
 }
 
 #[derive(Clone)]
@@ -79,31 +73,7 @@ impl EgConfig {
             extra2: [0; 2],
             cv_a_depth: 0,
             cv_b_depth: 0,
-
-            out_zero_point: [0; 2],
         }
-    }
-
-    pub async fn load_out_zero_points(&mut self) {
-        self.load_zero_point(0).await;
-        self.load_zero_point(1).await;
-    }
-
-    async fn load_zero_point(&mut self, voice_index: usize) {
-        let Value::U16(mut value) = storage::load(
-            ADDR_OUT_ZERO_POINT_1 + 2 * voice_index as u16,
-            ValueType::U32,
-            &SIGNAL_STORAGE,
-        )
-        .await
-        .unwrap() else {
-            panic!("wrong type returned");
-        };
-        if value == u16::MAX {
-            value = DEFAULT_OUT_ZERO_POINT;
-        }
-        debug!("loaded center point (voice {}): {:#x}", voice_index, value);
-        self.out_zero_point[voice_index] = value;
     }
 
     #[inline]

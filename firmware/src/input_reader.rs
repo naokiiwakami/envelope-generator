@@ -307,7 +307,7 @@ impl InputReader {
         self.cv_offset_a = Self::load_cv_offset(0).await;
         self.cv_offset_b = Self::load_cv_offset(1).await;
         debug!(
-            "loaded offset: a={}, b={}",
+            "loaded CV offsets: a={}, b={}",
             self.cv_offset_a, self.cv_offset_b
         );
     }

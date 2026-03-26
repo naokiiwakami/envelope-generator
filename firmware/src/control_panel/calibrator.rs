@@ -1,7 +1,6 @@
 use defmt::debug;
-use embassy_futures::select::{Either, select};
-use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, signal::Signal, watch};
-use embassy_time::{Duration, Instant, Timer};
+use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, watch};
+use embassy_time::{Instant, Timer};
 use embedded_graphics::{
     pixelcolor::BinaryColor,
     prelude::{Point, Size},
@@ -18,9 +17,6 @@ use crate::{
 };
 
 use super::{ControlPanel, DisplayRequest};
-
-// signal to receive nudges.
-static SIGNAL_REPLY: Signal<ThreadModeRawMutex, ()> = Signal::new();
 
 pub struct Calibrator<'a> {
     control_panel: &'a mut ControlPanel,
@@ -41,33 +37,19 @@ impl<'a> Calibrator<'a> {
     }
 
     pub async fn execute(&mut self) {
+        let orig_engine_type = self.control_panel.current_engine_type.clone();
         self.prepare().await;
 
         let mut reader_info_receiver = get_reader_info_receiver().await;
         self.calibrate_cv(&mut reader_info_receiver).await;
         self.calibrate_output(&mut reader_info_receiver).await;
-
-        let orig_engine_type = self.control_panel.current_engine_type.clone();
-        self.control_panel
-            .request_switching_engine(&EngineType::Diag)
-            .await;
-        crate::analog3::diagnose(&SIGNAL_REPLY).await;
-        Timer::after_millis(500).await;
-        self.control_panel.blink_leds().await;
-        Timer::after_millis(500).await;
-        self.diagnose_pots().await;
-        self.diagnose_cv().await;
-        self.control_panel
-            .request_switching_engine(&orig_engine_type)
-            .await;
-        self.control_panel
-            .switch_engine_type(orig_engine_type)
-            .await;
-        self.control_panel.clear_screen(true, false).await;
-        Timer::after_secs(1).await;
+        self.wrap_up(orig_engine_type).await;
     }
 
     async fn prepare(&mut self) {
+        self.control_panel
+            .switch_engine_type(EngineType::Adsr)
+            .await;
         self.control_panel
             .display_request_sender
             .send(DisplayRequest::SwitchMode {
@@ -135,7 +117,7 @@ impl<'a> Calibrator<'a> {
         }
         offset_a /= repeat;
         offset_b /= repeat;
-        debug!("offset: A={}, B={}", offset_a, offset_b);
+        debug!("CV offsets: A={}, B={}", offset_a, offset_b);
 
         self.display_title("CV: VERIFYING").await;
 
@@ -161,7 +143,7 @@ impl<'a> Calibrator<'a> {
         }
         offset_a /= repeat;
         offset_b /= repeat;
-        debug!("offset after calib: A={}, B={}", offset_a, offset_b);
+        debug!("CV offsets after calib: A={}, B={}", offset_a, offset_b);
 
         Timer::after_millis(1000).await;
     }
@@ -191,15 +173,18 @@ impl<'a> Calibrator<'a> {
         for _ in 0..repeat {
             let reader_info = reader_info_receiver.changed().await;
             let cv_info = reader_info.cv_info;
-            offset_1 -= cv_info.cv_a as i32;
-            offset_2 -= cv_info.cv_b as i32;
+            offset_1 += cv_info.cv_a as i32;
+            offset_2 += cv_info.cv_b as i32;
         }
+        offset_1 /= repeat;
+        offset_2 /= repeat;
+        debug!("drift before calib: 1={}, 2={}", offset_1, offset_2);
         let scale_16_to_12 = 16; // 4 bit
-        offset_1 /= repeat * scale_16_to_12;
-        offset_2 /= repeat * scale_16_to_12;
+        offset_1 /= scale_16_to_12;
+        offset_2 /= scale_16_to_12;
 
-        let value_1 = (DEFAULT_OUT_ZERO_POINT as i32 + offset_1) as u16;
-        let value_2 = (DEFAULT_OUT_ZERO_POINT as i32 + offset_2) as u16;
+        let value_1 = (DEFAULT_OUT_ZERO_POINT as i32 - offset_1) as u16;
+        let value_2 = (DEFAULT_OUT_ZERO_POINT as i32 - offset_2) as u16;
 
         debug!("zero_points: 1={:#x}, 2={:#x}", value_1, value_2);
 
@@ -222,10 +207,22 @@ impl<'a> Calibrator<'a> {
         offset_1 /= repeat;
         offset_2 /= repeat;
         debug!("drift after calib: 1={}, 2={}", offset_1, offset_2);
+    }
 
-        self.display_title("OUT: DONE").await;
-
-        self.wait_for_button_pressed().await;
+    async fn wrap_up(&mut self, orig_engine_type: EngineType) {
+        self.control_panel.clear_screen(true, false).await;
+        self.control_panel
+            .display_text(
+                "DONE!",
+                TextBox::center().fg_color(BinaryColor::Off).build(),
+                FontSize::Large,
+                true,
+            )
+            .await;
+        Timer::after_secs(1).await;
+        self.control_panel
+            .switch_engine_type(orig_engine_type)
+            .await;
     }
 
     async fn display_title(&mut self, text: &str) {
@@ -266,116 +263,6 @@ impl<'a> Calibrator<'a> {
                 self.control_panel.ind_green.toggle();
             }
             wakeup_count += 1;
-        }
-    }
-
-    async fn diagnose_pots(&mut self) {
-        let mut receiver = get_reader_info_receiver().await;
-        let mut now = Instant::now();
-        self.control_panel.button_pressed_at = if self.control_panel.button.is_low() {
-            Some(now.clone())
-        } else {
-            None
-        };
-        let mut next = now.saturating_add(Duration::from_millis(10));
-        let mut wakeup_count = 0;
-
-        let mut first_one_covered = false;
-        loop {
-            let sleep_time = next.duration_since(now);
-            match select(receiver.changed(), Timer::after(sleep_time)).await {
-                Either::First(reader_info) => {
-                    let pot_info = reader_info.pot_info;
-                    let index = pot_info.kind.clone() as usize;
-                    self.control_panel
-                        .display_request_sender
-                        .send(DisplayRequest::UpdatePotValue { pot_info })
-                        .await;
-                    if index == 0 {
-                        first_one_covered = true;
-                    } else if index == 7 && first_one_covered {
-                        self.control_panel
-                            .display_request_sender
-                            .send(DisplayRequest::Flush)
-                            .await;
-                    }
-                }
-                Either::Second(()) => {}
-            }
-            now = Instant::now();
-            if now.ge(&next) {
-                if self.control_panel.button.is_low() {
-                    self.control_panel.button_pressed_at.replace(now.clone());
-                } else {
-                    let to_exit = self.control_panel.button_pressed_at.is_some();
-                    self.control_panel.button_pressed_at = None;
-                    if to_exit {
-                        self.control_panel.ind_red.set_low();
-                        self.control_panel.ind_green.set_low();
-                        break;
-                    }
-                }
-                if wakeup_count % 50 == 0 {
-                    self.control_panel.ind_red.toggle();
-                    self.control_panel.ind_green.toggle();
-                }
-                wakeup_count += 1;
-                while now.ge(&next) {
-                    next = next.saturating_add(Duration::from_millis(10));
-                }
-            }
-        }
-    }
-
-    async fn diagnose_cv(&mut self) {
-        let mut receiver = get_reader_info_receiver().await;
-        let mut now = Instant::now();
-        self.control_panel.button_pressed_at = if self.control_panel.button.is_low() {
-            Some(now.clone())
-        } else {
-            None
-        };
-        let mut next = now.saturating_add(Duration::from_millis(10));
-        let mut wakeup_count = 0;
-
-        let mut last_update_time = Instant::now();
-        loop {
-            let sleep_time = next.duration_since(now);
-            match select(receiver.changed(), Timer::after(sleep_time)).await {
-                Either::First(reader_info) => {
-                    let cv_info = reader_info.cv_info;
-                    if last_update_time.elapsed().as_millis() >= 30 {
-                        self.control_panel
-                            .display_request_sender
-                            .send(DisplayRequest::UpdateCvValues { cv_info })
-                            .await;
-                        last_update_time = Instant::now();
-                    }
-                }
-                Either::Second(()) => {}
-            }
-            now = Instant::now();
-            if now.ge(&next) {
-                if self.control_panel.button.is_low() {
-                    self.control_panel.button_pressed_at.replace(now.clone());
-                } else {
-                    let to_exit = self.control_panel.button_pressed_at.is_some();
-                    self.control_panel.button_pressed_at = None;
-                    if to_exit {
-                        self.control_panel.ind_red.set_low();
-                        self.control_panel.ind_green.set_low();
-                        break;
-                    }
-                }
-                if wakeup_count % 50 == 0 {
-                    self.control_panel.ind_red.toggle();
-                    self.control_panel.ind_green.toggle();
-                }
-                wakeup_count += 1;
-                while now.ge(&next) {
-                    next = next.saturating_add(Duration::from_millis(10));
-                }
-            }
         }
     }
 }

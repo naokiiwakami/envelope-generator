@@ -33,8 +33,12 @@ pub use self::definitions::{
     DEFAULT_OUT_ZERO_POINT, EgEvent, EgRequest, EngineType, GateEventType, GateId,
 };
 use self::{
-    adsr_engine::AdsrEngine, config::EgConfig, definitions::Engine, definitions::VoiceParams,
-    diag_engine::DiagEngine, linear_engine::LinearEngine, para_decays_engine::ParaDecaysEngine,
+    adsr_engine::AdsrEngine,
+    config::EgConfig,
+    definitions::{Engine, VoiceParams, uq0_32_to_output_positive},
+    diag_engine::DiagEngine,
+    linear_engine::LinearEngine,
+    para_decays_engine::ParaDecaysEngine,
     two_decays_engine::TwoDecaysEngine,
 };
 
@@ -84,8 +88,26 @@ pub async fn start(
     ind_gate_2: Output<'static>,
 ) {
     let mut eg_resources = EgResources::new(ind_gate_1, ind_gate_2);
-    eg_resources.config.load_out_zero_points().await;
+    eg_resources.voice_params_1.out_zero_point = load_out_zero_point(0).await;
+    eg_resources.voice_params_2.out_zero_point = load_out_zero_point(1).await;
     spawner.spawn(run_envelope_generator(dac_channels, eg_resources).unwrap());
+}
+
+async fn load_out_zero_point(voice_index: usize) -> u16 {
+    let Value::U16(mut value) = storage::load(
+        ADDR_OUT_ZERO_POINT_1 + 2 * voice_index as u16,
+        ValueType::U16,
+        &SIGNAL_STORAGE,
+    )
+    .await
+    .unwrap() else {
+        panic!("wrong type returned");
+    };
+    if value == u16::MAX {
+        value = DEFAULT_OUT_ZERO_POINT;
+    }
+    debug!("loaded zero point (voice {}): {:#x}", voice_index, value);
+    value
 }
 
 pub async fn get_uid() -> u32 {
@@ -167,16 +189,34 @@ struct EgResources {
     request_receiver: channel::Receiver<'static, ThreadModeRawMutex, EgRequest, EG_CHANNEL_SIZE>,
     event_publisher:
         pubsub::Publisher<'static, ThreadModeRawMutex, EgEvent, EG_CHANNEL_SIZE, EG_SUBS, EG_PUBS>,
+    voice_params_1: VoiceParams,
+    voice_params_2: VoiceParams,
     ind_gate_1: Output<'static>,
     ind_gate_2: Output<'static>,
 }
 
 impl EgResources {
     pub fn new(ind_gate_1: Output<'static>, ind_gate_2: Output<'static>) -> Self {
+        let voice_params_1 = VoiceParams {
+            voice_index: 0,
+            note: 60, // middle C
+            velocity: 0,
+            out_zero_point: DEFAULT_OUT_ZERO_POINT,
+            value_to_output: &uq0_32_to_output_positive,
+        };
+        let voice_params_2 = VoiceParams {
+            voice_index: 1,
+            note: 60, // middle C
+            velocity: 0,
+            out_zero_point: DEFAULT_OUT_ZERO_POINT,
+            value_to_output: &uq0_32_to_output_positive,
+        };
         Self {
             config: EgConfig::new(0x101, 0x102, EngineType::ParaDecays),
             request_receiver: CHANNEL_REQUEST.receiver(),
             event_publisher: CHANNEL_EVENT.publisher().unwrap(),
+            voice_params_1,
+            voice_params_2,
             ind_gate_1,
             ind_gate_2,
         }
@@ -201,8 +241,18 @@ struct EnvelopeGenerator<'a, EngineT: Engine> {
 
 impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
     pub fn new(resources: &'a mut EgResources) -> Self {
-        let voice_1 = EgVoice::new(0, &mut resources.ind_gate_1, &resources.config);
-        let voice_2 = EgVoice::new(1, &mut resources.ind_gate_2, &resources.config);
+        let voice_1 = EgVoice::new(
+            0,
+            &mut resources.voice_params_1,
+            &mut resources.ind_gate_1,
+            &resources.config,
+        );
+        let voice_2 = EgVoice::new(
+            1,
+            &mut resources.voice_params_2,
+            &mut resources.ind_gate_2,
+            &resources.config,
+        );
         Self {
             config: &mut resources.config,
             request_receiver: &mut resources.request_receiver,
@@ -287,8 +337,8 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
                 value_2,
                 save,
             } => {
-                self.config.out_zero_point[0] = value_1;
-                self.config.out_zero_point[1] = value_2;
+                self.voice_1.params.out_zero_point = value_1;
+                self.voice_2.params.out_zero_point = value_2;
                 if save {
                     storage::save(ADDR_OUT_ZERO_POINT_1, Value::U16(value_1), &SIGNAL_STORAGE)
                         .await
@@ -310,11 +360,11 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
 }
 
 struct EgVoice<'a, EngineT: Engine> {
+    params: &'a mut VoiceParams,
+
     ind_gate: &'a mut Output<'static>,
 
     analog_gate_enabled: bool,
-
-    params: VoiceParams,
 
     engine: EngineT,
 
@@ -322,17 +372,18 @@ struct EgVoice<'a, EngineT: Engine> {
 }
 
 impl<'a, EngineT: Engine> EgVoice<'a, EngineT> {
-    pub fn new(voice_index: usize, ind_gate: &'a mut Output<'static>, config: &EgConfig) -> Self {
+    pub fn new(
+        voice_index: usize,
+        params: &'a mut VoiceParams,
+        ind_gate: &'a mut Output<'static>,
+        config: &EgConfig,
+    ) -> Self {
         let mut engine = EngineT::new();
         engine.initialize(voice_index, config);
         Self {
             ind_gate,
             analog_gate_enabled: false,
-            params: VoiceParams {
-                voice_index,
-                note: 60, // middle C
-                velocity: 0,
-            },
+            params,
             engine,
             last_value: 0,
         }

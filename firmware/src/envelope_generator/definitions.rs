@@ -9,6 +9,8 @@ pub struct VoiceParams {
     pub voice_index: usize,
     pub note: u8,
     pub velocity: u16,
+    pub out_zero_point: u16,
+    pub value_to_output: &'static dyn Fn(u32, u16) -> u16,
 }
 
 /// Request for the envelope generator

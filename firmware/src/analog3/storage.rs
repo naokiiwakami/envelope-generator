@@ -1,4 +1,4 @@
-use defmt::debug;
+use defmt::{debug, trace};
 use embassy_executor::Spawner;
 use embassy_stm32::flash::{Error, FLASH_SIZE, Flash, WRITE_SIZE};
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel, signal::Signal};
@@ -337,10 +337,10 @@ impl Storage {
         let end_page_offset = self.get_row_offset(address + (data.len() + WRITE_SIZE - 1) as u16);
 
         if self.is_dirty(start_page_offset, end_page_offset)? {
-            debug!("the rows are dirty, starting ping-pong write");
+            trace!("the rows are dirty, starting ping-pong write");
             self.ping_pong_write(address, data).await?;
         } else {
-            debug!("the rows are clean, starting straight write");
+            trace!("the rows are clean, starting straight write");
             let prefix_len = (0 - address as usize) % WRITE_SIZE;
             let suffix_len = (address as usize + data.len()) % WRITE_SIZE;
             let mut page_offset = start_page_offset;
@@ -381,14 +381,14 @@ impl Storage {
         // indexes for rows to be merged
         let start_row_index = address as usize / WRITE_SIZE;
         let end_row_index = (address as usize + data.len() - 1) / WRITE_SIZE;
-        debug!(
+        trace!(
             "row indexes; start={:#x}, end={:#x}",
             start_row_index, end_row_index
         );
 
         let start_column = address as usize % WRITE_SIZE;
         let end_column = (address as usize + data.len()) % WRITE_SIZE;
-        debug!("start column={}, end column={}", start_column, end_column);
+        trace!("start column={}, end column={}", start_column, end_column);
 
         // let target_row_offset = self.get_row_offset(address);
         let mut row_data = [0xffu8; WRITE_SIZE];
@@ -411,7 +411,7 @@ impl Storage {
                     let data_width = end_column.min(data.len() - data_index);
                     row_data[..data_width].copy_from_slice(&data[data.len() - data_width..]);
                 } else {
-                    debug!("irow={}, index={}", irow, data_index);
+                    trace!("irow={}, index={}", irow, data_index);
                     row_data.copy_from_slice(&data[data_index..data_index + WRITE_SIZE]);
                     data_index += WRITE_SIZE;
                 }
