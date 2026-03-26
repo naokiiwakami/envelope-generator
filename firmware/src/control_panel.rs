@@ -157,6 +157,7 @@ impl ControlPanel {
                 None => self.on_button_pressed(),
             }
         } else if self.button_pressed_at.is_some() {
+            self.button_pressed_at = None;
             self.on_button_released().await;
         } else {
             // normal "button off" status, do regular task for the mode
@@ -216,7 +217,6 @@ impl ControlPanel {
             }
             _ => {}
         }
-        self.button_pressed_at = None;
     }
 
     // Op menu mode //////////////////////////////////////////////////////////
@@ -283,7 +283,10 @@ impl ControlPanel {
     /// Called to request EnvelopeGenerator to switch engine mode.
     async fn request_switching_engine(&mut self, engine_type: &EngineType) {
         self.eg_request_sender
-            .send(EgRequest::SwitchEngine(engine_type.clone()))
+            .send(EgRequest::SwitchEngine {
+                engine_type: engine_type.clone(),
+                send_notif: false,
+            })
             .await;
     }
 
@@ -446,12 +449,6 @@ impl ControlPanel {
         font_size: FontSize,
         flush: bool,
     ) {
-        self.display_request_sender
-            .send(DisplayRequest::Clear {
-                reverse: text_box.is_color_reverse(),
-                flush: false,
-            })
-            .await;
         self.display_request_sender
             .send(DisplayRequest::DisplayText {
                 text: String::<32>::try_from(text).unwrap(),

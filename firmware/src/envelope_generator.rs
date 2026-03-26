@@ -24,11 +24,14 @@ use heapless::String;
 use {defmt_rtt as _, panic_probe as _};
 
 use crate::{
+    addresses::{ADDR_OUT_ZERO_POINT_1, ADDR_OUT_ZERO_POINT_2},
     analog3::{self, addresses_common::*, definitions::*, storage},
     input_reader::{InputReaderInfo, get_reader_info_receiver},
 };
 
-pub use self::definitions::{EgEvent, EgRequest, EngineType, GateEventType, GateId};
+pub use self::definitions::{
+    DEFAULT_OUT_ZERO_POINT, EgEvent, EgRequest, EngineType, GateEventType, GateId,
+};
 use self::{
     adsr_engine::AdsrEngine, config::EgConfig, definitions::Engine, definitions::VoiceParams,
     diag_engine::DiagEngine, linear_engine::LinearEngine, para_decays_engine::ParaDecaysEngine,
@@ -74,13 +77,14 @@ pub fn get_eg_event_subscriber()
 
 static SIGNAL_STORAGE: Signal<ThreadModeRawMutex, Result<Value, Error>> = Signal::new();
 
-pub fn start(
+pub async fn start(
     spawner: Spawner,
     dac_channels: Dac<'static, Blocking>,
     ind_gate_1: Output<'static>,
     ind_gate_2: Output<'static>,
 ) {
-    let eg_resources = EgResources::new(ind_gate_1, ind_gate_2);
+    let mut eg_resources = EgResources::new(ind_gate_1, ind_gate_2);
+    eg_resources.config.load_out_zero_points().await;
     spawner.spawn(run_envelope_generator(dac_channels, eg_resources).unwrap());
 }
 
@@ -229,7 +233,7 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
                 Either5::Second(prop_request) => self.config.handle_request(prop_request),
                 Either5::Third(()) => {}
                 Either5::Fourth(request) => {
-                    if self.handle_request(request) {
+                    if self.handle_request(request).await {
                         break;
                     }
                 }
@@ -256,7 +260,7 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
 
     /// Handles the incoming request.
     /// Returns true if the request causes exiting this engine type.
-    fn handle_request(&mut self, request: EgRequest) -> bool {
+    async fn handle_request(&mut self, request: EgRequest) -> bool {
         match request {
             EgRequest::GateEvent { id, event } => {
                 match id {
@@ -265,10 +269,35 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
                 };
                 false
             }
-            EgRequest::SwitchEngine(engine_type) => {
+            EgRequest::SwitchEngine {
+                engine_type,
+                send_notif,
+            } => {
                 debug!("switching engine to {}", engine_type.name());
                 self.config.engine_type = engine_type;
+                if send_notif {
+                    self.event_publisher
+                        .publish(EgEvent::EngineSwitched(self.config.engine_type.clone()))
+                        .await;
+                }
                 true
+            }
+            EgRequest::UpdateZeroPoint {
+                value_1,
+                value_2,
+                save,
+            } => {
+                self.config.out_zero_point[0] = value_1;
+                self.config.out_zero_point[1] = value_2;
+                if save {
+                    storage::save(ADDR_OUT_ZERO_POINT_1, Value::U16(value_1), &SIGNAL_STORAGE)
+                        .await
+                        .unwrap();
+                    storage::save(ADDR_OUT_ZERO_POINT_2, Value::U16(value_2), &SIGNAL_STORAGE)
+                        .await
+                        .unwrap();
+                }
+                false
             }
         }
     }

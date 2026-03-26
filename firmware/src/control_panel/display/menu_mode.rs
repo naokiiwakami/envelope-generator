@@ -49,21 +49,31 @@ impl<'a, ActionT> MenuMode<'a, ActionT> {
             // while self.display.mode.is_menu_mode() {
             let request = self.display.fetch_request().await;
             match request {
-                Request::Clear { .. } | Request::Flush => {
+                Request::SwitchMode { .. }
+                | Request::Clear { .. }
+                | Request::Flush
+                | Request::DrawLine { .. }
+                | Request::DrawCircle { .. }
+                | Request::DrawRectangle { .. }
+                | Request::DrawTriangle { .. } => {
                     self.display.handle_generic_request(request).await
                 }
                 Request::DisplayOpMenuItem { index }
                 | Request::DisplayEngineTypeMenuItem { index }
                 | Request::DisplayAdminMenuItem { index } => {
                     if request.mode() != self.display.mode {
-                        self.display.switch_mode(request).await;
+                        self.display
+                            .switch_mode(request.mode(), Some(request))
+                            .await;
                         break;
                     }
                     debug!("display current menu, index={}", index);
                     self.display_current_menu(index).await
                 }
                 _ => {
-                    self.display.switch_mode(request).await;
+                    self.display
+                        .switch_mode(request.mode(), Some(request))
+                        .await;
                     break;
                 }
             }

@@ -15,7 +15,7 @@ use embassy_time::{Duration, Instant};
 use embedded_graphics::{
     pixelcolor::BinaryColor,
     prelude::*,
-    primitives::{Circle, Line, PrimitiveStyle, PrimitiveStyleBuilder, Triangle},
+    primitives::{Circle, Line, PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, Triangle},
 };
 use heapless::String;
 use ssd1306_lite::{Angle, FontSize, Ssd1306Lite, TextBox};
@@ -37,7 +37,7 @@ pub async fn run_display(mut eg_display: EgDisplay) {
 }
 
 #[derive(PartialEq)]
-enum Mode {
+pub enum Mode {
     Any,
     Fundamental,
     OpMenu,
@@ -49,6 +49,9 @@ enum Mode {
 
 pub enum Request {
     // Generic requests
+    SwitchMode {
+        mode: Mode,
+    },
     Clear {
         reverse: bool,
         flush: bool,
@@ -57,6 +60,18 @@ pub enum Request {
     DrawLine {
         start: Point,
         end: Point,
+        style: PrimitiveStyle<BinaryColor>,
+        flush: bool,
+    },
+    DrawCircle {
+        top_left: Point,
+        diameter: u32,
+        style: PrimitiveStyle<BinaryColor>,
+        flush: bool,
+    },
+    DrawRectangle {
+        top_left: Point,
+        size: Size,
         style: PrimitiveStyle<BinaryColor>,
         flush: bool,
     },
@@ -100,9 +115,12 @@ pub enum Request {
 impl Request {
     fn mode(&self) -> Mode {
         match self {
-            Request::Clear { .. }
+            Request::SwitchMode { .. }
+            | Request::Clear { .. }
             | Request::Flush
             | Request::DrawLine { .. }
+            | Request::DrawCircle { .. }
+            | Request::DrawRectangle { .. }
             | Request::DrawTriangle { .. } => Mode::Any,
             Request::ShowInitialScreen { .. } | Request::DisplayText { .. } => Mode::Fundamental,
             Request::DisplayOpMenuItem { .. } => Mode::OpMenu,
@@ -159,6 +177,7 @@ impl EgDisplay {
 
     async fn handle_generic_request(&mut self, request: Request) {
         match request {
+            Request::SwitchMode { mode } => self.switch_mode(mode, None).await,
             Request::Clear { reverse, flush } => self.clear(reverse, flush).await,
             Request::Flush => self.driver.flush().await,
             Request::DrawLine {
@@ -167,6 +186,18 @@ impl EgDisplay {
                 style,
                 flush,
             } => self.draw_line(start, end, style, flush).await,
+            Request::DrawCircle {
+                top_left,
+                diameter,
+                style,
+                flush,
+            } => self.draw_circle(top_left, diameter, style, flush).await,
+            Request::DrawRectangle {
+                top_left,
+                size,
+                style,
+                flush,
+            } => self.draw_rectangle(top_left, size, style, flush).await,
             Request::DrawTriangle {
                 vertex1,
                 vertex2,
@@ -183,18 +214,21 @@ impl EgDisplay {
 
     // fundamental mode ///////////////////////////////////////////////////////////
 
-    async fn into_fundamental_mode(&mut self, pending_request: Request) {
+    async fn into_fundamental_mode(&mut self, pending_request: Option<Request>) {
         self.mode = Mode::Fundamental;
-        self.pending_request = Some(pending_request);
+        self.pending_request = pending_request;
     }
 
     async fn run_fundamental_mode(&mut self) {
         while matches!(self.mode, Mode::Fundamental) {
             let request = self.fetch_request().await;
             match request {
-                Request::Clear { .. }
+                Request::SwitchMode { .. }
+                | Request::Clear { .. }
                 | Request::Flush
                 | Request::DrawLine { .. }
+                | Request::DrawCircle { .. }
+                | Request::DrawRectangle { .. }
                 | Request::DrawTriangle { .. } => self.handle_generic_request(request).await,
                 Request::ShowInitialScreen { engine_type } => {
                     self.show_initial_screen(engine_type).await
@@ -208,7 +242,7 @@ impl EgDisplay {
                     self.display_text(text.as_str(), text_box, font_size, flush)
                         .await
                 }
-                _ => self.switch_mode(request).await,
+                _ => self.switch_mode(request.mode(), Some(request)).await,
             }
         }
     }
@@ -283,10 +317,10 @@ impl EgDisplay {
 
     // pots diag mode //////////////////////////////////////////////////////
 
-    async fn into_pots_diag_mode(&mut self, pending_request: Request) {
+    async fn into_pots_diag_mode(&mut self, pending_request: Option<Request>) {
         self.clear(false, false).await;
         self.mode = Mode::PotsDiag;
-        self.pending_request = Some(pending_request);
+        self.pending_request = pending_request;
     }
 
     async fn run_pots_diag_mode(&mut self) {
@@ -319,14 +353,17 @@ impl EgDisplay {
         while matches!(self.mode, Mode::PotsDiag) {
             let request = self.fetch_request().await;
             match request {
-                Request::Clear { .. }
+                Request::SwitchMode { .. }
+                | Request::Clear { .. }
                 | Request::Flush
                 | Request::DrawLine { .. }
+                | Request::DrawCircle { .. }
+                | Request::DrawRectangle { .. }
                 | Request::DrawTriangle { .. } => self.handle_generic_request(request).await,
                 Request::UpdatePotValue { pot_info: info } => {
                     self.update_pot_value(info, &erase, &positions).await
                 }
-                _ => self.switch_mode(request).await,
+                _ => self.switch_mode(request.mode(), Some(request)).await,
             }
         }
     }
@@ -357,7 +394,7 @@ impl EgDisplay {
     }
 
     // CV diag mode //////////////////////////////////////////////////////
-    async fn into_cv_diag_mode(&mut self, pending_request: Request) {
+    async fn into_cv_diag_mode(&mut self, pending_request: Option<Request>) {
         self.clear(false, false).await;
         self.display_text(
             "Put something into CV",
@@ -367,7 +404,7 @@ impl EgDisplay {
         )
         .await;
         self.mode = Mode::CvDiag;
-        self.pending_request = Some(pending_request);
+        self.pending_request = pending_request;
     }
 
     async fn run_cv_diag_mode(&mut self) {
@@ -380,14 +417,17 @@ impl EgDisplay {
         while matches!(self.mode, Mode::CvDiag) {
             let request = self.fetch_request().await;
             match request {
-                Request::Clear { .. }
+                Request::SwitchMode { .. }
+                | Request::Clear { .. }
                 | Request::Flush
                 | Request::DrawLine { .. }
+                | Request::DrawCircle { .. }
+                | Request::DrawRectangle { .. }
                 | Request::DrawTriangle { .. } => self.handle_generic_request(request).await,
                 Request::UpdateCvValues { cv_info } => {
                     self.update_cv_info(cv_info, &mut cv_points).await
                 }
-                _ => self.switch_mode(request).await,
+                _ => self.switch_mode(request.mode(), Some(request)).await,
             }
         }
     }
@@ -430,10 +470,10 @@ impl EgDisplay {
     // utils /////////////////////////////////////////////////////////////
 
     /// Switch into a menu mode.
-    async fn into_menu_mode(&mut self, menu_mode: Mode, pending_request: Request) {
+    async fn into_menu_mode(&mut self, menu_mode: Mode, pending_request: Option<Request>) {
         self.clear(false, false).await;
         self.mode = menu_mode;
-        self.pending_request = Some(pending_request);
+        self.pending_request = pending_request;
     }
 
     /// Fetches next request to process. The function returns immediately
@@ -447,8 +487,8 @@ impl EgDisplay {
     }
 
     /// Switches display mode based on the request kind
-    async fn switch_mode(&mut self, request: Request) {
-        match request.mode() {
+    async fn switch_mode(&mut self, mode: Mode, request: Option<Request>) {
+        match mode {
             Mode::Fundamental => self.into_fundamental_mode(request).await,
             Mode::OpMenu => self.into_menu_mode(Mode::OpMenu, request).await,
             Mode::EngineTypeMenu => self.into_menu_mode(Mode::EngineTypeMenu, request).await,
@@ -483,6 +523,36 @@ impl EgDisplay {
     ) {
         self.driver
             .draw_styled(Line::new(start, end).into_styled(style))
+            .await;
+        if flush {
+            self.driver.flush().await;
+        }
+    }
+
+    async fn draw_circle(
+        &mut self,
+        top_left: Point,
+        diameter: u32,
+        style: PrimitiveStyle<BinaryColor>,
+        flush: bool,
+    ) {
+        self.driver
+            .draw_styled(Circle::new(top_left, diameter).into_styled(style))
+            .await;
+        if flush {
+            self.driver.flush().await;
+        }
+    }
+
+    async fn draw_rectangle(
+        &mut self,
+        top_left: Point,
+        size: Size,
+        style: PrimitiveStyle<BinaryColor>,
+        flush: bool,
+    ) {
+        self.driver
+            .draw_styled(Rectangle::new(top_left, size).into_styled(style))
             .await;
         if flush {
             self.driver.flush().await;

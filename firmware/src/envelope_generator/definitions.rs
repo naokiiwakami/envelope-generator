@@ -13,8 +13,19 @@ pub struct VoiceParams {
 
 /// Request for the envelope generator
 pub enum EgRequest {
-    GateEvent { id: GateId, event: GateEventType },
-    SwitchEngine(EngineType),
+    GateEvent {
+        id: GateId,
+        event: GateEventType,
+    },
+    SwitchEngine {
+        engine_type: EngineType,
+        send_notif: bool,
+    },
+    UpdateZeroPoint {
+        value_1: u16,
+        value_2: u16,
+        save: bool,
+    },
 }
 
 /// EG engine types
@@ -93,20 +104,21 @@ pub fn fraction_uq32_32(numerator: u32, denominator: u32) -> u64 {
 
 // Engine helper functions ////////////////////////////////////////
 
+// The zero point should be at the center of value range if the circuit is perfect.
+pub const DEFAULT_OUT_ZERO_POINT: u16 = 0x8000;
+
 /// Converts a UQ0.32 value of range [0..0.5) to 12-bit positive output.
-/// Zero value is 0x800.
 /// The function does not check boundary intentionally for performance.
 /// The call should ensure the input is less than 0x80000000.
-pub fn uq0_32_to_output_positive(value: u32) -> u16 {
-    (value >> 20) as u16 + 0x800
+pub fn uq0_32_to_output_positive(value: u32, zero_point: u16) -> u16 {
+    (value >> 20) as u16 + zero_point
 }
 
 /*
 /// Converts a Q0.32 value of range [0..0.5) to 12-bit negative output.
-/// Zero value is 0x800
 /// The function does not check boundary intentionally for performance.
 /// The call should ensure the input is less than 0x80000000.
-pub fn uq0_32_to_output_negative(value: u32) -> u16 {
-    0x800 - (value >> 20) as u16
+pub fn uq0_32_to_output_negative(value: u32, zero_point: u16) -> u16 {
+    zero_point - (value >> 20) as u16
 }
 */

@@ -1,7 +1,10 @@
 /// Default EG voice engine
 use defmt;
 
-use crate::input_reader::{InputReaderInfo, PotKind};
+use crate::{
+    envelope_generator::DEFAULT_OUT_ZERO_POINT,
+    input_reader::{InputReaderInfo, PotKind},
+};
 
 use super::{
     config::EgConfig,
@@ -39,7 +42,8 @@ pub struct AdsrEngine {
 
     phase: EnginePhase,
 
-    value_to_output: &'static dyn Fn(u32) -> u16,
+    zero_point: u16,
+    value_to_output: &'static dyn Fn(u32, u16) -> u16,
 }
 
 impl Engine for AdsrEngine {
@@ -55,6 +59,7 @@ impl Engine for AdsrEngine {
             peak_value: 0,
             phase: EnginePhase::Released,
 
+            zero_point: DEFAULT_OUT_ZERO_POINT,
             value_to_output: &uq0_32_to_output_positive,
         }
     }
@@ -159,6 +164,6 @@ impl Engine for AdsrEngine {
         }
 
         // scale range of 31 bit (0..7fffffff) down to 12 bit (0..fff).
-        (*self.value_to_output)(self.current_value)
+        (*self.value_to_output)(self.current_value, self.zero_point)
     }
 }

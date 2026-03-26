@@ -81,7 +81,7 @@ impl Analog3Config {
 }
 
 // ok let's go
-pub fn start(
+pub async fn start(
     a3_config: Analog3Config,
     can: Can<'static>,
     a3_red_led: Output<'static>,

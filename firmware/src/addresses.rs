@@ -1,0 +1,9 @@
+#![allow(unused)]
+use crate::analog3::addresses_common::A3_ADDR_MODULE_SPECIFIC_BASE;
+
+pub const ADDR_CV_OFFSET_A: u16 = A3_ADDR_MODULE_SPECIFIC_BASE; // U16 -> i16
+pub const ADDR_CV_OFFSET_B: u16 = ADDR_CV_OFFSET_A + 2; // U16 -> i16
+pub const ADDR_OUT_ZERO_POINT_1: u16 = ADDR_CV_OFFSET_B + 2; // U16
+pub const ADDR_OUT_ZERO_POINT_2: u16 = ADDR_OUT_ZERO_POINT_1 + 2; // U16
+pub const ADDR_GATE_TRIGGER_POINT_1: u16 = ADDR_OUT_ZERO_POINT_2 + 2; // U16
+pub const ADDR_GATE_TRIGGER_POINT_2: u16 = ADDR_GATE_TRIGGER_POINT_1 + 2; // U16

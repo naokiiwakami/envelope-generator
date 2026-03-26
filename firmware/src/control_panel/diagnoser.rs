@@ -28,6 +28,7 @@ impl<'a> Diagnoser<'a> {
 
     pub async fn execute(&mut self) {
         let text_box = TextBox::center().fg_color(BinaryColor::Off).build();
+        self.control_panel.clear_screen(true, false).await;
         self.control_panel
             .display_text("Diagnosing...", text_box.clone(), FontSize::Medium, true)
             .await;
@@ -58,8 +59,9 @@ impl<'a> Diagnoser<'a> {
     async fn diagnose_patch_controller(&mut self) {
         diagnose_leds(&SIGNAL_REPLY).await;
         let text_box = TextBox::top_center().build();
+        self.control_panel.clear_screen(false, false).await;
         self.control_panel
-            .display_text("Press button", text_box, FontSize::Medium, false)
+            .display_text("Press the button", text_box, FontSize::Medium, false)
             .await;
         self.control_panel
             .display_request_sender
