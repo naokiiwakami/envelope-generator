@@ -82,6 +82,14 @@ pub enum Request {
         style: PrimitiveStyle<BinaryColor>,
         flush: bool,
     },
+    DrawArc {
+        center: Point,
+        radius: i32,
+        start_degree: i32,
+        end_degree: i32,
+        color: bool,
+        flush: bool,
+    },
     // Fundamental requests
     ShowInitialScreen {
         engine_type: EngineType,
@@ -121,7 +129,8 @@ impl Request {
             | Request::DrawLine { .. }
             | Request::DrawCircle { .. }
             | Request::DrawRectangle { .. }
-            | Request::DrawTriangle { .. } => Mode::Any,
+            | Request::DrawTriangle { .. }
+            | Request::DrawArc { .. } => Mode::Any,
             Request::ShowInitialScreen { .. } | Request::DisplayText { .. } => Mode::Fundamental,
             Request::DisplayOpMenuItem { .. } => Mode::OpMenu,
             Request::DisplayEngineTypeMenuItem { .. } => Mode::EngineTypeMenu,
@@ -208,6 +217,17 @@ impl EgDisplay {
                 self.draw_triangle(vertex1, vertex2, vertex3, style, flush)
                     .await
             }
+            Request::DrawArc {
+                center,
+                radius,
+                start_degree,
+                end_degree,
+                color,
+                flush,
+            } => {
+                self.draw_arc(center, radius, start_degree, end_degree, color, flush)
+                    .await
+            }
             _ => {} // Other requests shouldn't reach here
         }
     }
@@ -229,7 +249,8 @@ impl EgDisplay {
                 | Request::DrawLine { .. }
                 | Request::DrawCircle { .. }
                 | Request::DrawRectangle { .. }
-                | Request::DrawTriangle { .. } => self.handle_generic_request(request).await,
+                | Request::DrawTriangle { .. }
+                | Request::DrawArc { .. } => self.handle_generic_request(request).await,
                 Request::ShowInitialScreen { engine_type } => {
                     self.show_initial_screen(engine_type).await
                 }
@@ -359,7 +380,8 @@ impl EgDisplay {
                 | Request::DrawLine { .. }
                 | Request::DrawCircle { .. }
                 | Request::DrawRectangle { .. }
-                | Request::DrawTriangle { .. } => self.handle_generic_request(request).await,
+                | Request::DrawTriangle { .. }
+                | Request::DrawArc { .. } => self.handle_generic_request(request).await,
                 Request::UpdatePotValue { pot_info: info } => {
                     self.update_pot_value(info, &erase, &positions).await
                 }
@@ -423,7 +445,8 @@ impl EgDisplay {
                 | Request::DrawLine { .. }
                 | Request::DrawCircle { .. }
                 | Request::DrawRectangle { .. }
-                | Request::DrawTriangle { .. } => self.handle_generic_request(request).await,
+                | Request::DrawTriangle { .. }
+                | Request::DrawArc { .. } => self.handle_generic_request(request).await,
                 Request::UpdateCvValues { cv_info } => {
                     self.update_cv_info(cv_info, &mut cv_points).await
                 }
@@ -569,6 +592,30 @@ impl EgDisplay {
     ) {
         self.driver
             .draw_styled(Triangle::new(vertex1, vertex2, vertex3).into_styled(style))
+            .await;
+        if flush {
+            self.driver.flush().await;
+        }
+    }
+
+    async fn draw_arc(
+        &mut self,
+        center: Point,
+        radius: i32,
+        start_degree: i32,
+        end_degree: i32,
+        color: bool,
+        flush: bool,
+    ) {
+        self.driver
+            .draw_arc(
+                center.x,
+                center.y,
+                radius,
+                Angle::from_degrees(start_degree),
+                Angle::from_degrees(end_degree),
+                color,
+            )
             .await;
         if flush {
             self.driver.flush().await;

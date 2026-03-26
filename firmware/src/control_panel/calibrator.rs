@@ -1,10 +1,12 @@
+use core::ops::Add;
+
 use defmt::debug;
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, watch};
 use embassy_time::{Instant, Timer};
 use embedded_graphics::{
     pixelcolor::BinaryColor,
     prelude::{Point, Size},
-    primitives::PrimitiveStyleBuilder,
+    primitives::{PrimitiveStyle, PrimitiveStyleBuilder},
 };
 use ssd1306_lite::{FontSize, TextBox};
 
@@ -23,13 +25,22 @@ pub struct Calibrator<'a> {
 }
 
 const JACK_POSITIONS: [Point; 6] = [
-    Point::new(1, 17),   // GATE 1
-    Point::new(1, 45),   // GATE 2
-    Point::new(37, 45),  // CV A
-    Point::new(74, 45),  // CV B
-    Point::new(109, 17), // OUT 1
-    Point::new(109, 45), // OUT 2
+    Point::new(0, 16),   // GATE 1
+    Point::new(0, 46),   // GATE 2
+    Point::new(36, 46),  // CV A
+    Point::new(75, 46),  // CV B
+    Point::new(110, 16), // OUT 1
+    Point::new(110, 46), // OUT 2
 ];
+
+// const INDEX_GATE_1: usize = 0;
+// const INDEX_GATE_2: usize = 1;
+const INDEX_CV_A: usize = 2;
+const INDEX_CV_B: usize = 3;
+const INDEX_OUT_1: usize = 4;
+const INDEX_OUT_2: usize = 5;
+
+const JACK_DIAMETER: u32 = 18;
 
 impl<'a> Calibrator<'a> {
     pub fn new(control_panel: &'a mut ControlPanel) -> Self {
@@ -57,24 +68,16 @@ impl<'a> Calibrator<'a> {
             })
             .await;
         self.control_panel.clear_screen(false, false).await;
-        self.display_title("PLUG OFF").await;
+        self.display_title("UNPLUG...").await;
 
         // Draw initial jacks
         let style = PrimitiveStyleBuilder::new()
             .stroke_color(BinaryColor::On)
-            .stroke_width(2)
+            .stroke_width(1)
             .build();
 
-        for position in JACK_POSITIONS {
-            self.control_panel
-                .display_request_sender
-                .send(DisplayRequest::DrawCircle {
-                    top_left: position,
-                    diameter: 18,
-                    style,
-                    flush: false,
-                })
-                .await;
+        for index in 0..JACK_POSITIONS.len() {
+            self.draw_jack(index, 0, style, false).await;
         }
 
         self.control_panel
@@ -107,19 +110,49 @@ impl<'a> Calibrator<'a> {
         let mut offset_a = 0i32;
         let mut offset_b = 0i32;
         let repeat = 256;
+        let step = repeat / JACK_DIAMETER * 2;
+        let stroke = PrimitiveStyleBuilder::new()
+            .stroke_color(BinaryColor::On)
+            .stroke_width(1)
+            .build();
 
         // measure offset
-        for _ in 0..repeat {
+        for i in 0..repeat {
             let reader_info = reader_info_receiver.changed().await;
             let cv_info = reader_info.cv_info;
             offset_a -= cv_info.cv_a as i32;
             offset_b -= cv_info.cv_b as i32;
+            if i % step == 0 {
+                let shift = i / step;
+                self.draw_jack(INDEX_CV_A, shift, stroke, false).await;
+                self.draw_jack(INDEX_CV_B, shift, stroke, true).await;
+            }
         }
-        offset_a /= repeat;
-        offset_b /= repeat;
+        offset_a /= repeat as i32;
+        offset_b /= repeat as i32;
         debug!("CV offsets: A={}, B={}", offset_a, offset_b);
 
-        self.display_title("CV: VERIFYING").await;
+        self.display_title("VERIFYING").await;
+
+        self.draw_arrow(
+            Point::new(45, 16),
+            Point::new(45, 40),
+            Point::new(43, 34),
+            Point::new(47, 34),
+            BinaryColor::On,
+            false,
+        )
+        .await;
+
+        self.draw_arrow(
+            Point::new(84, 16),
+            Point::new(84, 40),
+            Point::new(82, 34),
+            Point::new(86, 34),
+            BinaryColor::On,
+            true,
+        )
+        .await;
 
         // change offsets
         request_sender
@@ -135,17 +168,34 @@ impl<'a> Calibrator<'a> {
         // verify
         offset_a = 0;
         offset_b = 0;
-        for _ in 0..repeat {
+        let step = repeat / (JACK_DIAMETER - 6) * 2;
+        let stroke = PrimitiveStyleBuilder::new()
+            .stroke_color(BinaryColor::Off)
+            .stroke_width(1)
+            .build();
+
+        for i in 0..repeat {
             let reader_info = reader_info_receiver.changed().await;
             let cv_info = reader_info.cv_info;
             offset_a -= cv_info.cv_a as i32;
             offset_b -= cv_info.cv_b as i32;
+            if i % step == 0 {
+                let shift = JACK_DIAMETER / 2 - i / step;
+                self.draw_jack(INDEX_CV_A, shift, stroke, false).await;
+                self.draw_jack(INDEX_CV_B, shift, stroke, true).await;
+            }
         }
-        offset_a /= repeat;
-        offset_b /= repeat;
+        offset_a /= repeat as i32;
+        offset_b /= repeat as i32;
         debug!("CV offsets after calib: A={}, B={}", offset_a, offset_b);
 
-        Timer::after_millis(1000).await;
+        // TODO: check offsets actually
+
+        self.display_title("OK").await;
+
+        self.clear_courtyard(true).await;
+
+        Timer::after_millis(2000).await;
     }
 
     async fn calibrate_output(
@@ -162,22 +212,57 @@ impl<'a> Calibrator<'a> {
             .await;
 
         self.display_title("PLUG...").await;
+
+        self.control_panel
+            .display_request_sender
+            .send(DisplayRequest::DrawArc {
+                center: Point::new(100, 80),
+                radius: 57,
+                start_degree: 214,
+                end_degree: 279,
+                color: true,
+                flush: false,
+            })
+            .await;
+
+        self.control_panel
+            .display_request_sender
+            .send(DisplayRequest::DrawArc {
+                center: Point::new(101, 64),
+                radius: 16,
+                start_degree: 239,
+                end_degree: 303,
+                color: true,
+                flush: true,
+            })
+            .await;
+
         self.wait_for_button_pressed().await;
         self.display_title("OUT: MEASURING").await;
 
         let mut offset_1 = 0i32;
         let mut offset_2 = 0i32;
         let repeat = 256;
+        let step = repeat / JACK_DIAMETER * 2;
+        let stroke = PrimitiveStyleBuilder::new()
+            .stroke_color(BinaryColor::On)
+            .stroke_width(1)
+            .build();
 
         // measure offset
-        for _ in 0..repeat {
+        for i in 0..repeat {
             let reader_info = reader_info_receiver.changed().await;
             let cv_info = reader_info.cv_info;
             offset_1 += cv_info.cv_a as i32;
             offset_2 += cv_info.cv_b as i32;
+            if i % step == 0 {
+                let shift = i / step;
+                self.draw_jack(INDEX_OUT_1, shift, stroke, false).await;
+                self.draw_jack(INDEX_OUT_2, shift, stroke, true).await;
+            }
         }
-        offset_1 /= repeat;
-        offset_2 /= repeat;
+        offset_1 /= repeat as i32;
+        offset_2 /= repeat as i32;
         debug!("drift before calib: 1={}, 2={}", offset_1, offset_2);
         let scale_16_to_12 = 16; // 4 bit
         offset_1 /= scale_16_to_12;
@@ -195,18 +280,103 @@ impl<'a> Calibrator<'a> {
                 save: true,
             })
             .await;
-        self.display_title("CV: VERIFYING").await;
+
+        Timer::after_millis(100).await;
+
+        self.display_title("VERIFYING").await;
+
+        self.control_panel
+            .display_request_sender
+            .send(DisplayRequest::DrawArc {
+                center: Point::new(100, 80),
+                radius: 57,
+                start_degree: 214,
+                end_degree: 279,
+                color: false,
+                flush: false,
+            })
+            .await;
+
+        self.control_panel
+            .display_request_sender
+            .send(DisplayRequest::DrawArc {
+                center: Point::new(101, 64),
+                radius: 16,
+                start_degree: 239,
+                end_degree: 303,
+                color: false,
+                flush: false,
+            })
+            .await;
+
+        self.draw_arrow(
+            Point::new(45, 16),
+            Point::new(105, 47),
+            Point::new(99, 47),
+            Point::new(101, 42),
+            BinaryColor::On,
+            false,
+        )
+        .await;
+
+        self.draw_arrow(
+            Point::new(84, 16),
+            Point::new(105, 23),
+            Point::new(99, 24),
+            Point::new(100, 19),
+            BinaryColor::On,
+            true,
+        )
+        .await;
+
         offset_1 = 0;
         offset_2 = 0;
-        for _ in 0..repeat {
+        let step = repeat / (JACK_DIAMETER - 6) * 2;
+        let stroke = PrimitiveStyleBuilder::new()
+            .stroke_color(BinaryColor::Off)
+            .stroke_width(1)
+            .build();
+
+        for i in 0..repeat {
             let reader_info = reader_info_receiver.changed().await;
             let cv_info = reader_info.cv_info;
             offset_1 += cv_info.cv_a as i32;
             offset_2 += cv_info.cv_b as i32;
+            if i % step == 0 {
+                let shift = JACK_DIAMETER / 2 - i / step;
+                self.draw_jack(INDEX_OUT_1, shift, stroke, false).await;
+                self.draw_jack(INDEX_OUT_2, shift, stroke, true).await;
+            }
         }
-        offset_1 /= repeat;
-        offset_2 /= repeat;
+        offset_1 /= repeat as i32;
+        offset_2 /= repeat as i32;
         debug!("drift after calib: 1={}, 2={}", offset_1, offset_2);
+
+        // TODO: check offsets actually
+
+        self.display_title("OK").await;
+
+        self.draw_arrow(
+            Point::new(45, 16),
+            Point::new(105, 47),
+            Point::new(99, 47),
+            Point::new(101, 42),
+            BinaryColor::Off,
+            false,
+        )
+        .await;
+
+        self.draw_arrow(
+            Point::new(84, 16),
+            Point::new(105, 23),
+            Point::new(99, 24),
+            Point::new(100, 19),
+            BinaryColor::Off,
+            true,
+        )
+        .await;
+
+        Timer::after_millis(2000).await;
     }
 
     async fn wrap_up(&mut self, orig_engine_type: EngineType) {
@@ -219,11 +389,13 @@ impl<'a> Calibrator<'a> {
                 true,
             )
             .await;
-        Timer::after_secs(1).await;
+        Timer::after_millis(2000).await;
         self.control_panel
             .switch_engine_type(orig_engine_type)
             .await;
     }
+
+    // Utilities ////////////////////////////////////////////////
 
     async fn display_title(&mut self, text: &str) {
         self.control_panel
@@ -239,6 +411,78 @@ impl<'a> Calibrator<'a> {
             .await;
         self.control_panel
             .display_text(text, TextBox::top_center().build(), FontSize::Medium, true)
+            .await;
+    }
+
+    fn shift(position: &Point, delta: i32) -> Point {
+        position.add(Point::new(delta, delta))
+    }
+
+    async fn draw_jack(
+        &mut self,
+        index: usize,
+        shift: u32,
+        style: PrimitiveStyle<BinaryColor>,
+        flush: bool,
+    ) {
+        self.control_panel
+            .display_request_sender
+            .send(DisplayRequest::DrawCircle {
+                top_left: Self::shift(&JACK_POSITIONS[index], shift as i32),
+                diameter: JACK_DIAMETER - shift * 2,
+                style,
+                flush,
+            })
+            .await;
+    }
+
+    async fn draw_arrow(
+        &mut self,
+        start: Point,
+        end: Point,
+        arrow_left: Point,
+        arrow_right: Point,
+        color: BinaryColor,
+        flush: bool,
+    ) {
+        let stroke = PrimitiveStyleBuilder::new()
+            .stroke_color(color)
+            .stroke_width(1)
+            .build();
+        let fill = PrimitiveStyleBuilder::new().fill_color(color).build();
+        self.control_panel
+            .display_request_sender
+            .send(DisplayRequest::DrawLine {
+                start,
+                end,
+                style: stroke,
+                flush: false,
+            })
+            .await;
+        self.control_panel
+            .display_request_sender
+            .send(DisplayRequest::DrawTriangle {
+                vertex1: end,
+                vertex2: arrow_left,
+                vertex3: arrow_right,
+                style: fill,
+                flush,
+            })
+            .await;
+    }
+
+    async fn clear_courtyard(&mut self, flush: bool) {
+        let erase = PrimitiveStyleBuilder::new()
+            .fill_color(BinaryColor::Off)
+            .build();
+        self.control_panel
+            .display_request_sender
+            .send(DisplayRequest::DrawRectangle {
+                top_left: Point::new(18, 16),
+                size: Size::new(92, 30),
+                style: erase,
+                flush,
+            })
             .await;
     }
 

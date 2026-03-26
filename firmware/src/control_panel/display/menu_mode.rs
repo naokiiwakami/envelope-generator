@@ -55,9 +55,8 @@ impl<'a, ActionT> MenuMode<'a, ActionT> {
                 | Request::DrawLine { .. }
                 | Request::DrawCircle { .. }
                 | Request::DrawRectangle { .. }
-                | Request::DrawTriangle { .. } => {
-                    self.display.handle_generic_request(request).await
-                }
+                | Request::DrawTriangle { .. }
+                | Request::DrawArc { .. } => self.display.handle_generic_request(request).await,
                 Request::DisplayOpMenuItem { index }
                 | Request::DisplayEngineTypeMenuItem { index }
                 | Request::DisplayAdminMenuItem { index } => {
