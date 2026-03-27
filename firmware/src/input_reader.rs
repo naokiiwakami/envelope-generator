@@ -265,7 +265,6 @@ impl InputReader {
             0
         };
 
-        // TODO: Calibrate the zero points
         let cv_a = 32767 + self.cv_offset_a - (buffer[0] << 4) as i16;
         let cv_b = 32767 + self.cv_offset_b - (buffer[1] << 4) as i16;
 
