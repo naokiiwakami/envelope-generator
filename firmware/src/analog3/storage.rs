@@ -9,7 +9,7 @@ use crate::analog3::{
     {Value, ValueType},
 };
 
-const PAGE_SIZE: usize = 0x800;
+pub const PAGE_SIZE: usize = 0x800;
 const NUM_ROWS: usize = PAGE_SIZE / WRITE_SIZE - 1;
 // FLASH_SIZE is determined by the Embassy HAL so that the pages are guaranteed to locate
 // at the tail of available flash memory. But we still need to avoid carefully having
@@ -56,6 +56,63 @@ pub async fn save(
         })
         .await;
     reply.wait().await.map(|_| {})
+}
+
+/// Loads a U8 value from the flash memory.
+pub async fn load_u8(
+    address: u16,
+    reply: &'static Signal<ThreadModeRawMutex, Result<Value, Error>>,
+) -> u8 {
+    let Value::U8(value) = load(address, ValueType::U8, reply).await.unwrap() else {
+        panic!("wrong type returned"); // it's a bug if this happens.
+    };
+    value
+}
+
+/// Loads a U16 value from the flash memory.
+pub async fn load_u16(
+    address: u16,
+    reply: &'static Signal<ThreadModeRawMutex, Result<Value, Error>>,
+) -> u16 {
+    let Value::U16(value) = load(address, ValueType::U16, reply).await.unwrap() else {
+        panic!("wrong type returned"); // it's a bug if this happens.
+    };
+    value
+}
+
+/// Loads a U16 value from the flash memory. If the read value is 0xffff, the method
+/// considers it "no value" and returns the default value.
+pub async fn load_u16_or_default(
+    address: u16,
+    reply: &'static Signal<ThreadModeRawMutex, Result<Value, Error>>,
+    default: u16,
+) -> u16 {
+    let Value::U16(value) = load(address, ValueType::U16, reply).await.unwrap() else {
+        panic!("wrong type returned"); // it's a bug if this happens.
+    };
+    if value == u16::MAX { default } else { value }
+}
+
+/// Loads a U32 value from the flash memory.
+pub async fn load_u32(
+    address: u16,
+    reply: &'static Signal<ThreadModeRawMutex, Result<Value, Error>>,
+) -> u32 {
+    let Value::U32(value) = load(address, ValueType::U32, reply).await.unwrap() else {
+        panic!("wrong type returned"); // it's a bug if this happens.
+    };
+    value
+}
+
+/// Loads a string from the flash memory.
+pub async fn load_string(
+    address: u16,
+    reply: &'static Signal<ThreadModeRawMutex, Result<Value, Error>>,
+) -> String<A3_MAX_PROP_DATA_SIZE> {
+    let Value::Text(name) = load(address, ValueType::Text, &reply).await.unwrap() else {
+        panic!("wrong type returned"); // it's a bug if this happens
+    };
+    name
 }
 
 enum StorageRequest {
@@ -144,8 +201,8 @@ impl Storage {
                     value,
                     reply,
                 } => {
-                    let result = self.save(address, value).await.map(|_| Value::U8(0));
-                    reply.signal(result);
+                    self.save(address, value).await.unwrap();
+                    reply.signal(Ok(Value::U8(0)));
                 }
             };
         }
@@ -268,7 +325,8 @@ impl Storage {
     }
 
     async fn save_u8(&mut self, address: u16, data: u8) -> Result<(), Error> {
-        self.write(address, &[data]).await
+        let data_array: [u8; 1] = [data];
+        self.write(address, &data_array).await
     }
 
     async fn save_u16(&mut self, address: u16, data: u16) -> Result<(), Error> {
@@ -341,23 +399,23 @@ impl Storage {
             self.ping_pong_write(address, data).await?;
         } else {
             trace!("the rows are clean, starting straight write");
-            let prefix_len = (0 - address as usize) % WRITE_SIZE;
-            let suffix_len = (address as usize + data.len()) % WRITE_SIZE;
+            let mut position = 0usize;
+            let start_column = address as usize % WRITE_SIZE;
             let mut page_offset = start_page_offset;
-            if prefix_len > 0 {
+            if start_column > 0 {
                 let mut buf = [0xffu8; WRITE_SIZE];
-                buf[WRITE_SIZE - prefix_len..].copy_from_slice(&data[..prefix_len]);
+                let data_width = data.len().min(WRITE_SIZE - start_column);
+                buf[start_column..start_column + data_width].copy_from_slice(&data[..data_width]);
                 self.flash.write(page_offset, &buf).await?;
                 page_offset += WRITE_SIZE as u32;
+                position += data_width;
             }
-            self.flash
-                .write(page_offset, &data[prefix_len..data.len() - suffix_len])
-                .await?;
-            if suffix_len > 0 {
+            while position < data.len() {
                 let mut buf = [0xffu8; WRITE_SIZE];
-                buf[..suffix_len].copy_from_slice(&data[data.len() - suffix_len..]);
-                page_offset += (data.len() - prefix_len - suffix_len) as u32;
+                let data_width = (data.len() - position).min(WRITE_SIZE);
+                buf[..data_width].copy_from_slice(&data[position..position + data_width]);
                 self.flash.write(page_offset, &buf).await?;
+                page_offset += WRITE_SIZE as u32;
             }
         }
         Ok(())
@@ -392,7 +450,7 @@ impl Storage {
 
         // let target_row_offset = self.get_row_offset(address);
         let mut row_data = [0xffu8; WRITE_SIZE];
-        let mut data_index = 0;
+        let mut position = 0;
         for irow in 0..NUM_ROWS {
             let src_row_offset = prev_page_offset + (irow * WRITE_SIZE) as u32;
             let dst_row_offset = self.page_offset + (irow * WRITE_SIZE) as u32;
@@ -406,14 +464,14 @@ impl Storage {
                     let data_width = data.len().min(WRITE_SIZE - start_column);
                     row_data[start_column..start_column + data_width]
                         .copy_from_slice(&data[..data_width]);
-                    data_index += data_width;
+                    position += data_width;
                 } else if irow == end_row_index && end_column > 0 {
-                    let data_width = end_column.min(data.len() - data_index);
+                    let data_width = end_column.min(data.len() - position);
                     row_data[..data_width].copy_from_slice(&data[data.len() - data_width..]);
                 } else {
-                    trace!("irow={}, index={}", irow, data_index);
-                    row_data.copy_from_slice(&data[data_index..data_index + WRITE_SIZE]);
-                    data_index += WRITE_SIZE;
+                    trace!("irow={}, index={}", irow, position);
+                    row_data.copy_from_slice(&data[position..position + WRITE_SIZE]);
+                    position += WRITE_SIZE;
                 }
             }
 

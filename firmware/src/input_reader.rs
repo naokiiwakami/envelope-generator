@@ -21,9 +21,11 @@ use embassy_sync::{
 use embassy_time::Timer;
 
 use crate::addresses::ADDR_CV_OFFSET_A;
-use crate::analog3::definitions::ValueType;
 use crate::{
-    analog3::{definitions::Value, storage},
+    analog3::{
+        definitions::Value,
+        storage::{self, load_u16},
+    },
     envelope_generator::{
         EG_CHANNEL_SIZE, EgRequest, GateEventType, GateId, get_eg_request_sender,
     },
@@ -312,17 +314,8 @@ impl InputReader {
     }
 
     async fn load_cv_offset(index: u16) -> i16 {
-        let Value::U16(saved_offset) = storage::load(
-            ADDR_CV_OFFSET_A + index * 2,
-            ValueType::U16,
-            &SIGNAL_STORAGE,
-        )
-        .await
-        .unwrap() else {
-            panic!("wrong type returned");
-        };
-
-        if saved_offset == 0xffff {
+        let saved_offset = load_u16(ADDR_CV_OFFSET_A + index * 2, &SIGNAL_STORAGE).await;
+        if saved_offset == u16::MAX {
             0
         } else {
             (saved_offset as i32 - 0x8000) as i16
