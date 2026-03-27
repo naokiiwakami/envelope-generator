@@ -1,10 +1,16 @@
 use embassy_futures::select::{Either, select};
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, signal::Signal};
 use embassy_time::{Duration, Instant, Timer};
-use embedded_graphics::prelude::Point;
-use ssd1306_lite::FontSize;
+use embedded_graphics::{
+    pixelcolor::BinaryColor, prelude::Point, primitives::PrimitiveStyleBuilder,
+};
+use ssd1306_lite::{FontSize, TextBox};
 
-use crate::{envelope_generator::EngineType, input_reader::get_reader_info_receiver};
+use crate::{
+    envelope_generator::EngineType,
+    input_reader::get_reader_info_receiver,
+    patch_controller::{diagnose_button, diagnose_leds},
+};
 
 use super::{ControlPanel, DisplayRequest};
 
@@ -20,15 +26,11 @@ impl<'a> Diagnoser<'a> {
         Self { control_panel }
     }
 
-    pub async fn diagnose(&mut self) {
+    pub async fn execute(&mut self) {
+        let text_box = TextBox::center().fg_color(BinaryColor::Off).build();
+        self.control_panel.clear_screen(true, false).await;
         self.control_panel
-            .display_text(
-                "DIAGNOSING...",
-                true,
-                true,
-                FontSize::Medium,
-                Point::new(10, 25),
-            )
+            .display_text("Diagnosing...", text_box.clone(), FontSize::Medium, true)
             .await;
         let orig_engine_type = self.control_panel.current_engine_type.clone();
         self.control_panel
@@ -49,23 +51,43 @@ impl<'a> Diagnoser<'a> {
             .await;
         self.control_panel.clear_screen(true, false).await;
         self.control_panel
-            .display_text("DONE!", true, true, FontSize::Medium, Point::new(40, 25))
+            .display_text("DONE!", text_box, FontSize::Medium, true)
             .await;
         Timer::after_secs(1).await;
     }
 
     async fn diagnose_patch_controller(&mut self) {
-        crate::patch_controller::diagnose_leds(&SIGNAL_REPLY).await;
+        diagnose_leds(&SIGNAL_REPLY).await;
+        let text_box = TextBox::top_center().build();
+        self.control_panel.clear_screen(false, false).await;
         self.control_panel
-            .display_text(
-                "Press button",
-                false,
-                true,
-                FontSize::Medium,
-                Point::new(17, 25),
-            )
+            .display_text("Press the button", text_box, FontSize::Medium, false)
             .await;
-        crate::patch_controller::diagnose_button(&SIGNAL_REPLY).await;
+        self.control_panel
+            .display_request_sender
+            .send(DisplayRequest::DrawLine {
+                start: Point::new(95, 39),
+                end: Point::new(122, 58),
+                style: PrimitiveStyleBuilder::new()
+                    .stroke_color(BinaryColor::On)
+                    .stroke_width(2)
+                    .build(),
+                flush: false,
+            })
+            .await;
+        self.control_panel
+            .display_request_sender
+            .send(DisplayRequest::DrawTriangle {
+                vertex1: Point::new(122, 58),
+                vertex2: Point::new(113, 57),
+                vertex3: Point::new(118, 50),
+                style: PrimitiveStyleBuilder::new()
+                    .fill_color(BinaryColor::On)
+                    .build(),
+                flush: true,
+            })
+            .await;
+        diagnose_button(&SIGNAL_REPLY).await;
     }
 
     async fn diagnose_pots(&mut self) {

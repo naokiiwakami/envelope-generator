@@ -1,10 +1,12 @@
 use heapless::Vec;
 
-use crate::analog3::{
-    definitions::{A3_PROP_ID_NAME, MAX_PROP_VECTOR_LENGTH, Value},
-    property::{PropRequest, Property},
+use crate::{
+    analog3::{
+        definitions::{A3_PROP_ID_NAME, MAX_PROP_VECTOR_LENGTH, Value},
+        property::{PropRequest, Property},
+    },
+    input_reader::{PotInfo, PotKind},
 };
-use crate::input_reader::{PotInfo, PotKind};
 
 use super::EngineType;
 

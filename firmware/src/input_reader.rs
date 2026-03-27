@@ -7,6 +7,7 @@ use embassy_stm32::{
     adc::{Adc, AnyAdcChannel, SampleTime},
     dma,
     exti::ExtiInput,
+    flash::Error,
     gpio::{Input, Level, Output},
     mode::Async,
     peripherals::*,
@@ -19,8 +20,13 @@ use embassy_sync::{
 };
 use embassy_time::Timer;
 
-use crate::envelope_generator::{
-    EG_CHANNEL_SIZE, EgRequest, GateEventType, GateId, get_eg_request_sender,
+use crate::addresses::ADDR_CV_OFFSET_A;
+use crate::analog3::definitions::ValueType;
+use crate::{
+    analog3::{definitions::Value, storage},
+    envelope_generator::{
+        EG_CHANNEL_SIZE, EgRequest, GateEventType, GateId, get_eg_request_sender,
+    },
 };
 
 bind_interrupts!(struct Irqs {
@@ -29,9 +35,10 @@ bind_interrupts!(struct Irqs {
 
 // communications ///////////////////////////////
 static WATCH_READER: Watch<ThreadModeRawMutex, InputReaderInfo, 2> = Watch::new();
-static CHANNEL_ADC: Channel<ThreadModeRawMutex, InputReaderRequest, 2> = Channel::new();
+static CHANNEL_REQUEST: Channel<ThreadModeRawMutex, InputReaderRequest, 2> = Channel::new();
 static SIGNAL_GATE_1_READING: Signal<ThreadModeRawMutex, u16> = Signal::new();
 static SIGNAL_GATE_2_READING: Signal<ThreadModeRawMutex, u16> = Signal::new();
+static SIGNAL_STORAGE: Signal<ThreadModeRawMutex, Result<Value, Error>> = Signal::new();
 
 /// ADC resources
 pub struct AdcResources {
@@ -96,10 +103,17 @@ impl InputReaderInfo {
 }
 
 pub enum InputReaderRequest {
-    ReadGate { gate_id: GateId },
+    ReadGate {
+        gate_id: GateId,
+    },
+    SetCvOffsets {
+        offset_a: i16,
+        offset_b: i16,
+        save: bool,
+    },
 }
 
-pub fn start(
+pub async fn start(
     spawner: Spawner,
     resources: AdcResources,
     gate_src_sw_1: Input<'static>,
@@ -109,7 +123,8 @@ pub fn start(
     gate_trigger_1: ExtiInput<'static, Async>,
     gate_trigger_2: ExtiInput<'static, Async>,
 ) {
-    let input_reader = InputReader::new(resources);
+    let mut input_reader = InputReader::new(resources);
+    input_reader.load_cv_offsets().await;
     spawner.spawn(run_input_reader(input_reader).unwrap());
     let analog_gate_1 = AnalogGate::new(
         gate_src_sw_1,
@@ -150,6 +165,11 @@ pub async fn get_reader_info_receiver()
     get_change_receiver(&WATCH_READER).await
 }
 
+pub fn get_reader_request_sender()
+-> channel::Sender<'static, ThreadModeRawMutex, InputReaderRequest, 2> {
+    CHANNEL_REQUEST.sender()
+}
+
 static MUX_ADDRESSES: [(Level, Level, Level, PotKind); 8] = [
     (Level::Low, Level::Low, Level::Low, PotKind::Attack),
     (Level::Low, Level::Low, Level::High, PotKind::Decay),
@@ -172,6 +192,10 @@ struct InputReader {
 
     // pot reading
     pot_index: usize,
+
+    // CV offsets
+    cv_offset_a: i16,
+    cv_offset_b: i16,
 }
 
 impl InputReader {
@@ -179,17 +203,24 @@ impl InputReader {
         Self {
             resources,
             pot_index: 0,
+            cv_offset_a: 0,
+            cv_offset_b: 0,
         }
     }
 
     pub async fn run(&mut self) {
-        let request_receiver = CHANNEL_ADC.receiver();
+        let request_receiver = CHANNEL_REQUEST.receiver();
         let mut reader_info_sender = WATCH_READER.sender();
         loop {
             match select(Timer::after_millis(10), request_receiver.receive()).await {
                 Either::First(()) => {}
                 Either::Second(request) => match request {
                     InputReaderRequest::ReadGate { gate_id } => self.read_gate_level(gate_id).await,
+                    InputReaderRequest::SetCvOffsets {
+                        offset_a,
+                        offset_b,
+                        save,
+                    } => self.set_cv_offsets(offset_a, offset_b, save).await,
                 },
             }
             self.regular_reading(&mut reader_info_sender).await;
@@ -234,9 +265,8 @@ impl InputReader {
             0
         };
 
-        // TODO: Calibrate the zero points
-        let cv_a = 32767 - (buffer[0] << 4) as i16;
-        let cv_b = 32767 - (buffer[1] << 4) as i16;
+        let cv_a = 32767 + self.cv_offset_a - (buffer[0] << 4) as i16;
+        let cv_b = 32767 + self.cv_offset_b - (buffer[1] << 4) as i16;
 
         (
             PotInfo {
@@ -262,6 +292,57 @@ impl InputReader {
             GateId::Gate1 => SIGNAL_GATE_1_READING.signal(buffer[0]),
             GateId::Gate2 => SIGNAL_GATE_2_READING.signal(buffer[0]),
         }
+    }
+
+    async fn set_cv_offsets(&mut self, offset_a: i16, offset_b: i16, save: bool) {
+        self.cv_offset_a = offset_a;
+        self.cv_offset_b = offset_b;
+        if save {
+            self.save_cv_offsets().await;
+        }
+    }
+
+    pub async fn load_cv_offsets(&mut self) {
+        self.cv_offset_a = Self::load_cv_offset(0).await;
+        self.cv_offset_b = Self::load_cv_offset(1).await;
+        debug!(
+            "loaded CV offsets: a={}, b={}",
+            self.cv_offset_a, self.cv_offset_b
+        );
+    }
+
+    async fn load_cv_offset(index: u16) -> i16 {
+        let Value::U16(saved_offset) = storage::load(
+            ADDR_CV_OFFSET_A + index * 2,
+            ValueType::U16,
+            &SIGNAL_STORAGE,
+        )
+        .await
+        .unwrap() else {
+            panic!("wrong type returned");
+        };
+
+        if saved_offset == 0xffff {
+            0
+        } else {
+            (saved_offset as i32 - 0x8000) as i16
+        }
+    }
+
+    async fn save_cv_offsets(&mut self) {
+        Self::save_cv_offset(0, self.cv_offset_a).await;
+        Self::save_cv_offset(1, self.cv_offset_b).await;
+    }
+
+    async fn save_cv_offset(index: u16, offset: i16) {
+        let save_value = (offset as i32 + 0x8000) as u16;
+        storage::save(
+            ADDR_CV_OFFSET_A + index * 2,
+            Value::U16(save_value),
+            &SIGNAL_STORAGE,
+        )
+        .await
+        .unwrap();
     }
 }
 
@@ -323,7 +404,7 @@ impl AnalogGate {
     }
 
     async fn run_analog_gate(&mut self) {
-        let mut request_sender = CHANNEL_ADC.sender();
+        let mut request_sender = CHANNEL_REQUEST.sender();
         loop {
             match self.state {
                 AnalogGateState::Disabled => {

@@ -6,6 +6,7 @@ use embedded_graphics::{
     prelude::*,
     primitives::{PrimitiveStyleBuilder, Rectangle},
 };
+use ssd1306_lite::TextBox;
 
 use crate::control_panel::menu::MenuItem;
 
@@ -48,21 +49,30 @@ impl<'a, ActionT> MenuMode<'a, ActionT> {
             // while self.display.mode.is_menu_mode() {
             let request = self.display.fetch_request().await;
             match request {
-                Request::Clear { .. } | Request::Flush => {
-                    self.display.handle_generic_request(request).await
-                }
+                Request::SwitchMode { .. }
+                | Request::Clear { .. }
+                | Request::Flush
+                | Request::DrawLine { .. }
+                | Request::DrawCircle { .. }
+                | Request::DrawRectangle { .. }
+                | Request::DrawTriangle { .. }
+                | Request::DrawArc { .. } => self.display.handle_generic_request(request).await,
                 Request::DisplayOpMenuItem { index }
                 | Request::DisplayEngineTypeMenuItem { index }
                 | Request::DisplayAdminMenuItem { index } => {
                     if request.mode() != self.display.mode {
-                        self.display.switch_mode(request).await;
+                        self.display
+                            .switch_mode(request.mode(), Some(request))
+                            .await;
                         break;
                     }
                     debug!("display current menu, index={}", index);
                     self.display_current_menu(index).await
                 }
                 _ => {
-                    self.display.switch_mode(request).await;
+                    self.display
+                        .switch_mode(request.mode(), Some(request))
+                        .await;
                     break;
                 }
             }
@@ -121,14 +131,21 @@ impl<'a, ActionT> MenuMode<'a, ActionT> {
     }
 
     async fn print_menu_item(&mut self, reverse: bool, index: usize, ypos: i32) {
-        let point = Point::new(Self::INDENT, ypos + Self::MARGIN_TOP);
+        let color = if reverse {
+            BinaryColor::Off
+        } else {
+            BinaryColor::On
+        };
         self.display
             .display_text(
-                reverse,
-                false,
                 self.menu_items[index].name,
+                TextBox::simple(
+                    Self::INDENT as usize,
+                    (ypos + Self::MARGIN_TOP) as usize,
+                    color,
+                ),
                 super::FontSize::Large,
-                point,
+                false,
             )
             .await;
     }

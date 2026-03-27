@@ -5,7 +5,7 @@ use crate::input_reader::{InputReaderInfo, PotKind};
 
 use super::{
     config::EgConfig,
-    definitions::{Engine, VoiceParams, fraction_uq32_32, mul_uq0_32, uq0_32_to_output_positive},
+    definitions::{Engine, VoiceParams, fraction_uq32_32, mul_uq0_32},
 };
 
 #[derive(Debug, defmt::Format)]
@@ -45,8 +45,6 @@ pub struct TwoDecaysEngine {
     peak_value: u32,
 
     phase: EnginePhase,
-
-    value_to_output: &'static dyn Fn(u32) -> u16,
 }
 
 impl Engine for TwoDecaysEngine {
@@ -67,8 +65,6 @@ impl Engine for TwoDecaysEngine {
             peak_value: 0,
 
             phase: EnginePhase::Released,
-
-            value_to_output: &uq0_32_to_output_positive,
         }
     }
 
@@ -145,7 +141,7 @@ impl Engine for TwoDecaysEngine {
     }
 
     /// Updates the current envelope generator value and returns it in 12 bit range.
-    fn update(&mut self, _params: &VoiceParams) -> u16 {
+    fn update(&mut self, params: &VoiceParams) -> u16 {
         match self.phase {
             EnginePhase::Attack => {
                 let diff = self.target_value - self.current_value;
@@ -201,6 +197,6 @@ impl Engine for TwoDecaysEngine {
         }
 
         // scale range of 31 bit (0..7fffffff) down to 12 bit (0..fff).
-        (*self.value_to_output)(self.current_value)
+        (*params.value_to_output)(self.current_value, params.out_zero_point)
     }
 }

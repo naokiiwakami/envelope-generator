@@ -1,3 +1,4 @@
+mod calibrator;
 mod diagnoser;
 mod display;
 mod menu;
@@ -14,22 +15,22 @@ use embassy_stm32::{
 };
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel, pubsub};
 use embassy_time::{Duration, Instant, Timer};
-use embedded_graphics::prelude::Point;
 use heapless::String;
-use ssd1306_lite::FontSize;
+use ssd1306_lite::{FontSize, TextBox};
+
+use crate::envelope_generator::{
+    EG_CHANNEL_SIZE, EG_PUBS, EG_SUBS, EgEvent, EgRequest, EngineType, get_eg_event_subscriber,
+    get_eg_request_sender,
+};
 
 use self::{
+    calibrator::Calibrator,
     diagnoser::Diagnoser,
     display::{
         CHANNEL_LENGTH as DISPLAY_CHANNEL_LENGTH, EgDisplay, Request as DisplayRequest,
         get_request_sender,
     },
     menu::{ADMIN_MENU_ITEMS, AdminAction, ENGINE_TYPE_MENU_ITEMS, OP_MENU_ITEMS, OpAction},
-};
-
-use crate::envelope_generator::{
-    EG_CHANNEL_SIZE, EG_PUBS, EG_SUBS, EgEvent, EgRequest, EngineType, get_eg_event_subscriber,
-    get_eg_request_sender,
 };
 
 pub fn start(
@@ -156,6 +157,7 @@ impl ControlPanel {
                 None => self.on_button_pressed(),
             }
         } else if self.button_pressed_at.is_some() {
+            self.button_pressed_at = None;
             self.on_button_released().await;
         } else {
             // normal "button off" status, do regular task for the mode
@@ -215,7 +217,6 @@ impl ControlPanel {
             }
             _ => {}
         }
-        self.button_pressed_at = None;
     }
 
     // Op menu mode //////////////////////////////////////////////////////////
@@ -282,7 +283,10 @@ impl ControlPanel {
     /// Called to request EnvelopeGenerator to switch engine mode.
     async fn request_switching_engine(&mut self, engine_type: &EngineType) {
         self.eg_request_sender
-            .send(EgRequest::SwitchEngine(engine_type.clone()))
+            .send(EgRequest::SwitchEngine {
+                engine_type: engine_type.clone(),
+                send_notif: false,
+            })
             .await;
     }
 
@@ -321,9 +325,14 @@ impl ControlPanel {
     async fn execute_admin_action(&mut self) {
         let action = &ADMIN_MENU_ITEMS[self.menu_item_index].selection;
         match action {
+            AdminAction::Calibrate => {
+                let mut calibrator = Calibrator::new(self);
+                calibrator.execute().await;
+                self.mode = ControlPanelMode::Normal;
+            }
             AdminAction::Diagnose => {
                 let mut diagnoser = Diagnoser::new(self);
-                diagnoser.diagnose().await;
+                diagnoser.execute().await;
                 self.mode = ControlPanelMode::Normal;
             }
             AdminAction::Cancel => self.into_normal_mode().await,
@@ -436,25 +445,16 @@ impl ControlPanel {
     async fn display_text(
         &mut self,
         text: &str,
-        reverse: bool,
-        flush: bool,
+        text_box: TextBox,
         font_size: FontSize,
-        position: Point,
+        flush: bool,
     ) {
-        debug!("display_text request; reverse={}", reverse);
-        self.display_request_sender
-            .send(DisplayRequest::Clear {
-                reverse,
-                flush: false,
-            })
-            .await;
         self.display_request_sender
             .send(DisplayRequest::DisplayText {
-                reverse,
-                flush,
                 text: String::<32>::try_from(text).unwrap(),
+                text_box,
                 font_size,
-                position,
+                flush,
             })
             .await;
     }

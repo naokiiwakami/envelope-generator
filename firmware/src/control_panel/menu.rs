@@ -45,7 +45,7 @@ pub static ENGINE_TYPE_MENU_ITEMS: [MenuItem<Option<EngineType>>; 5] = [
 pub static ADMIN_MENU_ITEMS: [MenuItem<AdminAction>; 3] = [
     MenuItem {
         name: "CALIBRATE",
-        selection: AdminAction::Cancel,
+        selection: AdminAction::Calibrate,
     },
     MenuItem {
         name: "DIAGNOSE",
@@ -63,6 +63,7 @@ pub struct MenuItem<SelectionT> {
 }
 
 pub enum AdminAction {
+    Calibrate,
     Diagnose,
     Cancel,
 }

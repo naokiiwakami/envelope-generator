@@ -1,4 +1,4 @@
-use defmt::debug;
+use defmt::{debug, trace};
 use embassy_executor::Spawner;
 use embassy_stm32::flash::{Error, FLASH_SIZE, Flash, WRITE_SIZE};
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel, signal::Signal};
@@ -22,7 +22,7 @@ const LAST_SEQ_NUMBER: u16 = u16::MAX - 1;
 
 static CHANNEL_STORAGE: Channel<ThreadModeRawMutex, StorageRequest, 2> = Channel::new();
 
-pub fn start(spawner: Spawner, flash: Flash<'static>) {
+pub async fn start(spawner: Spawner, flash: Flash<'static>) {
     spawner.spawn(run_storage(flash).unwrap());
 }
 
@@ -315,6 +315,7 @@ impl Storage {
         self.write(address, &data).await
     }
 
+    /// Checks if the rows to write are dirty
     fn is_dirty(&mut self, start_page_offset: u32, end_page_offset: u32) -> Result<bool, Error> {
         let mut offset = start_page_offset;
         while offset < end_page_offset {
@@ -336,8 +337,10 @@ impl Storage {
         let end_page_offset = self.get_row_offset(address + (data.len() + WRITE_SIZE - 1) as u16);
 
         if self.is_dirty(start_page_offset, end_page_offset)? {
+            trace!("the rows are dirty, starting ping-pong write");
             self.ping_pong_write(address, data).await?;
         } else {
+            trace!("the rows are clean, starting straight write");
             let prefix_len = (0 - address as usize) % WRITE_SIZE;
             let suffix_len = (address as usize + data.len()) % WRITE_SIZE;
             let mut page_offset = start_page_offset;
@@ -360,6 +363,13 @@ impl Storage {
         Ok(())
     }
 
+    /// Executes ping-pong write.
+    /// The method copies the entire page to the other side, also merges the data into
+    /// the new page.
+    ///
+    /// Arguments:
+    /// * `address`: The address for the data to be merged into.
+    /// * `data`: The data to be merged.
     async fn ping_pong_write(&mut self, address: u16, data: &[u8]) -> Result<(), Error> {
         // defensive code
         if data.len() == 0 {
@@ -368,12 +378,17 @@ impl Storage {
 
         let prev_page_offset = self.switch_pages().await?;
 
+        // indexes for rows to be merged
         let start_row_index = address as usize / WRITE_SIZE;
         let end_row_index = (address as usize + data.len() - 1) / WRITE_SIZE;
+        trace!(
+            "row indexes; start={:#x}, end={:#x}",
+            start_row_index, end_row_index
+        );
 
-        let prefix_len = (0 - address as usize) % WRITE_SIZE;
-        let suffix_len = (address as usize + data.len()) % WRITE_SIZE;
-        debug!("prefix_len={}, suffix_len={}", prefix_len, suffix_len);
+        let start_column = address as usize % WRITE_SIZE;
+        let end_column = (address as usize + data.len()) % WRITE_SIZE;
+        trace!("start column={}, end column={}", start_column, end_column);
 
         // let target_row_offset = self.get_row_offset(address);
         let mut row_data = [0xffu8; WRITE_SIZE];
@@ -382,16 +397,21 @@ impl Storage {
             let src_row_offset = prev_page_offset + (irow * WRITE_SIZE) as u32;
             let dst_row_offset = self.page_offset + (irow * WRITE_SIZE) as u32;
 
+            // Read the data of the previous page from flash
             self.flash.blocking_read(src_row_offset, &mut row_data)?;
 
+            // Merge data if the target rows overlap
             if start_row_index <= irow && irow <= end_row_index {
-                if irow == start_row_index && prefix_len > 0 {
-                    row_data[WRITE_SIZE - prefix_len..].copy_from_slice(&data[..prefix_len]);
-                    data_index += prefix_len;
-                } else if irow == end_row_index && suffix_len > 0 {
-                    row_data[..suffix_len].copy_from_slice(&data[data.len() - suffix_len..]);
+                if irow == start_row_index && start_column > 0 {
+                    let data_width = data.len().min(WRITE_SIZE - start_column);
+                    row_data[start_column..start_column + data_width]
+                        .copy_from_slice(&data[..data_width]);
+                    data_index += data_width;
+                } else if irow == end_row_index && end_column > 0 {
+                    let data_width = end_column.min(data.len() - data_index);
+                    row_data[..data_width].copy_from_slice(&data[data.len() - data_width..]);
                 } else {
-                    debug!("irow={}, index={}", irow, data_index);
+                    trace!("irow={}, index={}", irow, data_index);
                     row_data.copy_from_slice(&data[data_index..data_index + WRITE_SIZE]);
                     data_index += WRITE_SIZE;
                 }

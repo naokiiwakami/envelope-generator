@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 
+mod addresses;
 mod analog3;
 mod control_panel;
 mod envelope_generator;
@@ -291,6 +292,7 @@ async fn main(spawner: Spawner) {
     let mut eg_resources = setup_peripherals(p).await;
 
     // start the modules
+    storage::start(spawner, eg_resources.flash).await;
 
     input_reader::start(
         spawner,
@@ -301,7 +303,8 @@ async fn main(spawner: Spawner) {
         eg_resources.ind_analog_gate_2,
         eg_resources.gate_trigger_1,
         eg_resources.gate_trigger_2,
-    );
+    )
+    .await;
 
     patch_controller::start(
         spawner,
@@ -309,8 +312,6 @@ async fn main(spawner: Spawner) {
         eg_resources.patch_ind_red,
         eg_resources.patch_ind_green,
     );
-
-    storage::start(spawner, eg_resources.flash);
 
     control_panel::start(
         spawner,
@@ -326,7 +327,8 @@ async fn main(spawner: Spawner) {
         eg_resources.dac_channels,
         eg_resources.ind_gate_1,
         eg_resources.ind_gate_2,
-    );
+    )
+    .await;
 
     let uid = get_uid().await;
     let name = get_name().await;
@@ -338,7 +340,8 @@ async fn main(spawner: Spawner) {
         eg_resources.ind_a3_red,
         eg_resources.ind_a3_blue,
         spawner,
-    );
+    )
+    .await;
 
     // all modules have started, enable the CAN transceiver
     eg_resources.can_stb.set_low();

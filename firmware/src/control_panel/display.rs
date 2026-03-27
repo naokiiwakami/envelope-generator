@@ -15,10 +15,10 @@ use embassy_time::{Duration, Instant};
 use embedded_graphics::{
     pixelcolor::BinaryColor,
     prelude::*,
-    primitives::{Circle, PrimitiveStyle, PrimitiveStyleBuilder},
+    primitives::{Circle, Line, PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, Triangle},
 };
 use heapless::String;
-use ssd1306_lite::{Angle, FontSize, Ssd1306Lite};
+use ssd1306_lite::{Angle, FontSize, Ssd1306Lite, TextBox};
 
 use crate::{
     control_panel::{display::menu_mode::MenuMode, menu::ENGINE_TYPE_MENU_ITEMS},
@@ -37,7 +37,7 @@ pub async fn run_display(mut eg_display: EgDisplay) {
 }
 
 #[derive(PartialEq)]
-enum Mode {
+pub enum Mode {
     Any,
     Fundamental,
     OpMenu,
@@ -49,21 +49,56 @@ enum Mode {
 
 pub enum Request {
     // Generic requests
+    SwitchMode {
+        mode: Mode,
+    },
     Clear {
         reverse: bool,
         flush: bool,
     },
     Flush,
+    DrawLine {
+        start: Point,
+        end: Point,
+        style: PrimitiveStyle<BinaryColor>,
+        flush: bool,
+    },
+    DrawCircle {
+        top_left: Point,
+        diameter: u32,
+        style: PrimitiveStyle<BinaryColor>,
+        flush: bool,
+    },
+    DrawRectangle {
+        top_left: Point,
+        size: Size,
+        style: PrimitiveStyle<BinaryColor>,
+        flush: bool,
+    },
+    DrawTriangle {
+        vertex1: Point,
+        vertex2: Point,
+        vertex3: Point,
+        style: PrimitiveStyle<BinaryColor>,
+        flush: bool,
+    },
+    DrawArc {
+        center: Point,
+        radius: i32,
+        start_degree: i32,
+        end_degree: i32,
+        color: bool,
+        flush: bool,
+    },
     // Fundamental requests
     ShowInitialScreen {
         engine_type: EngineType,
     },
     DisplayText {
-        reverse: bool,
-        flush: bool,
         text: String<32>,
+        text_box: TextBox,
         font_size: FontSize,
-        position: Point,
+        flush: bool,
     },
     // Menu requests
     DisplayOpMenuItem {
@@ -88,7 +123,14 @@ pub enum Request {
 impl Request {
     fn mode(&self) -> Mode {
         match self {
-            Request::Clear { .. } | Request::Flush => Mode::Any,
+            Request::SwitchMode { .. }
+            | Request::Clear { .. }
+            | Request::Flush
+            | Request::DrawLine { .. }
+            | Request::DrawCircle { .. }
+            | Request::DrawRectangle { .. }
+            | Request::DrawTriangle { .. }
+            | Request::DrawArc { .. } => Mode::Any,
             Request::ShowInitialScreen { .. } | Request::DisplayText { .. } => Mode::Fundamental,
             Request::DisplayOpMenuItem { .. } => Mode::OpMenu,
             Request::DisplayEngineTypeMenuItem { .. } => Mode::EngineTypeMenu,
@@ -144,40 +186,84 @@ impl EgDisplay {
 
     async fn handle_generic_request(&mut self, request: Request) {
         match request {
+            Request::SwitchMode { mode } => self.switch_mode(mode, None).await,
             Request::Clear { reverse, flush } => self.clear(reverse, flush).await,
             Request::Flush => self.driver.flush().await,
+            Request::DrawLine {
+                start,
+                end,
+                style,
+                flush,
+            } => self.draw_line(start, end, style, flush).await,
+            Request::DrawCircle {
+                top_left,
+                diameter,
+                style,
+                flush,
+            } => self.draw_circle(top_left, diameter, style, flush).await,
+            Request::DrawRectangle {
+                top_left,
+                size,
+                style,
+                flush,
+            } => self.draw_rectangle(top_left, size, style, flush).await,
+            Request::DrawTriangle {
+                vertex1,
+                vertex2,
+                vertex3,
+                style,
+                flush,
+            } => {
+                self.draw_triangle(vertex1, vertex2, vertex3, style, flush)
+                    .await
+            }
+            Request::DrawArc {
+                center,
+                radius,
+                start_degree,
+                end_degree,
+                color,
+                flush,
+            } => {
+                self.draw_arc(center, radius, start_degree, end_degree, color, flush)
+                    .await
+            }
             _ => {} // Other requests shouldn't reach here
         }
     }
 
     // fundamental mode ///////////////////////////////////////////////////////////
 
-    async fn into_fundamental_mode(&mut self, pending_request: Request) {
+    async fn into_fundamental_mode(&mut self, pending_request: Option<Request>) {
         self.mode = Mode::Fundamental;
-        self.pending_request = Some(pending_request);
+        self.pending_request = pending_request;
     }
 
     async fn run_fundamental_mode(&mut self) {
         while matches!(self.mode, Mode::Fundamental) {
             let request = self.fetch_request().await;
             match request {
-                Request::Clear { .. } | Request::Flush => {
-                    self.handle_generic_request(request).await
-                }
+                Request::SwitchMode { .. }
+                | Request::Clear { .. }
+                | Request::Flush
+                | Request::DrawLine { .. }
+                | Request::DrawCircle { .. }
+                | Request::DrawRectangle { .. }
+                | Request::DrawTriangle { .. }
+                | Request::DrawArc { .. } => self.handle_generic_request(request).await,
                 Request::ShowInitialScreen { engine_type } => {
                     self.show_initial_screen(engine_type).await
                 }
                 Request::DisplayText {
-                    reverse,
-                    flush,
                     text,
+                    text_box,
                     font_size,
-                    position,
+                    flush,
                 } => {
-                    self.display_text(reverse, flush, text.as_str(), font_size, position)
+                    self.display_text(text.as_str(), text_box, font_size, flush)
                         .await
                 }
-                _ => self.switch_mode(request).await,
+                _ => self.switch_mode(request.mode(), Some(request)).await,
             }
         }
     }
@@ -221,8 +307,9 @@ impl EgDisplay {
     async fn show_default_initial_screen(&mut self) {
         self.clear(false, false).await;
         let name = ENGINE_TYPE_MENU_ITEMS[(self.current_engine_type.clone() as u8) as usize].name;
+        let text_box = TextBox::center().build();
         self.driver
-            .draw_string(name, 10, 20, FontSize::Large, BinaryColor::On)
+            .draw_string(name, text_box, FontSize::Large)
             .await;
 
         self.driver.flush().await;
@@ -251,10 +338,10 @@ impl EgDisplay {
 
     // pots diag mode //////////////////////////////////////////////////////
 
-    async fn into_pots_diag_mode(&mut self, pending_request: Request) {
+    async fn into_pots_diag_mode(&mut self, pending_request: Option<Request>) {
         self.clear(false, false).await;
         self.mode = Mode::PotsDiag;
-        self.pending_request = Some(pending_request);
+        self.pending_request = pending_request;
     }
 
     async fn run_pots_diag_mode(&mut self) {
@@ -287,13 +374,18 @@ impl EgDisplay {
         while matches!(self.mode, Mode::PotsDiag) {
             let request = self.fetch_request().await;
             match request {
-                Request::Clear { .. } | Request::Flush => {
-                    self.handle_generic_request(request).await
-                }
+                Request::SwitchMode { .. }
+                | Request::Clear { .. }
+                | Request::Flush
+                | Request::DrawLine { .. }
+                | Request::DrawCircle { .. }
+                | Request::DrawRectangle { .. }
+                | Request::DrawTriangle { .. }
+                | Request::DrawArc { .. } => self.handle_generic_request(request).await,
                 Request::UpdatePotValue { pot_info: info } => {
                     self.update_pot_value(info, &erase, &positions).await
                 }
-                _ => self.switch_mode(request).await,
+                _ => self.switch_mode(request.mode(), Some(request)).await,
             }
         }
     }
@@ -324,18 +416,17 @@ impl EgDisplay {
     }
 
     // CV diag mode //////////////////////////////////////////////////////
-    async fn into_cv_diag_mode(&mut self, pending_request: Request) {
+    async fn into_cv_diag_mode(&mut self, pending_request: Option<Request>) {
         self.clear(false, false).await;
         self.display_text(
-            false,
-            true,
             "Put something into CV",
+            TextBox::simple(0, 0, BinaryColor::On),
             FontSize::Small,
-            Point::zero(),
+            true,
         )
         .await;
         self.mode = Mode::CvDiag;
-        self.pending_request = Some(pending_request);
+        self.pending_request = pending_request;
     }
 
     async fn run_cv_diag_mode(&mut self) {
@@ -348,13 +439,18 @@ impl EgDisplay {
         while matches!(self.mode, Mode::CvDiag) {
             let request = self.fetch_request().await;
             match request {
-                Request::Clear { .. } | Request::Flush => {
-                    self.handle_generic_request(request).await
-                }
+                Request::SwitchMode { .. }
+                | Request::Clear { .. }
+                | Request::Flush
+                | Request::DrawLine { .. }
+                | Request::DrawCircle { .. }
+                | Request::DrawRectangle { .. }
+                | Request::DrawTriangle { .. }
+                | Request::DrawArc { .. } => self.handle_generic_request(request).await,
                 Request::UpdateCvValues { cv_info } => {
                     self.update_cv_info(cv_info, &mut cv_points).await
                 }
-                _ => self.switch_mode(request).await,
+                _ => self.switch_mode(request.mode(), Some(request)).await,
             }
         }
     }
@@ -397,10 +493,10 @@ impl EgDisplay {
     // utils /////////////////////////////////////////////////////////////
 
     /// Switch into a menu mode.
-    async fn into_menu_mode(&mut self, menu_mode: Mode, pending_request: Request) {
+    async fn into_menu_mode(&mut self, menu_mode: Mode, pending_request: Option<Request>) {
         self.clear(false, false).await;
         self.mode = menu_mode;
-        self.pending_request = Some(pending_request);
+        self.pending_request = pending_request;
     }
 
     /// Fetches next request to process. The function returns immediately
@@ -414,8 +510,8 @@ impl EgDisplay {
     }
 
     /// Switches display mode based on the request kind
-    async fn switch_mode(&mut self, request: Request) {
-        match request.mode() {
+    async fn switch_mode(&mut self, mode: Mode, request: Option<Request>) {
+        match mode {
             Mode::Fundamental => self.into_fundamental_mode(request).await,
             Mode::OpMenu => self.into_menu_mode(Mode::OpMenu, request).await,
             Mode::EngineTypeMenu => self.into_menu_mode(Mode::EngineTypeMenu, request).await,
@@ -441,22 +537,99 @@ impl EgDisplay {
         }
     }
 
+    async fn draw_line(
+        &mut self,
+        start: Point,
+        end: Point,
+        style: PrimitiveStyle<BinaryColor>,
+        flush: bool,
+    ) {
+        self.driver
+            .draw_styled(Line::new(start, end).into_styled(style))
+            .await;
+        if flush {
+            self.driver.flush().await;
+        }
+    }
+
+    async fn draw_circle(
+        &mut self,
+        top_left: Point,
+        diameter: u32,
+        style: PrimitiveStyle<BinaryColor>,
+        flush: bool,
+    ) {
+        self.driver
+            .draw_styled(Circle::new(top_left, diameter).into_styled(style))
+            .await;
+        if flush {
+            self.driver.flush().await;
+        }
+    }
+
+    async fn draw_rectangle(
+        &mut self,
+        top_left: Point,
+        size: Size,
+        style: PrimitiveStyle<BinaryColor>,
+        flush: bool,
+    ) {
+        self.driver
+            .draw_styled(Rectangle::new(top_left, size).into_styled(style))
+            .await;
+        if flush {
+            self.driver.flush().await;
+        }
+    }
+
+    async fn draw_triangle(
+        &mut self,
+        vertex1: Point,
+        vertex2: Point,
+        vertex3: Point,
+        style: PrimitiveStyle<BinaryColor>,
+        flush: bool,
+    ) {
+        self.driver
+            .draw_styled(Triangle::new(vertex1, vertex2, vertex3).into_styled(style))
+            .await;
+        if flush {
+            self.driver.flush().await;
+        }
+    }
+
+    async fn draw_arc(
+        &mut self,
+        center: Point,
+        radius: i32,
+        start_degree: i32,
+        end_degree: i32,
+        color: bool,
+        flush: bool,
+    ) {
+        self.driver
+            .draw_arc(
+                center.x,
+                center.y,
+                radius,
+                Angle::from_degrees(start_degree),
+                Angle::from_degrees(end_degree),
+                color,
+            )
+            .await;
+        if flush {
+            self.driver.flush().await;
+        }
+    }
+
     async fn display_text(
         &mut self,
-        reverse: bool,
-        flush: bool,
         text: &str,
-        size: FontSize,
-        position: Point,
+        text_box: TextBox,
+        font_size: FontSize,
+        flush: bool,
     ) {
-        let color = if reverse {
-            BinaryColor::Off
-        } else {
-            BinaryColor::On
-        };
-        self.driver
-            .draw_string(text, position.x as usize, position.y as usize, size, color)
-            .await;
+        self.driver.draw_string(text, text_box, font_size).await;
         if flush {
             self.driver.flush_full().await;
         } else {
