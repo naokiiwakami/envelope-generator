@@ -2,12 +2,12 @@
 #![no_main]
 
 mod addresses;
-mod analog3;
 mod control_panel;
 mod envelope_generator;
 mod input_reader;
 mod patch_controller;
 
+use analog3::{Analog3Config, definitions::*, storage};
 use core::future::pending;
 use defmt::debug;
 use embassy_executor::Spawner;
@@ -30,7 +30,6 @@ use embassy_stm32::timer::qei::{self, Qei};
 use embassy_stm32::{Peripherals, bind_interrupts, interrupt};
 use {defmt_rtt as _, panic_probe as _};
 
-use crate::analog3::{Analog3Config, definitions::*, storage};
 use crate::envelope_generator::{get_name, get_uid};
 use crate::input_reader::AdcResources;
 

@@ -1,5 +1,5 @@
 #![allow(unused)]
-use crate::analog3::{addresses_common::A3_ADDR_MODULE_SPECIFIC_BASE, storage::PAGE_SIZE};
+use analog3::{addresses_common::A3_ADDR_MODULE_SPECIFIC_BASE, storage::PAGE_SIZE};
 
 const CALIBRATION_PARAMETER_ADDRESS_RANGE: u16 = 0x20; // we have quota of 32 bytes
 const SAVED_CONFIG_BASE: u16 = A3_ADDR_MODULE_SPECIFIC_BASE + CALIBRATION_PARAMETER_ADDRESS_RANGE;

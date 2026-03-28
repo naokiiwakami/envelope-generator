@@ -1,12 +1,10 @@
+use analog3::{
+    definitions::{A3_PROP_ID_NAME, MAX_PROP_VECTOR_LENGTH, Value},
+    property::{PropRequest, Property},
+};
 use heapless::Vec;
 
-use crate::{
-    analog3::{
-        definitions::{A3_PROP_ID_NAME, MAX_PROP_VECTOR_LENGTH, Value},
-        property::{PropRequest, Property},
-    },
-    input_reader::{PotInfo, PotKind},
-};
+use crate::input_reader::{PotInfo, PotKind};
 
 use super::{
     EngineType,
@@ -142,7 +140,7 @@ impl EgConfig {
             EgProperty::CvADepth => Value::U16(self.cv_a_depth),
             EgProperty::CvBDepth => Value::U16(self.cv_b_depth),
         };
-        Some(Property { prop_id, value })
+        Some(Property::new(prop_id, value))
     }
 
     /// Translates data from the input reader into the config values.

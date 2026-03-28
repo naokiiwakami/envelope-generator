@@ -1,3 +1,7 @@
+use analog3::{
+    definitions::Value,
+    storage::{self, load_u16},
+};
 use defmt::{self, debug};
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
@@ -21,14 +25,8 @@ use embassy_sync::{
 use embassy_time::Timer;
 
 use crate::addresses::ADDR_CV_OFFSET_A;
-use crate::{
-    analog3::{
-        definitions::Value,
-        storage::{self, load_u16},
-    },
-    envelope_generator::{
-        EG_CHANNEL_SIZE, EgRequest, GateEventType, GateId, get_eg_request_sender,
-    },
+use crate::envelope_generator::{
+    EG_CHANNEL_SIZE, EgRequest, GateEventType, GateId, get_eg_request_sender,
 };
 
 bind_interrupts!(struct Irqs {

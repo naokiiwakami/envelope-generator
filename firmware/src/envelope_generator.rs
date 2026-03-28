@@ -6,6 +6,12 @@ mod linear_engine;
 mod para_decays_engine;
 mod two_decays_engine;
 
+use analog3::{
+    self,
+    addresses_common::*,
+    definitions::*,
+    storage::{self, load_string, load_u8, load_u16, load_u16_or_default, load_u32},
+};
 use defmt::{debug, warn};
 use embassy_executor::Spawner;
 use embassy_futures::{
@@ -25,12 +31,6 @@ use {defmt_rtt as _, panic_probe as _};
 
 use crate::{
     addresses::{ADDR_EG_TYPE_1, ADDR_OUT_ZERO_POINT_1, ADDR_OUT_ZERO_POINT_2, ADDR_VOICE_ID_1},
-    analog3::{
-        self,
-        addresses_common::*,
-        definitions::*,
-        storage::{self, load_string, load_u8, load_u16, load_u16_or_default, load_u32},
-    },
     envelope_generator::definitions::DEFAULT_ENGINE_TYPE,
     input_reader::{InputReaderInfo, get_reader_info_receiver},
 };

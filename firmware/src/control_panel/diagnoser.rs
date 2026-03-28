@@ -36,7 +36,7 @@ impl<'a> Diagnoser<'a> {
         self.control_panel
             .request_switching_engine(&EngineType::Diag, false)
             .await;
-        crate::analog3::diagnose(&SIGNAL_REPLY).await;
+        analog3::diagnose(&SIGNAL_REPLY).await;
         Timer::after_millis(500).await;
         self.control_panel.blink_leds().await;
         Timer::after_millis(500).await;
