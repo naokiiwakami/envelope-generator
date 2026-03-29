@@ -203,7 +203,7 @@ impl ControlPanel {
             ControlPanelMode::EngineTypeSelected => {
                 match &ENGINE_TYPE_MENU_ITEMS[self.menu_item_index].selection {
                     Some(engine_type) => {
-                        self.request_switching_engine(&engine_type).await;
+                        self.request_switching_engine(&engine_type, true).await;
                         self.switch_engine_type(engine_type.clone()).await;
                     }
                     None => {} // do not switch the engine type
@@ -281,11 +281,12 @@ impl ControlPanel {
     }
 
     /// Called to request EnvelopeGenerator to switch engine mode.
-    async fn request_switching_engine(&mut self, engine_type: &EngineType) {
+    async fn request_switching_engine(&mut self, engine_type: &EngineType, save: bool) {
         self.eg_request_sender
             .send(EgRequest::SwitchEngine {
                 engine_type: engine_type.clone(),
                 send_notif: false,
+                save,
             })
             .await;
     }

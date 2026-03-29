@@ -4,6 +4,9 @@ use super::config::EgConfig;
 
 use crate::input_reader::InputReaderInfo;
 
+pub const DEFAULT_VOICE_IDS: [u16; 2] = [0x101, 0x102];
+pub const DEFAULT_ENGINE_TYPE: EngineType = EngineType::ParaDecays;
+
 /// Parameters shared between the EG voice controller and EG engine
 pub struct VoiceParams {
     pub voice_index: usize,
@@ -22,6 +25,7 @@ pub enum EgRequest {
     SwitchEngine {
         engine_type: EngineType,
         send_notif: bool,
+        save: bool,
     },
     UpdateZeroPoint {
         value_1: u16,
@@ -49,6 +53,21 @@ impl EngineType {
             EngineType::Adsr => "ADSR",
             EngineType::Linear => "Linear",
             EngineType::Diag => "Diagnose",
+        }
+    }
+}
+
+impl TryFrom<u8> for EngineType {
+    type Error = ();
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(EngineType::ParaDecays),
+            1 => Ok(EngineType::Addsr),
+            2 => Ok(EngineType::Adsr),
+            3 => Ok(EngineType::Linear),
+            4 => Ok(EngineType::Diag),
+            _ => Err(()),
         }
     }
 }

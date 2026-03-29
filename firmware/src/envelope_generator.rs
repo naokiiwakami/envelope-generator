@@ -6,6 +6,12 @@ mod linear_engine;
 mod para_decays_engine;
 mod two_decays_engine;
 
+use analog3::{
+    self,
+    addresses_common::*,
+    definitions::*,
+    storage::{self, load_string, load_u8, load_u16, load_u16_or_default, load_u32},
+};
 use defmt::{debug, warn};
 use embassy_executor::Spawner;
 use embassy_futures::{
@@ -24,8 +30,8 @@ use heapless::String;
 use {defmt_rtt as _, panic_probe as _};
 
 use crate::{
-    addresses::{ADDR_OUT_ZERO_POINT_1, ADDR_OUT_ZERO_POINT_2},
-    analog3::{self, addresses_common::*, definitions::*, storage},
+    addresses::{ADDR_EG_TYPE_1, ADDR_OUT_ZERO_POINT_1, ADDR_OUT_ZERO_POINT_2, ADDR_VOICE_ID_1},
+    envelope_generator::definitions::DEFAULT_ENGINE_TYPE,
     input_reader::{InputReaderInfo, get_reader_info_receiver},
 };
 
@@ -35,7 +41,7 @@ pub use self::definitions::{
 use self::{
     adsr_engine::AdsrEngine,
     config::EgConfig,
-    definitions::{Engine, VoiceParams, uq0_32_to_output_positive},
+    definitions::{DEFAULT_VOICE_IDS, Engine, VoiceParams, uq0_32_to_output_positive},
     diag_engine::DiagEngine,
     linear_engine::LinearEngine,
     para_decays_engine::ParaDecaysEngine,
@@ -88,35 +94,76 @@ pub async fn start(
     ind_gate_2: Output<'static>,
 ) {
     let mut eg_resources = EgResources::new(ind_gate_1, ind_gate_2);
-    eg_resources.voice_params_1.out_zero_point = load_out_zero_point(0).await;
-    eg_resources.voice_params_2.out_zero_point = load_out_zero_point(1).await;
+    retrieve_saved_config(&mut eg_resources).await;
     spawner.spawn(run_envelope_generator(dac_channels, eg_resources).unwrap());
 }
 
-async fn load_out_zero_point(voice_index: usize) -> u16 {
-    let Value::U16(mut value) = storage::load(
-        ADDR_OUT_ZERO_POINT_1 + 2 * voice_index as u16,
-        ValueType::U16,
+async fn retrieve_saved_config(eg_resources: &mut EgResources) {
+    for voice_index in 0..2 {
+        eg_resources.config.voice_id[voice_index] = load_voice_id(voice_index).await;
+        eg_resources.config.engine_type[voice_index] = load_engine_type(voice_index).await;
+    }
+    eg_resources.voice_params_1.out_zero_point = load_out_zero_point(0).await;
+    eg_resources.voice_params_2.out_zero_point = load_out_zero_point(1).await;
+}
+
+async fn load_voice_id(voice_index: usize) -> u16 {
+    let address = ADDR_VOICE_ID_1 * voice_index as u16 * 2;
+    let mut voice_id = load_u16(address, &SIGNAL_STORAGE).await;
+    if voice_id == u16::MAX {
+        voice_id = DEFAULT_VOICE_IDS[voice_index];
+        storage::save(address, Value::U16(voice_id), &SIGNAL_STORAGE)
+            .await
+            .unwrap();
+    }
+    voice_id
+}
+
+async fn load_engine_type(voice_index: usize) -> EngineType {
+    let address = ADDR_EG_TYPE_1 + voice_index as u16;
+    let type_id = load_u8(address, &SIGNAL_STORAGE).await;
+    match EngineType::try_from(type_id) {
+        Ok(engine_type) => engine_type,
+        Err(()) => {
+            let engine_type = DEFAULT_ENGINE_TYPE;
+            storage::save(
+                address,
+                Value::U8(engine_type.clone() as u8),
+                &SIGNAL_STORAGE,
+            )
+            .await
+            .unwrap();
+            engine_type
+        }
+    }
+}
+
+async fn save_engine_type(voice_index: usize, engine_type: &EngineType) {
+    let address = ADDR_EG_TYPE_1 + voice_index as u16;
+    storage::save(
+        address,
+        Value::U8(engine_type.clone() as u8),
         &SIGNAL_STORAGE,
     )
     .await
-    .unwrap() else {
-        panic!("wrong type returned");
-    };
-    if value == u16::MAX {
-        value = DEFAULT_OUT_ZERO_POINT;
-    }
+    .unwrap();
+}
+
+async fn load_out_zero_point(voice_index: usize) -> u16 {
+    let value = load_u16_or_default(
+        ADDR_OUT_ZERO_POINT_1 + 2 * voice_index as u16,
+        &SIGNAL_STORAGE,
+        DEFAULT_OUT_ZERO_POINT,
+    )
+    .await;
     debug!("loaded zero point (voice {}): {:#x}", voice_index, value);
     value
 }
 
+/// Loads UID of this module from the flash memory. If the UID is not determined yet,
+/// the method creates one and save it.
 pub async fn get_uid() -> u32 {
-    let Value::U32(mut uid) = storage::load(A3_ADDR_MODULE_UID, ValueType::U32, &SIGNAL_STORAGE)
-        .await
-        .unwrap()
-    else {
-        panic!("wrong type returned");
-    };
+    let mut uid = load_u32(A3_ADDR_MODULE_UID, &SIGNAL_STORAGE).await;
     debug!("loaded UID: {=u32:#x}", uid);
     if uid == u32::MAX {
         uid = 0xe9de9d;
@@ -127,17 +174,13 @@ pub async fn get_uid() -> u32 {
     uid
 }
 
+/// Loads name of this module from the flash memory. If the name is not determined yet,
+/// the method uses the default name and save it.
 pub async fn get_name() -> String<A3_MAX_PROP_DATA_SIZE> {
-    let Value::Text(mut name) =
-        storage::load(A3_ADDR_MODULE_NAME, ValueType::Text, &SIGNAL_STORAGE)
-            .await
-            .unwrap()
-    else {
-        panic!("wrong type returned");
-    };
+    let mut name = load_string(A3_ADDR_MODULE_NAME, &SIGNAL_STORAGE).await;
     debug!("loaded name: {}", name.as_str());
     if name.len() == 0 {
-        name = String::try_from("Humps RS D").unwrap();
+        name = String::try_from("Humps").unwrap();
         storage::save(
             A3_ADDR_MODULE_NAME,
             Value::Text(name.clone()),
@@ -159,7 +202,7 @@ async fn run_envelope_generator(
     dac2.enable();
 
     loop {
-        match eg_resources.config.engine_type {
+        match eg_resources.config.engine_type[0] {
             EngineType::ParaDecays => {
                 let mut eg = EnvelopeGenerator::<ParaDecaysEngine>::new(&mut eg_resources);
                 eg.run().await;
@@ -212,7 +255,7 @@ impl EgResources {
             value_to_output: &uq0_32_to_output_positive,
         };
         Self {
-            config: EgConfig::new(0x101, 0x102, EngineType::ParaDecays),
+            config: EgConfig::new(),
             request_receiver: CHANNEL_REQUEST.receiver(),
             event_publisher: CHANNEL_EVENT.publisher().unwrap(),
             voice_params_1,
@@ -267,7 +310,7 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
         let prop_request_receiver = analog3::get_prop_request_receiver();
         let mut input_reader_info_receiver = get_reader_info_receiver().await;
         self.event_publisher
-            .publish(EgEvent::EngineSwitched(self.config.engine_type.clone()))
+            .publish(EgEvent::EngineSwitched(self.config.engine_type[0].clone()))
             .await;
         loop {
             match select5(
@@ -322,12 +365,18 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
             EgRequest::SwitchEngine {
                 engine_type,
                 send_notif,
+                save,
             } => {
                 debug!("switching engine to {}", engine_type.name());
-                self.config.engine_type = engine_type;
+                self.config.engine_type[0] = engine_type.clone();
+                self.config.engine_type[1] = engine_type.clone();
+                if save {
+                    save_engine_type(0, &engine_type).await;
+                    save_engine_type(1, &engine_type).await;
+                }
                 if send_notif {
                     self.event_publisher
-                        .publish(EgEvent::EngineSwitched(self.config.engine_type.clone()))
+                        .publish(EgEvent::EngineSwitched(engine_type))
                         .await;
                 }
                 true

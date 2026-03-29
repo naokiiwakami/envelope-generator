@@ -34,9 +34,9 @@ impl<'a> Diagnoser<'a> {
             .await;
         let orig_engine_type = self.control_panel.current_engine_type.clone();
         self.control_panel
-            .request_switching_engine(&EngineType::Diag)
+            .request_switching_engine(&EngineType::Diag, false)
             .await;
-        crate::analog3::diagnose(&SIGNAL_REPLY).await;
+        analog3::diagnose(&SIGNAL_REPLY).await;
         Timer::after_millis(500).await;
         self.control_panel.blink_leds().await;
         Timer::after_millis(500).await;
@@ -44,7 +44,7 @@ impl<'a> Diagnoser<'a> {
         self.diagnose_pots().await;
         self.diagnose_cv().await;
         self.control_panel
-            .request_switching_engine(&orig_engine_type)
+            .request_switching_engine(&orig_engine_type, false)
             .await;
         self.control_panel
             .switch_engine_type(orig_engine_type)

@@ -1,14 +1,15 @@
+use analog3::{
+    definitions::{A3_PROP_ID_NAME, MAX_PROP_VECTOR_LENGTH, Value},
+    property::{PropRequest, Property},
+};
 use heapless::Vec;
 
-use crate::{
-    analog3::{
-        definitions::{A3_PROP_ID_NAME, MAX_PROP_VECTOR_LENGTH, Value},
-        property::{PropRequest, Property},
-    },
-    input_reader::{PotInfo, PotKind},
-};
+use crate::input_reader::{PotInfo, PotKind};
 
-use super::EngineType;
+use super::{
+    EngineType,
+    definitions::{DEFAULT_ENGINE_TYPE, DEFAULT_VOICE_IDS},
+};
 
 pub struct EgConfig {
     pub prop_id: u8,
@@ -16,7 +17,7 @@ pub struct EgConfig {
 
     pub voice_id: [u16; 2],
 
-    pub engine_type: EngineType,
+    pub engine_type: [EngineType; 2],
     pub attack: [u16; 2],
     pub decay: [u16; 2],
     pub sustain: [u16; 2],
@@ -32,7 +33,7 @@ pub struct EgConfig {
 enum EgProperty {
     NumVoices = 3,
     VoiceId = 4,
-    EnvelopeGenerationMode = 5,
+    EnvelopeGeneratorType = 5,
     AttackTime = 6,
     DecayTime = 7,
     SustainLevel = 8,
@@ -47,7 +48,7 @@ impl EgConfig {
     const PROPS: [EgProperty; 11] = [
         EgProperty::NumVoices,
         EgProperty::VoiceId,
-        EgProperty::EnvelopeGenerationMode,
+        EgProperty::EnvelopeGeneratorType,
         EgProperty::AttackTime,
         EgProperty::DecayTime,
         EgProperty::SustainLevel,
@@ -57,14 +58,14 @@ impl EgConfig {
         EgProperty::CvADepth,
         EgProperty::CvBDepth,
     ];
-    pub fn new(voice1_id: u16, voice2_id: u16, engine_type: EngineType) -> Self {
+    pub fn new() -> Self {
         Self {
             prop_id: A3_PROP_ID_NAME + 1,
             value: 0x1337c0de,
 
-            voice_id: [voice1_id, voice2_id],
+            voice_id: DEFAULT_VOICE_IDS.clone(),
 
-            engine_type,
+            engine_type: [DEFAULT_ENGINE_TYPE.clone(), DEFAULT_ENGINE_TYPE.clone()],
             attack: [0; 2],
             decay: [0; 2],
             sustain: [0; 2],
@@ -125,9 +126,10 @@ impl EgConfig {
         let value = match prop {
             EgProperty::NumVoices => Value::U8(2),
             EgProperty::VoiceId => Value::VectorU16(Self::make_vec16(&self.voice_id)),
-            EgProperty::EnvelopeGenerationMode => {
-                let mode = self.engine_type.clone() as u8;
-                Value::VectorU8(Self::make_vec8(&[mode, mode]))
+            EgProperty::EnvelopeGeneratorType => {
+                let type1 = self.engine_type[0].clone() as u8;
+                let type2 = self.engine_type[1].clone() as u8;
+                Value::VectorU8(Self::make_vec8(&[type1, type2]))
             }
             EgProperty::AttackTime => Value::VectorU16(Self::make_vec16(&self.attack)),
             EgProperty::DecayTime => Value::VectorU16(Self::make_vec16(&self.decay)),
@@ -138,7 +140,7 @@ impl EgConfig {
             EgProperty::CvADepth => Value::U16(self.cv_a_depth),
             EgProperty::CvBDepth => Value::U16(self.cv_b_depth),
         };
-        Some(Property { prop_id, value })
+        Some(Property::new(prop_id, value))
     }
 
     /// Translates data from the input reader into the config values.
