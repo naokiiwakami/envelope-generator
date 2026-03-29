@@ -126,7 +126,7 @@ pub fn fraction_uq32_32(numerator: u32, denominator: u32) -> u64 {
 // Engine helper functions ////////////////////////////////////////
 
 // The zero point should be at the center of value range if the circuit is perfect.
-pub const DEFAULT_OUT_ZERO_POINT: u16 = 0x8000;
+pub const DEFAULT_OUT_ZERO_POINT: u16 = 0x800;
 
 /// Converts a UQ0.32 value of range [0..0.5) to 12-bit positive output.
 /// The function does not check boundary intentionally for performance.
