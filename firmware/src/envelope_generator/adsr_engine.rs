@@ -23,7 +23,8 @@ pub struct AdsrEngine {
     sustain_level: u32,
     release_ratio: u32,
 
-    note_scale: u64,
+    // note scaling factor, represented in UQ8.24
+    note_scale: u32,
     note_scale_depth: u32,
 
     // Values that represent current EG state
@@ -54,24 +55,20 @@ fn mul_q8_24(a: u32, b: u32) -> u32 {
     ((a as u64 >> 4) * (b as u64 >> 4) >> 16) as u32
 }
 
-fn get_note_scale(x: u16) -> u64 {
+/// Get note scale. Input is ranging between 0 to 65535 where
+/// 32768 is the mid point that gives 1.0 scale.
+///
+/// The output is time ratio scale factor in UQ8.24 format.
+fn get_note_scale(x: u16) -> u32 {
     // t = x / 32768 in UQ8.24
     let t: u32 = (x as u32) << 9;
-    /*
-    debug!(
-        "x={:#x}, t={:#x}, A={:#x}, B={:#x}, C: {:#x}",
-        x, t, A, B, C
-    );
-    */
-    // calculate 0.65 * t^2 + 0.05 * t + 0.3
+
+    // calculate 1.125 * t^2 - 0.375 * t + 0.25
     let quad = mul_q8_24(A, mul_q8_24(t, t));
     let lin = mul_q8_24(B, t);
 
-    // Q8.24 result
-    let result = quad - lin + C;
-
-    // convert to Q32.32
-    (result as u64) << 8
+    // Q8.24
+    quad - lin + C
 }
 
 impl Engine for AdsrEngine {
@@ -82,7 +79,7 @@ impl Engine for AdsrEngine {
             sustain_level: 0,
             release_ratio: 0,
 
-            note_scale: 0x100000000,
+            note_scale: 0x1000000,
             note_scale_depth: (179 << 24), // 0.7
 
             current_value: 0,
@@ -150,27 +147,13 @@ impl Engine for AdsrEngine {
         self.target_value = target_value as u32;
 
         // calculate note scale
-        /*
-        self.note_scale = if params.note >= 64 {
-            0x100000000 + (mul_uq0_32(params.note as u32 - 64, self.note_scale_depth) as u64) >> 5
-        } else {
-            0x100000000 - (mul_uq0_32(64 - params.note as u32, self.note_scale_depth) as u64) >> 5
-        };
-        */
-        // self.note_scale = ((params.note as u64) << 26) + 0x100000000u64 - (64 << 26);
-        // convert 7 bit to 16 bit and scale
-        let mut note: u32 = (params.note as u32) << 9;
+        let mut note: u32 = (params.note as u32) << 9; // 7bit to 16 bit
         if note >= 0x8000 {
             note = 0x8000 + mul_uq0_32(note - 0x8000, self.note_scale_depth);
         } else {
             note = 0x8000 - mul_uq0_32(0x8000 - note, self.note_scale_depth);
         }
-        // note = 0x8002;
         self.note_scale = get_note_scale(note as u16);
-        debug!(
-            "note {} ({:#x}) -> {:#x}",
-            params.note, note, self.note_scale
-        );
 
         self.peak_value = level as u32;
         self.phase = EnginePhase::Attack;
@@ -188,17 +171,11 @@ impl Engine for AdsrEngine {
         match self.phase {
             EnginePhase::Attack => {
                 let diff = self.target_value - self.current_value;
-                let ratio64: u64 = ((self.attack_ratio as u64) * self.note_scale) >> 32;
-                let ratio: u32 = ratio64 as u32; // ratio64.min(0xffffffff) as u32;
-                debug!("attack_ratio={:#x} ratio={:#x}", self.attack_ratio, ratio);
-                // let ratio: u64 = self.attack_ratio as u64;
+                let ratio64: u64 = (self.attack_ratio as u64 * self.note_scale as u64) >> 24;
+                let ratio: u32 = ratio64.min(0xffffffff) as u32;
                 let delta = mul_uq0_32(diff, ratio);
                 self.current_value += delta;
                 if self.current_value >= self.peak_value {
-                    debug!(
-                        "note: {} peak={:#x} current={:#x} ratio={:#x} ratio64={:#x}",
-                        params.note, self.peak_value, self.current_value, ratio, ratio64
-                    );
                     self.phase = EnginePhase::Decay;
                     self.current_value = self.peak_value;
                 }
@@ -206,8 +183,7 @@ impl Engine for AdsrEngine {
             EnginePhase::Decay => {
                 // update the target value every cycle as the sustain level may have changed.
                 self.target_value = mul_uq0_32(self.peak_value, self.sustain_level);
-                // let ratio: u64 = self.decay_ratio as u64;
-                let ratio: u64 = ((self.decay_ratio as u64) * self.note_scale) >> 32;
+                let ratio: u64 = (self.decay_ratio as u64 * self.note_scale as u64) >> 24;
                 let ratio: u32 = ratio.min(0xffffffff) as u32;
                 if self.target_value < self.current_value {
                     let delta = mul_uq0_32(self.current_value - self.target_value, ratio as u32);
@@ -219,7 +195,7 @@ impl Engine for AdsrEngine {
             }
             EnginePhase::Released => {
                 // let ratio: u64 = self.release_ratio as u64;
-                let ratio: u64 = ((self.release_ratio as u64) * self.note_scale) >> 32;
+                let ratio: u64 = (self.release_ratio as u64 * self.note_scale as u64) >> 24;
                 let ratio: u32 = ratio.min(0xffffffff) as u32;
                 let delta = mul_uq0_32(self.current_value, ratio as u32);
                 self.current_value -= delta;
