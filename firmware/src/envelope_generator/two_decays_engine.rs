@@ -5,7 +5,8 @@ use crate::input_reader::{InputReaderInfo, PotKind};
 
 use super::{
     config::EgConfig,
-    definitions::{Engine, VoiceParams, fraction_uq32_32, mul_uq0_32},
+    definitions::{Engine, VoiceParams},
+    utils::{fraction_uq32_32, mul_uq0_32, note_to_scale},
 };
 
 #[derive(Debug, defmt::Format)]
@@ -29,6 +30,11 @@ pub struct TwoDecaysEngine {
 
     // Precomputed constant
     initial_decay_scale_factor: u64,
+
+    // note scaling factor, represented in UQ8.24
+    note_scale: u32,
+    // note scaling depth, Q0.32
+    note_scale_depth: u32,
 
     // Values that represent current EG state
 
@@ -59,6 +65,9 @@ impl Engine for TwoDecaysEngine {
             decay_switch_level: 0,
 
             initial_decay_scale_factor: fraction_uq32_32(6, 5),
+
+            note_scale: 0x1000000,
+            note_scale_depth: 0x40000000, // 0.25
 
             current_value: 0,
             target_value: 0,
@@ -129,6 +138,9 @@ impl Engine for TwoDecaysEngine {
         let target_uq32_32: u64 = (peak_uq32_32 * self.initial_decay_scale_factor) >> 32;
         // UQ32.32 to UQ0.32
         self.target_value = target_uq32_32 as u32;
+
+        self.note_scale = note_to_scale(params.note, self.note_scale_depth);
+
         self.peak_value = peak_uq32_32 as u32;
         self.phase = EnginePhase::Attack;
     }
@@ -145,7 +157,8 @@ impl Engine for TwoDecaysEngine {
         match self.phase {
             EnginePhase::Attack => {
                 let diff = self.target_value - self.current_value;
-                let delta = mul_uq0_32(diff, self.attack_ratio);
+                let ratio: u64 = (self.attack_ratio as u64 * self.note_scale as u64) >> 24;
+                let delta = mul_uq0_32(diff, ratio.min(0xffffffff) as u32);
                 self.current_value += delta;
                 if self.current_value >= self.peak_value {
                     self.phase = EnginePhase::InitialDecay;
@@ -158,14 +171,17 @@ impl Engine for TwoDecaysEngine {
                 let mut current_q32_32 = self.current_value as i64;
                 let target_q32_32 = (switch_q32_32 - peak_q32_32) * 6 / 5 + peak_q32_32;
 
+                let ratio: u64 = (self.initial_decay_ratio as u64 * self.note_scale as u64) >> 24;
+                let ratio: u32 = ratio.min(0xffffffff) as u32;
+
                 let crossed = if target_q32_32 < current_q32_32 {
                     let diff_uq0_32 = (current_q32_32 - target_q32_32) as u32;
-                    let delta_uq0_32 = mul_uq0_32(diff_uq0_32, self.initial_decay_ratio);
+                    let delta_uq0_32 = mul_uq0_32(diff_uq0_32, ratio);
                     current_q32_32 -= delta_uq0_32 as i64;
                     current_q32_32 <= switch_q32_32
                 } else {
                     let diff_uq0_32 = (target_q32_32 - current_q32_32) as u32;
-                    let delta_uq0_32 = mul_uq0_32(diff_uq0_32, self.initial_decay_ratio);
+                    let delta_uq0_32 = mul_uq0_32(diff_uq0_32, ratio);
                     current_q32_32 += delta_uq0_32 as i64;
                     current_q32_32 >= switch_q32_32
                 };
@@ -180,18 +196,19 @@ impl Engine for TwoDecaysEngine {
             EnginePhase::Decay => {
                 // update the target value every cycle as the sustain level may have changed.
                 self.target_value = mul_uq0_32(self.peak_value, self.sustain_level);
+                let ratio: u64 = (self.decay_ratio as u64 * self.note_scale as u64) >> 24;
+                let ratio: u32 = ratio.min(0xffffffff) as u32;
                 if self.target_value < self.current_value {
-                    let delta =
-                        mul_uq0_32(self.current_value - self.target_value, self.decay_ratio);
+                    let delta = mul_uq0_32(self.current_value - self.target_value, ratio);
                     self.current_value -= delta;
                 } else {
-                    let delta =
-                        mul_uq0_32(self.target_value - self.current_value, self.decay_ratio);
+                    let delta = mul_uq0_32(self.target_value - self.current_value, ratio);
                     self.current_value += delta;
                 }
             }
             EnginePhase::Released => {
-                let delta = mul_uq0_32(self.current_value, self.release_ratio);
+                let ratio: u64 = (self.release_ratio as u64 * self.note_scale as u64) >> 24;
+                let delta = mul_uq0_32(self.current_value, ratio.min(0xffffffff) as u32);
                 self.current_value -= delta;
             }
         }

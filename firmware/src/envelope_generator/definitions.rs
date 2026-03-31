@@ -109,31 +109,8 @@ pub trait Engine {
     fn update(&mut self, params: &VoiceParams) -> u16;
 }
 
-// Fixed point arithmetic /////////////////////////////////////////
-
-/// Multiplies two UQ0.32 numbers and returns UQ0.32 result.
-#[inline(always)]
-pub fn mul_uq0_32(a: u32, b: u32) -> u32 {
-    ((a as u64 * b as u64) >> 32) as u32
-}
-
-/// Calculate a UQ32.32 fraction.
-#[inline(always)]
-pub fn fraction_uq32_32(numerator: u32, denominator: u32) -> u64 {
-    ((numerator as u64) << 32) / denominator as u64
-}
-
-// Engine helper functions ////////////////////////////////////////
-
-// The zero point should be at the center of value range if the circuit is perfect.
+/// The zero point should be at the center of value range if the circuit is perfect.
 pub const DEFAULT_OUT_ZERO_POINT: u16 = 0x800;
-
-/// Converts a UQ0.32 value of range [0..0.5) to 12-bit positive output.
-/// The function does not check boundary intentionally for performance.
-/// The call should ensure the input is less than 0x80000000.
-pub fn uq0_32_to_output_positive(value: u32, zero_point: u16) -> u16 {
-    (value >> 20) as u16 + zero_point
-}
 
 /*
 /// Converts a Q0.32 value of range [0..0.5) to 12-bit negative output.

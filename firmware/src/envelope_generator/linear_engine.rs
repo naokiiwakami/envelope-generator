@@ -5,7 +5,8 @@ use crate::input_reader::{InputReaderInfo, PotKind};
 
 use super::{
     config::EgConfig,
-    definitions::{Engine, VoiceParams, mul_uq0_32},
+    definitions::{Engine, VoiceParams},
+    utils::{mul_uq0_32, note_to_scale},
 };
 
 #[derive(Debug, defmt::Format)]
@@ -25,6 +26,11 @@ pub struct LinearEngine {
     sustain_level: u32,
     release_ratio: u32,
 
+    // note scaling factor, represented in UQ8.24
+    note_scale: u32,
+    // note scaling depth, Q0.32
+    note_scale_depth: u32,
+
     // State
     current_value: u32,
     target_value: u32,
@@ -43,6 +49,9 @@ impl Engine for LinearEngine {
             decay_ratio: 0,
             sustain_level: 0,
             release_ratio: 0,
+
+            note_scale: 0x1000000,
+            note_scale_depth: 0,
 
             current_value: 0,
             target_value: 0,
@@ -90,6 +99,9 @@ impl Engine for LinearEngine {
                     2 + ((9 * release_param * release_param * release_param) >> 29);
                 self.release_ratio = 0xffffffff / time_constant as u32;
             }
+            PotKind::Extra2 => {
+                self.note_scale_depth = (config.extra2[voice_index] as u32) << 16;
+            }
             _ => {}
         }
     }
@@ -102,6 +114,7 @@ impl Engine for LinearEngine {
         self.level = level_uq32_32 as u32;
         self.target_value = self.level;
         self.start_value = 0;
+        self.note_scale = note_to_scale(params.note, self.note_scale_depth);
         self.phase = EnginePhase::Attack;
     }
 
@@ -116,7 +129,8 @@ impl Engine for LinearEngine {
         match self.phase {
             EnginePhase::Initial => {}
             EnginePhase::Attack => {
-                let delta_uq32_32 = mul_uq0_32(self.attack_ratio, self.level) as u64;
+                let ratio: u64 = (self.attack_ratio as u64 * self.note_scale as u64) >> 24;
+                let delta_uq32_32 = mul_uq0_32(ratio.min(0xffffffff) as u32, self.level) as u64;
                 let current_value_q32_32: u64 = self.current_value as u64 + delta_uq32_32;
 
                 if current_value_q32_32 >= self.target_value as u64 {
@@ -128,7 +142,8 @@ impl Engine for LinearEngine {
             }
             EnginePhase::Decay => {
                 self.target_value = mul_uq0_32(self.level, self.sustain_level);
-                let delta_uq0_32 = mul_uq0_32(self.decay_ratio, self.level);
+                let ratio: u64 = (self.decay_ratio as u64 * self.note_scale as u64) >> 24;
+                let delta_uq0_32 = mul_uq0_32(ratio.min(0xffffffff) as u32, self.level);
                 if self.current_value >= self.target_value {
                     // going down
                     if self.current_value - self.target_value > delta_uq0_32 {
@@ -151,7 +166,8 @@ impl Engine for LinearEngine {
                 self.current_value = mul_uq0_32(self.level, self.sustain_level);
             }
             EnginePhase::Release => {
-                let delta = mul_uq0_32(self.release_ratio, self.level);
+                let ratio: u64 = (self.release_ratio as u64 * self.note_scale as u64) >> 24;
+                let delta = mul_uq0_32(ratio.min(0xffffffff) as u32, self.level);
                 if self.current_value > delta {
                     self.current_value -= delta;
                 } else {

@@ -5,7 +5,8 @@ use crate::input_reader::{InputReaderInfo, PotKind};
 
 use super::{
     config::EgConfig,
-    definitions::{Engine, VoiceParams, mul_uq0_32},
+    definitions::{Engine, VoiceParams},
+    utils::{mul_uq0_32, note_to_scale},
 };
 
 #[derive(Debug, defmt::Format)]
@@ -22,6 +23,11 @@ pub struct AdsrEngine {
     decay_ratio: u32,
     sustain_level: u32,
     release_ratio: u32,
+
+    // note scaling factor, represented in UQ8.24
+    note_scale: u32,
+    // note scaling depth, Q0.32
+    note_scale_depth: u32,
 
     // Values that represent current EG state
 
@@ -47,6 +53,9 @@ impl Engine for AdsrEngine {
             decay_ratio: 0,
             sustain_level: 0,
             release_ratio: 0,
+
+            note_scale: 0x1000000,
+            note_scale_depth: 0,
 
             current_value: 0,
             target_value: 0,
@@ -95,7 +104,7 @@ impl Engine for AdsrEngine {
                 // TBD
             }
             PotKind::Extra2 => {
-                // TBD
+                self.note_scale_depth = (config.extra2[voice_index] as u32) << 16;
             }
             _ => {} // TODO interpret CV1_DEPTH and CV2_DEPTH
         }
@@ -111,6 +120,8 @@ impl Engine for AdsrEngine {
         let mut target_value: u64 = level * 6;
         target_value /= 5;
         self.target_value = target_value as u32;
+
+        self.note_scale = note_to_scale(params.note, self.note_scale_depth);
 
         self.peak_value = level as u32;
         self.phase = EnginePhase::Attack;
@@ -128,7 +139,8 @@ impl Engine for AdsrEngine {
         match self.phase {
             EnginePhase::Attack => {
                 let diff = self.target_value - self.current_value;
-                let delta = mul_uq0_32(diff, self.attack_ratio);
+                let ratio: u64 = (self.attack_ratio as u64 * self.note_scale as u64) >> 24;
+                let delta = mul_uq0_32(diff, ratio.min(0xffffffff) as u32);
                 self.current_value += delta;
                 if self.current_value >= self.peak_value {
                     self.phase = EnginePhase::Decay;
@@ -138,18 +150,20 @@ impl Engine for AdsrEngine {
             EnginePhase::Decay => {
                 // update the target value every cycle as the sustain level may have changed.
                 self.target_value = mul_uq0_32(self.peak_value, self.sustain_level);
+                let ratio: u64 = (self.decay_ratio as u64 * self.note_scale as u64) >> 24;
+                let ratio: u32 = ratio.min(0xffffffff) as u32;
                 if self.target_value < self.current_value {
-                    let delta =
-                        mul_uq0_32(self.current_value - self.target_value, self.decay_ratio);
+                    let delta = mul_uq0_32(self.current_value - self.target_value, ratio as u32);
                     self.current_value -= delta;
                 } else {
-                    let delta =
-                        mul_uq0_32(self.target_value - self.current_value, self.decay_ratio);
+                    let delta = mul_uq0_32(self.target_value - self.current_value, ratio as u32);
                     self.current_value += delta;
                 }
             }
             EnginePhase::Released => {
-                let delta = mul_uq0_32(self.current_value, self.release_ratio);
+                // let ratio: u64 = self.release_ratio as u64;
+                let ratio: u64 = (self.release_ratio as u64 * self.note_scale as u64) >> 24;
+                let delta = mul_uq0_32(self.current_value, ratio.min(0xffffffff) as u32);
                 self.current_value -= delta;
             }
         }
