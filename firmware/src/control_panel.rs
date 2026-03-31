@@ -3,7 +3,7 @@ mod diagnoser;
 mod display;
 mod menu;
 
-use defmt::debug;
+use defmt::{debug, error};
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_stm32::{
@@ -55,12 +55,27 @@ async fn run_control_panel(mut control_panel: ControlPanel) {
 
 enum ControlPanelMode {
     Normal,
+    ActionSelected,
     OpMenu,
     OpActionSelected,
     EngineTypeMenu,
     EngineTypeSelected,
     AdminMenu,
     AdminActionSelected,
+}
+
+enum OperationPage {
+    Home,
+    OutputPolarity,
+    // CvAssignment,
+    // VelocitySensitivity,
+    // NoteScaling,
+}
+
+#[derive(Clone)]
+enum Action {
+    SelectEngineType,
+    SetUpPolatiry,
 }
 
 struct ControlPanel {
@@ -83,6 +98,8 @@ struct ControlPanel {
 
     button_pressed_at: Option<Instant>,
     mode: ControlPanelMode,
+    page: OperationPage,
+    next_action: Option<Action>,
 
     encoder_last_raw: i16,
     menu_item_index: usize,
@@ -110,6 +127,8 @@ impl ControlPanel {
             ind_green: encoder_ind_green,
             button_pressed_at: Option::None,
             mode: ControlPanelMode::Normal,
+            page: OperationPage::Home,
+            next_action: None,
             encoder_last_raw,
             menu_item_index: 0,
             toggle_time: Instant::now(),
@@ -175,6 +194,11 @@ impl ControlPanel {
             ControlPanelMode::Normal => {
                 self.ind_red.set_high();
                 self.ind_green.set_high();
+                self.next_action = match self.page {
+                    OperationPage::Home => Some(Action::SelectEngineType),
+                    OperationPage::OutputPolarity => Some(Action::SetUpPolatiry),
+                };
+                self.mode = ControlPanelMode::ActionSelected;
             }
             ControlPanelMode::OpMenu => {
                 self.mode = ControlPanelMode::OpActionSelected;
@@ -196,6 +220,10 @@ impl ControlPanel {
                 self.ind_green.set_high();
                 self.into_op_menu_mode().await;
             }
+            ControlPanelMode::ActionSelected => match &self.next_action {
+                Some(action) => self.execute_action(action.clone()).await,
+                None => error!("No action set up -- shouldn't happen"),
+            },
             ControlPanelMode::OpActionSelected => {
                 self.execute_op_action().await;
             }
@@ -215,6 +243,13 @@ impl ControlPanel {
                 self.execute_admin_action().await;
             }
             _ => {}
+        }
+    }
+
+    async fn execute_action(&mut self, action: Action) {
+        match action {
+            Action::SelectEngineType => self.into_engine_type_menu_mode().await,
+            Action::SetUpPolatiry => {}
         }
     }
 

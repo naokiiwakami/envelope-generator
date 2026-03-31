@@ -37,14 +37,12 @@ impl<'a, ActionT> MenuMode<'a, ActionT> {
             title,
             menu_items,
             top_line: 0,
-            current_item: 0,
+            current_item: usize::MAX,
         }
     }
 
     pub async fn run(&mut self) {
         debug!("Running menu mode, menu={}", self.title);
-        self.show_menu().await;
-        self.display.driver.flush().await;
         loop {
             // while self.display.mode.is_menu_mode() {
             let request = self.display.fetch_request().await;
@@ -89,12 +87,18 @@ impl<'a, ActionT> MenuMode<'a, ActionT> {
             error!("display_current_menu: Index out of bounds; index={}", index);
             return;
         }
-        debug!("displaying {}, index: {}", self.title, index);
+        debug!(
+            "displaying {}, index: {}, current: {}",
+            self.title, index, self.current_item
+        );
         if index == self.current_item {
             // do nothing
             return;
         }
-        if index >= self.top_line && index < self.top_line + Self::NUM_LINES {
+        if self.current_item < usize::MAX
+            && index >= self.top_line
+            && index < self.top_line + Self::NUM_LINES
+        {
             // no need to scroll, just move the cursor
             let ypos = (self.current_item - self.top_line) as i32 * Self::LINE_HEIGHT;
             self.clear_line(false, ypos).await;
@@ -109,7 +113,7 @@ impl<'a, ActionT> MenuMode<'a, ActionT> {
             if index < self.top_line {
                 // scroll up
                 self.top_line = index;
-            } else {
+            } else if index >= self.top_line + Self::NUM_LINES {
                 // scroll down
                 self.top_line = index + 1 - Self::NUM_LINES;
             }
@@ -122,7 +126,7 @@ impl<'a, ActionT> MenuMode<'a, ActionT> {
     /// This method does not check line boundaries assuming the caller takes care of it.
     async fn show_menu(&mut self) {
         self.display.clear(false, false).await;
-        let tail = min(Self::NUM_LINES, self.menu_items.len());
+        let tail = min(Self::NUM_LINES, self.menu_items.len() - self.top_line);
 
         for line in 0..tail {
             let ypos = line as i32 * Self::LINE_HEIGHT + Self::MARGIN_TOP;
