@@ -139,9 +139,8 @@ impl Engine for AdsrEngine {
         match self.phase {
             EnginePhase::Attack => {
                 let diff = self.target_value - self.current_value;
-                let ratio64: u64 = (self.attack_ratio as u64 * self.note_scale as u64) >> 24;
-                let ratio: u32 = ratio64.min(0xffffffff) as u32;
-                let delta = mul_uq0_32(diff, ratio);
+                let ratio: u64 = (self.attack_ratio as u64 * self.note_scale as u64) >> 24;
+                let delta = mul_uq0_32(diff, ratio.min(0xffffffff) as u32);
                 self.current_value += delta;
                 if self.current_value >= self.peak_value {
                     self.phase = EnginePhase::Decay;
