@@ -163,8 +163,7 @@ impl Engine for AdsrEngine {
             EnginePhase::Released => {
                 // let ratio: u64 = self.release_ratio as u64;
                 let ratio: u64 = (self.release_ratio as u64 * self.note_scale as u64) >> 24;
-                let ratio: u32 = ratio.min(0xffffffff) as u32;
-                let delta = mul_uq0_32(self.current_value, ratio as u32);
+                let delta = mul_uq0_32(self.current_value, ratio.min(0xffffffff) as u32);
                 self.current_value -= delta;
             }
         }

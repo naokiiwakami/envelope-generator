@@ -6,7 +6,7 @@ use crate::input_reader::{InputReaderInfo, PotKind};
 use super::{
     config::EgConfig,
     definitions::{Engine, VoiceParams},
-    utils::mul_uq0_32,
+    utils::{mul_uq0_32, note_to_scale},
 };
 
 #[derive(Debug, defmt::Format)]
@@ -23,6 +23,11 @@ pub struct ParaDecaysEngine {
     decay_ratio: u32,
     sustain_level: u32,
     release_ratio: u32,
+
+    // note scaling factor, represented in UQ8.24
+    note_scale: u32,
+    // note scaling depth, Q0.32
+    note_scale_depth: u32,
 
     strum_decay_ratio: u32,
 
@@ -54,6 +59,9 @@ impl Engine for ParaDecaysEngine {
             decay_ratio: 0,
             sustain_level: 0,
             release_ratio: 0,
+
+            note_scale: 0x1000000,
+            note_scale_depth: 0x80000000, // 0.5
 
             strum_decay_ratio: 0,
 
@@ -129,6 +137,8 @@ impl Engine for ParaDecaysEngine {
         target_value /= 5;
         self.target_value = target_value as u32;
 
+        self.note_scale = note_to_scale(params.note, self.note_scale_depth);
+
         self.peak_value = level as u32;
         self.phase = EnginePhase::Attack;
     }
@@ -145,7 +155,8 @@ impl Engine for ParaDecaysEngine {
         match self.phase {
             EnginePhase::Attack => {
                 let diff = self.target_value - self.current_value;
-                let delta = mul_uq0_32(diff, self.attack_ratio);
+                let ratio: u64 = (self.attack_ratio as u64 * self.note_scale as u64) >> 24;
+                let delta = mul_uq0_32(diff, ratio.min(0xffffffff) as u32);
                 self.current_value += delta;
                 if self.current_value >= self.peak_value {
                     self.phase = EnginePhase::Decay;
@@ -158,20 +169,25 @@ impl Engine for ParaDecaysEngine {
                 self.target_value = mul_uq0_32(self.peak_value, self.sustain_level);
 
                 // update the main decay curve
+                let decay_ratio: u64 = (self.decay_ratio as u64 * self.note_scale as u64) >> 24;
+                let decay_ratio: u32 = decay_ratio.min(0xffffffff) as u32;
                 if self.target_value < self.main_decay {
-                    let delta = mul_uq0_32(self.main_decay - self.target_value, self.decay_ratio);
+                    let delta = mul_uq0_32(self.main_decay - self.target_value, decay_ratio);
                     self.main_decay -= delta;
                 } else {
-                    let delta = mul_uq0_32(self.target_value - self.main_decay, self.decay_ratio);
+                    let delta = mul_uq0_32(self.target_value - self.main_decay, decay_ratio);
                     self.main_decay += delta;
                 }
 
                 // update the strum curve
+                let strum_decay_ratio: u64 =
+                    (self.strum_decay_ratio as u64 * self.note_scale as u64) >> 24;
+                let strum_decay_ratio: u32 = strum_decay_ratio.min(0xffffffff) as u32;
                 if self.target_value < self.strum {
-                    let delta = mul_uq0_32(self.strum - self.target_value, self.strum_decay_ratio);
+                    let delta = mul_uq0_32(self.strum - self.target_value, strum_decay_ratio);
                     self.strum -= delta;
                 } else {
-                    let delta = mul_uq0_32(self.target_value - self.strum, self.strum_decay_ratio);
+                    let delta = mul_uq0_32(self.target_value - self.strum, strum_decay_ratio);
                     self.strum += delta;
                 }
 
@@ -181,7 +197,8 @@ impl Engine for ParaDecaysEngine {
                     mul_uq0_32(self.main_decay, self.balance) + mul_uq0_32(self.strum, strum_depth);
             }
             EnginePhase::Released => {
-                let delta = mul_uq0_32(self.current_value, self.release_ratio);
+                let ratio: u64 = (self.release_ratio as u64 * self.note_scale as u64) >> 24;
+                let delta = mul_uq0_32(self.current_value, ratio.min(0xffffffff) as u32);
                 self.current_value -= delta;
             }
         }

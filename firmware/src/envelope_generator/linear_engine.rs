@@ -6,7 +6,7 @@ use crate::input_reader::{InputReaderInfo, PotKind};
 use super::{
     config::EgConfig,
     definitions::{Engine, VoiceParams},
-    utils::{mul_uq0_32, mul_uq8_24, note_to_scale},
+    utils::{mul_uq0_32, note_to_scale},
 };
 
 #[derive(Debug, defmt::Format)]
