@@ -24,14 +24,14 @@ pub struct ParaDecaysEngine {
     sustain_level: u32,
     release_ratio: u32,
 
+    strum_decay_ratio: u32,
+
+    balance: u32,
+
     // note scaling factor, represented in UQ8.24
     note_scale: u32,
     // note scaling depth, Q0.32
     note_scale_depth: u32,
-
-    strum_decay_ratio: u32,
-
-    balance: u32,
 
     // Values that represent current EG state
 
@@ -60,12 +60,12 @@ impl Engine for ParaDecaysEngine {
             sustain_level: 0,
             release_ratio: 0,
 
-            note_scale: 0x1000000,
-            note_scale_depth: 0x80000000, // 0.5
-
             strum_decay_ratio: 0,
 
             balance: 0x7fffffff,
+
+            note_scale: 0x1000000,
+            note_scale_depth: 0x40000000, // 0.25
 
             current_value: 0,
             strum: 0,
