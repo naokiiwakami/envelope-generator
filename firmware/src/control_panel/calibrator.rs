@@ -18,7 +18,7 @@ use crate::{
     },
 };
 
-use super::{ControlPanel, DisplayRequest};
+use super::{ControlPanel, DisplayRequest, display::Mode as DisplayMode};
 
 pub struct Calibrator<'a> {
     control_panel: &'a mut ControlPanel,
@@ -58,6 +58,9 @@ impl<'a> Calibrator<'a> {
     }
 
     async fn prepare(&mut self) {
+        self.control_panel
+            .switch_display_mode(DisplayMode::Fundamental)
+            .await;
         self.control_panel
             .switch_engine_type(EngineType::Adsr)
             .await;

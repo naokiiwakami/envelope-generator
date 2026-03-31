@@ -1,3 +1,4 @@
+mod in_operation_mode;
 mod menu_mode;
 
 use core::cmp::min;
@@ -27,6 +28,8 @@ use crate::{
 };
 
 use super::menu::{ADMIN_MENU_ITEMS, OP_MENU_ITEMS};
+
+use self::in_operation_mode::InOperationMode;
 
 pub const CHANNEL_LENGTH: usize = 4;
 static CHANNEL_REQUEST: Channel<ThreadModeRawMutex, Request, CHANNEL_LENGTH> = Channel::new();
@@ -277,7 +280,7 @@ impl Display {
         debug!("In fundamental mode");
         while matches!(self.mode, Mode::Fundamental) {
             let request = self.fetch_request().await;
-            debug!("[fundamental]: request: {}", request.name());
+            debug!("[Fundamental]: request: {}", request.name());
             match request {
                 Request::SwitchMode { .. }
                 | Request::Clear { .. }
@@ -291,6 +294,7 @@ impl Display {
                 _ => self.switch_mode(request.mode(), Some(request)).await,
             }
         }
+        debug!("[Fundamental] out to {}", self.mode);
     }
 
     // operational mode ///////////////////////////////////////////////////////////
@@ -301,75 +305,8 @@ impl Display {
     }
 
     async fn run_in_operation_mode(&mut self) {
-        debug!("In InOperation mode");
-        while matches!(self.mode, Mode::InOperation) {
-            let request = self.fetch_request().await;
-            debug!(
-                "[InOperation]: request: {} mode: {}",
-                request.name(),
-                self.mode
-            );
-            match request {
-                Request::SwitchMode { .. }
-                | Request::Clear { .. }
-                | Request::Flush
-                | Request::DrawLine { .. }
-                | Request::DrawCircle { .. }
-                | Request::DrawRectangle { .. }
-                | Request::DrawTriangle { .. }
-                | Request::DrawArc { .. }
-                | Request::DisplayText { .. } => self.handle_generic_request(request).await,
-                Request::GoToOpHome { engine_type } => self.show_initial_screen(engine_type).await,
-                _ => self.switch_mode(request.mode(), Some(request)).await,
-            }
-        }
-        debug!("[InOperation]: out to {}", self.mode);
-    }
-
-    pub async fn show_initial_screen(&mut self, engine_type: EngineType) {
-        self.current_engine_type = engine_type;
-        match self.current_engine_type {
-            EngineType::Adsr => self.show_adsr_initial_screen().await,
-            EngineType::Diag => {}
-            _ => self.show_default_initial_screen().await,
-        }
-    }
-
-    async fn show_adsr_initial_screen(&mut self) {
-        self.clear(false, false).await;
-        yield_now().await;
-        let fill = PrimitiveStyleBuilder::new()
-            .fill_color(BinaryColor::On)
-            .stroke_width(5)
-            .build();
-        yield_now().await;
-        self.driver
-            .draw_styled(Circle::new(Point::new(0, 20), 24).into_styled(fill))
-            .await;
-        yield_now().await;
-        self.driver
-            .draw_styled(Circle::new(Point::new(33, 0), 24).into_styled(fill))
-            .await;
-        yield_now().await;
-        self.driver
-            .draw_styled(Circle::new(Point::new(67, 0), 24).into_styled(fill))
-            .await;
-        yield_now().await;
-        self.driver
-            .draw_styled(Circle::new(Point::new(104, 20), 24).into_styled(fill))
-            .await;
-        self.driver.flush().await;
-    }
-
-    async fn show_default_initial_screen(&mut self) {
-        self.clear(false, false).await;
-        let name = ENGINE_TYPE_MENU_ITEMS[(self.current_engine_type.clone() as u8) as usize].name;
-        let text_box = TextBox::center().build();
-        self.driver
-            .draw_string(name, text_box, FontSize::Large)
-            .await;
-
-        self.driver.flush().await;
+        let mut in_operation_mode = InOperationMode::new(self);
+        in_operation_mode.run().await;
     }
 
     // op menu mode /////////////////////////////////////////////////////////
@@ -438,7 +375,8 @@ impl Display {
                 | Request::DrawCircle { .. }
                 | Request::DrawRectangle { .. }
                 | Request::DrawTriangle { .. }
-                | Request::DrawArc { .. } => self.handle_generic_request(request).await,
+                | Request::DrawArc { .. }
+                | Request::DisplayText { .. } => self.handle_generic_request(request).await,
                 Request::UpdatePotValue { pot_info: info } => {
                     self.update_pot_value(info, &erase, &positions).await
                 }
@@ -503,7 +441,8 @@ impl Display {
                 | Request::DrawCircle { .. }
                 | Request::DrawRectangle { .. }
                 | Request::DrawTriangle { .. }
-                | Request::DrawArc { .. } => self.handle_generic_request(request).await,
+                | Request::DrawArc { .. }
+                | Request::DisplayText { .. } => self.handle_generic_request(request).await,
                 Request::UpdateCvValues { cv_info } => {
                     self.update_cv_info(cv_info, &mut cv_points).await
                 }
@@ -568,6 +507,7 @@ impl Display {
 
     /// Switches display mode based on the request kind
     async fn switch_mode(&mut self, mode: Mode, request: Option<Request>) {
+        debug!("switch_mode, Switching mode to {:?}", mode);
         match mode {
             Mode::Fundamental => self.into_fundamental_mode(request).await,
             Mode::InOperation => self.into_in_operation_mode(request).await,

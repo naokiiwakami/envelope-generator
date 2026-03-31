@@ -48,15 +48,20 @@ impl<'a, ActionT> MenuMode<'a, ActionT> {
         loop {
             // while self.display.mode.is_menu_mode() {
             let request = self.display.fetch_request().await;
+            debug!("[MenuMode]: request: {}", request.name());
             match request {
-                Request::SwitchMode { .. }
-                | Request::Clear { .. }
+                Request::SwitchMode { .. } => {
+                    self.display.handle_generic_request(request).await;
+                    break;
+                }
+                Request::Clear { .. }
                 | Request::Flush
                 | Request::DrawLine { .. }
                 | Request::DrawCircle { .. }
                 | Request::DrawRectangle { .. }
                 | Request::DrawTriangle { .. }
-                | Request::DrawArc { .. } => self.display.handle_generic_request(request).await,
+                | Request::DrawArc { .. }
+                | Request::DisplayText { .. } => self.display.handle_generic_request(request).await,
                 Request::DisplayOpMenuItem { index }
                 | Request::DisplayEngineTypeMenuItem { index }
                 | Request::DisplayAdminMenuItem { index } => {

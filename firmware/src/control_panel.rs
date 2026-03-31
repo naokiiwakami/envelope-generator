@@ -27,8 +27,8 @@ use self::{
     calibrator::Calibrator,
     diagnoser::Diagnoser,
     display::{
-        CHANNEL_LENGTH as DISPLAY_CHANNEL_LENGTH, Display, Request as DisplayRequest,
-        get_request_sender,
+        CHANNEL_LENGTH as DISPLAY_CHANNEL_LENGTH, Display, Mode as DisplayMode,
+        Request as DisplayRequest, get_request_sender,
     },
     menu::{ADMIN_MENU_ITEMS, AdminAction, ENGINE_TYPE_MENU_ITEMS, OP_MENU_ITEMS, OpAction},
 };
@@ -84,7 +84,7 @@ struct ControlPanel {
     button_pressed_at: Option<Instant>,
     mode: ControlPanelMode,
 
-    encoder_origin: i16,
+    encoder_last_raw: i16,
     menu_item_index: usize,
     toggle_time: Instant,
 }
@@ -97,7 +97,7 @@ impl ControlPanel {
         encoder_ind_green: Output<'static>,
     ) -> Self {
         let display_request_sender = get_request_sender();
-        let encoder_origin = encoder.count() as i16 / 4;
+        let encoder_last_raw = encoder.count() as i16;
         Self {
             display_request_sender,
             eg_request_sender: get_eg_request_sender(),
@@ -110,15 +110,14 @@ impl ControlPanel {
             ind_green: encoder_ind_green,
             button_pressed_at: Option::None,
             mode: ControlPanelMode::Normal,
-            encoder_origin,
+            encoder_last_raw,
             menu_item_index: 0,
             toggle_time: Instant::now(),
         }
     }
 
     pub async fn run(&mut self) {
-        self.show_initial_screen().await;
-        // self.blink_leds().await;
+        self.clear_screen(false, true).await;
         loop {
             match select(
                 self.eg_event_subscriber.next_message_pure(),
@@ -292,11 +291,9 @@ impl ControlPanel {
     }
 
     async fn switch_engine_type(&mut self, next_engine_type: EngineType) {
-        if next_engine_type != self.current_engine_type {
-            self.engine_type_index = (next_engine_type.clone() as u8) as usize;
-            self.current_engine_type = next_engine_type;
-            self.show_initial_screen().await;
-        }
+        self.engine_type_index = (next_engine_type.clone() as u8) as usize;
+        self.current_engine_type = next_engine_type;
+        self.go_to_op_home().await;
     }
 
     // Admin mode ////////////////////////////////////////////////////////////
@@ -347,7 +344,7 @@ impl ControlPanel {
         self.ind_red.set_low();
         self.ind_green.set_low();
         self.mode = ControlPanelMode::Normal;
-        self.show_initial_screen().await;
+        self.go_to_op_home().await;
     }
 
     /// Switch to a menu mode.
@@ -360,7 +357,7 @@ impl ControlPanel {
         blink: bool,
     ) {
         self.mode = mode;
-        self.encoder_origin = self.encoder.count() as i16 / 4;
+        self.encoder_last_raw = self.encoder.count() as i16;
         self.ind_red
             .set_level(if red { Level::High } else { Level::Low });
         self.ind_green
@@ -389,21 +386,15 @@ impl ControlPanel {
     /// Checks the encoder value and update the index if there's any change.
     /// Returns true if the index has changed.
     fn update_menu_index(&mut self, menu_size: usize) -> bool {
-        let raw_count = self.encoder.count();
-        if raw_count % 4 != 0 {
-            // the encoder is still moving
+        let raw = self.encoder.count() as i16;
+        let delta = (raw - self.encoder_last_raw) / 4;
+        if delta == 0 {
             return false;
         }
-        let count = raw_count as i16 / 4;
-        if count == self.encoder_origin {
-            // no change in the counter
-            return false;
-        }
-        let delta = count - self.encoder_origin;
         let mut idx: i32 = (self.menu_item_index as i32 + delta as i32) % (menu_size as i32);
         debug!(
             "count: {}, origin: {}, delta: {}, idx: {}",
-            count, self.encoder_origin, delta, idx
+            raw, self.encoder_last_raw, delta, idx
         );
         if idx < 0 {
             idx += menu_size as i32;
@@ -411,9 +402,9 @@ impl ControlPanel {
         self.menu_item_index = idx as usize;
         debug!(
             "count: {}, index: {}, origin: {}",
-            count, self.menu_item_index, self.encoder_origin
+            raw, self.menu_item_index, self.encoder_last_raw
         );
-        self.encoder_origin = count;
+        self.encoder_last_raw = raw;
         return true;
     }
 
@@ -429,11 +420,17 @@ impl ControlPanel {
         }
     }
 
-    async fn show_initial_screen(&self) {
+    async fn go_to_op_home(&self) {
         self.display_request_sender
             .send(DisplayRequest::GoToOpHome {
                 engine_type: self.current_engine_type.clone(),
             })
+            .await;
+    }
+
+    async fn switch_display_mode(&mut self, mode: DisplayMode) {
+        self.display_request_sender
+            .send(DisplayRequest::SwitchMode { mode })
             .await;
     }
 

@@ -35,7 +35,7 @@ pub enum EgRequest {
 }
 
 /// EG engine types
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug, defmt::Format)]
 #[repr(u8)]
 pub enum EngineType {
     ParaDecays = 0,

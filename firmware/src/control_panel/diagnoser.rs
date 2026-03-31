@@ -12,7 +12,7 @@ use crate::{
     patch_controller::{diagnose_button, diagnose_leds},
 };
 
-use super::{ControlPanel, DisplayRequest};
+use super::{ControlPanel, DisplayRequest, display::Mode as DisplayMode};
 
 // signal to receive nudges.
 static SIGNAL_REPLY: Signal<ThreadModeRawMutex, ()> = Signal::new();
@@ -28,6 +28,9 @@ impl<'a> Diagnoser<'a> {
 
     pub async fn execute(&mut self) {
         let text_box = TextBox::center().fg_color(BinaryColor::Off).build();
+        self.control_panel
+            .switch_display_mode(DisplayMode::Fundamental)
+            .await;
         self.control_panel.clear_screen(true, false).await;
         self.control_panel
             .display_text("Diagnosing...", text_box.clone(), FontSize::Medium, true)

@@ -311,6 +311,10 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
         let rx_receiver = analog3::get_forwarder_receiver();
         let prop_request_receiver = analog3::get_prop_request_receiver();
         let mut input_reader_info_receiver = get_reader_info_receiver().await;
+        debug!(
+            "Notifying the initial enigne type: {}",
+            self.config.engine_type[0]
+        );
         self.event_publisher
             .publish(EgEvent::EngineSwitched(self.config.engine_type[0].clone()))
             .await;
