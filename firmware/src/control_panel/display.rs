@@ -1,7 +1,7 @@
 mod menu_mode;
 
 use core::cmp::min;
-use defmt::error;
+use defmt::{debug, error};
 use embassy_futures::yield_now;
 use embassy_stm32::{
     i2c::{I2c, Master},
@@ -32,14 +32,15 @@ pub const CHANNEL_LENGTH: usize = 4;
 static CHANNEL_REQUEST: Channel<ThreadModeRawMutex, Request, CHANNEL_LENGTH> = Channel::new();
 
 #[embassy_executor::task]
-pub async fn run_display(mut eg_display: EgDisplay) {
+pub async fn run_display(mut eg_display: Display) {
     eg_display.run().await;
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug, defmt::Format)]
 pub enum Mode {
     Any,
     Fundamental,
+    InOperation,
     OpMenu,
     EngineTypeMenu,
     AdminMenu,
@@ -91,7 +92,7 @@ pub enum Request {
         flush: bool,
     },
     // Fundamental requests
-    ShowInitialScreen {
+    GoToOpHome {
         engine_type: EngineType,
     },
     DisplayText {
@@ -130,13 +131,34 @@ impl Request {
             | Request::DrawCircle { .. }
             | Request::DrawRectangle { .. }
             | Request::DrawTriangle { .. }
-            | Request::DrawArc { .. } => Mode::Any,
-            Request::ShowInitialScreen { .. } | Request::DisplayText { .. } => Mode::Fundamental,
+            | Request::DrawArc { .. }
+            | Request::DisplayText { .. } => Mode::Any,
+            Request::GoToOpHome { .. } => Mode::InOperation,
             Request::DisplayOpMenuItem { .. } => Mode::OpMenu,
             Request::DisplayEngineTypeMenuItem { .. } => Mode::EngineTypeMenu,
             Request::DisplayAdminMenuItem { .. } => Mode::AdminMenu,
             Request::UpdatePotValue { .. } => Mode::PotsDiag,
             Request::UpdateCvValues { .. } => Mode::CvDiag,
+        }
+    }
+
+    fn name(&self) -> &str {
+        match self {
+            Request::SwitchMode { .. } => "SwitchMode",
+            Request::Clear { .. } => "Clear",
+            Request::Flush => "Flush",
+            Request::DrawLine { .. } => "DrawLine",
+            Request::DrawCircle { .. } => "DrawCircle",
+            Request::DrawRectangle { .. } => "Drawrectangle",
+            Request::DrawTriangle { .. } => "DrawTriangle",
+            Request::DrawArc { .. } => "DrawArc",
+            Request::DisplayText { .. } => "DisplayText",
+            Request::GoToOpHome { .. } => "GoToOpHome",
+            Request::DisplayOpMenuItem { .. } => "DisplayOpMenuItem",
+            Request::DisplayEngineTypeMenuItem { .. } => "DisplayEngineTypeMenuItem",
+            Request::DisplayAdminMenuItem { .. } => "DisplayAdminMenuItem",
+            Request::UpdatePotValue { .. } => "UpdatePotValue",
+            Request::UpdateCvValues { .. } => "UpdateCvValues",
         }
     }
 }
@@ -146,7 +168,7 @@ pub fn get_request_sender() -> channel::Sender<'static, ThreadModeRawMutex, Requ
     CHANNEL_REQUEST.sender()
 }
 
-pub struct EgDisplay {
+pub struct Display {
     driver: Ssd1306Lite<I2c<'static, Async, Master>>,
 
     mode: Mode,
@@ -155,7 +177,7 @@ pub struct EgDisplay {
     pending_request: Option<Request>,
 }
 
-impl EgDisplay {
+impl Display {
     pub fn new(i2c: I2c<'static, Async, Master>) -> Self {
         let mut driver = Ssd1306Lite::new(i2c);
         driver.set_yield_interval(Duration::from_micros(15));
@@ -171,10 +193,12 @@ impl EgDisplay {
 
     pub async fn run(&mut self) {
         self.driver.initialize().await;
+        debug!("initialized");
         loop {
             match self.mode {
                 Mode::Any => {} // Generic requests don't have a specific mode
                 Mode::Fundamental => self.run_fundamental_mode().await,
+                Mode::InOperation => self.run_in_operation_mode().await,
                 Mode::OpMenu => self.run_op_menu_mode().await,
                 Mode::EngineTypeMenu => self.run_engine_type_menu_mode().await,
                 Mode::AdminMenu => self.run_admin_menu_mode().await,
@@ -228,6 +252,16 @@ impl EgDisplay {
                 self.draw_arc(center, radius, start_degree, end_degree, color, flush)
                     .await
             }
+            Request::DisplayText {
+                text,
+                text_box,
+                font_size,
+                flush,
+            } => {
+                self.display_text(text.as_str(), text_box, font_size, flush)
+                    .await
+            }
+
             _ => {} // Other requests shouldn't reach here
         }
     }
@@ -240,8 +274,10 @@ impl EgDisplay {
     }
 
     async fn run_fundamental_mode(&mut self) {
+        debug!("In fundamental mode");
         while matches!(self.mode, Mode::Fundamental) {
             let request = self.fetch_request().await;
+            debug!("[fundamental]: request: {}", request.name());
             match request {
                 Request::SwitchMode { .. }
                 | Request::Clear { .. }
@@ -250,26 +286,47 @@ impl EgDisplay {
                 | Request::DrawCircle { .. }
                 | Request::DrawRectangle { .. }
                 | Request::DrawTriangle { .. }
-                | Request::DrawArc { .. } => self.handle_generic_request(request).await,
-                Request::ShowInitialScreen { engine_type } => {
-                    self.show_initial_screen(engine_type).await
-                }
-                Request::DisplayText {
-                    text,
-                    text_box,
-                    font_size,
-                    flush,
-                } => {
-                    self.display_text(text.as_str(), text_box, font_size, flush)
-                        .await
-                }
+                | Request::DrawArc { .. }
+                | Request::DisplayText { .. } => self.handle_generic_request(request).await,
                 _ => self.switch_mode(request.mode(), Some(request)).await,
             }
         }
     }
 
+    // operational mode ///////////////////////////////////////////////////////////
+
+    async fn into_in_operation_mode(&mut self, pending_request: Option<Request>) {
+        self.mode = Mode::InOperation;
+        self.pending_request = pending_request;
+    }
+
+    async fn run_in_operation_mode(&mut self) {
+        debug!("In InOperation mode");
+        while matches!(self.mode, Mode::InOperation) {
+            let request = self.fetch_request().await;
+            debug!(
+                "[InOperation]: request: {} mode: {}",
+                request.name(),
+                self.mode
+            );
+            match request {
+                Request::SwitchMode { .. }
+                | Request::Clear { .. }
+                | Request::Flush
+                | Request::DrawLine { .. }
+                | Request::DrawCircle { .. }
+                | Request::DrawRectangle { .. }
+                | Request::DrawTriangle { .. }
+                | Request::DrawArc { .. }
+                | Request::DisplayText { .. } => self.handle_generic_request(request).await,
+                Request::GoToOpHome { engine_type } => self.show_initial_screen(engine_type).await,
+                _ => self.switch_mode(request.mode(), Some(request)).await,
+            }
+        }
+        debug!("[InOperation]: out to {}", self.mode);
+    }
+
     pub async fn show_initial_screen(&mut self, engine_type: EngineType) {
-        self.mode = Mode::Fundamental;
         self.current_engine_type = engine_type;
         match self.current_engine_type {
             EngineType::Adsr => self.show_adsr_initial_screen().await,
@@ -513,6 +570,7 @@ impl EgDisplay {
     async fn switch_mode(&mut self, mode: Mode, request: Option<Request>) {
         match mode {
             Mode::Fundamental => self.into_fundamental_mode(request).await,
+            Mode::InOperation => self.into_in_operation_mode(request).await,
             Mode::OpMenu => self.into_menu_mode(Mode::OpMenu, request).await,
             Mode::EngineTypeMenu => self.into_menu_mode(Mode::EngineTypeMenu, request).await,
             Mode::AdminMenu => self.into_menu_mode(Mode::AdminMenu, request).await,

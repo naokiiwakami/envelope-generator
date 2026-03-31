@@ -10,10 +10,10 @@ use ssd1306_lite::TextBox;
 
 use crate::control_panel::menu::MenuItem;
 
-use super::{EgDisplay, Request};
+use super::{Display, Request};
 
 pub struct MenuMode<'a, ActionT> {
-    display: &'a mut EgDisplay,
+    display: &'a mut Display,
 
     title: &'a str,
     menu_items: &'a [MenuItem<ActionT>],
@@ -28,7 +28,7 @@ impl<'a, ActionT> MenuMode<'a, ActionT> {
     const INDENT: i32 = 4;
 
     pub fn new(
-        display: &'a mut EgDisplay,
+        display: &'a mut Display,
         title: &'a str,
         menu_items: &'static [MenuItem<ActionT>],
     ) -> Self {
