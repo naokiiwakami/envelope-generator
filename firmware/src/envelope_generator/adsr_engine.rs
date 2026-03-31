@@ -1,11 +1,12 @@
 /// Default EG voice engine
-use defmt::{self, debug};
+use defmt;
 
 use crate::input_reader::{InputReaderInfo, PotKind};
 
 use super::{
     config::EgConfig,
-    definitions::{Engine, VoiceParams, mul_uq0_32},
+    definitions::{Engine, VoiceParams},
+    utils::{mul_uq0_32, note_to_scale},
 };
 
 #[derive(Debug, defmt::Format)]
@@ -25,6 +26,7 @@ pub struct AdsrEngine {
 
     // note scaling factor, represented in UQ8.24
     note_scale: u32,
+    // note scaling depth, Q0.32
     note_scale_depth: u32,
 
     // Values that represent current EG state
@@ -44,33 +46,6 @@ pub struct AdsrEngine {
     phase: EnginePhase,
 }
 
-// const ONE_THIRD_UQ32_32: u64 = ((1u128 << 32) / 3) as u64;
-// const THREE_MINUS_ONE_THIRD_UQ32_32: u64 = ((3u128 << 32) - ((1u128 << 32) / 3)) as u64;
-// Q8.24
-const A: u32 = (9u32 << 24) / 8;
-const B: u32 = (3u32 << 24) / 8;
-const C: u32 = (1u32 << 24) / 4;
-
-fn mul_q8_24(a: u32, b: u32) -> u32 {
-    ((a as u64 >> 4) * (b as u64 >> 4) >> 16) as u32
-}
-
-/// Get note scale. Input is ranging between 0 to 65535 where
-/// 32768 is the mid point that gives 1.0 scale.
-///
-/// The output is time ratio scale factor in UQ8.24 format.
-fn get_note_scale(x: u16) -> u32 {
-    // t = x / 32768 in UQ8.24
-    let t: u32 = (x as u32) << 9;
-
-    // calculate 1.125 * t^2 - 0.375 * t + 0.25
-    let quad = mul_q8_24(A, mul_q8_24(t, t));
-    let lin = mul_q8_24(B, t);
-
-    // Q8.24
-    quad - lin + C
-}
-
 impl Engine for AdsrEngine {
     fn new() -> Self {
         Self {
@@ -80,7 +55,7 @@ impl Engine for AdsrEngine {
             release_ratio: 0,
 
             note_scale: 0x1000000,
-            note_scale_depth: (179 << 24), // 0.7
+            note_scale_depth: 0,
 
             current_value: 0,
             target_value: 0,
@@ -146,14 +121,7 @@ impl Engine for AdsrEngine {
         target_value /= 5;
         self.target_value = target_value as u32;
 
-        // calculate note scale
-        let mut note: u32 = (params.note as u32) << 9; // 7bit to 16 bit
-        if note >= 0x8000 {
-            note = 0x8000 + mul_uq0_32(note - 0x8000, self.note_scale_depth);
-        } else {
-            note = 0x8000 - mul_uq0_32(0x8000 - note, self.note_scale_depth);
-        }
-        self.note_scale = get_note_scale(note as u16);
+        self.note_scale = note_to_scale(params.note, self.note_scale_depth);
 
         self.peak_value = level as u32;
         self.phase = EnginePhase::Attack;

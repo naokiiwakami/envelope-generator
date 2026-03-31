@@ -5,6 +5,7 @@ mod diag_engine;
 mod linear_engine;
 mod para_decays_engine;
 mod two_decays_engine;
+mod utils;
 
 use analog3::{
     self,
@@ -41,11 +42,12 @@ pub use self::definitions::{
 use self::{
     adsr_engine::AdsrEngine,
     config::EgConfig,
-    definitions::{DEFAULT_VOICE_IDS, Engine, VoiceParams, uq0_32_to_output_positive},
+    definitions::{DEFAULT_VOICE_IDS, Engine, VoiceParams},
     diag_engine::DiagEngine,
     linear_engine::LinearEngine,
     para_decays_engine::ParaDecaysEngine,
     two_decays_engine::TwoDecaysEngine,
+    utils::uq0_32_to_output_positive,
 };
 
 // parameter tweaks

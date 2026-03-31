@@ -1,0 +1,74 @@
+// Fixed point arithmetic /////////////////////////////////////////
+
+/// Multiplies two UQ0.32 numbers and returns UQ0.32 result.
+#[inline(always)]
+pub fn mul_uq0_32(a: u32, b: u32) -> u32 {
+    ((a as u64 * b as u64) >> 32) as u32
+}
+
+/// Calculate a UQ32.32 fraction.
+#[inline(always)]
+pub fn fraction_uq32_32(numerator: u32, denominator: u32) -> u64 {
+    ((numerator as u64) << 32) / denominator as u64
+}
+
+/// Multiplies two UQ8.24 numbers with avoiding overflow
+#[inline(always)]
+pub fn mul_uq8_24(a: u32, b: u32) -> u32 {
+    ((a as u64 >> 4) * (b as u64 >> 4) >> 16) as u32
+}
+
+// Note scale calculator ////////////////////////////////////////////////////
+
+// Q8.24 constants to calculate quadratic curve for note tracking
+const A: u32 = (9u32 << 24) / 8;
+const B: u32 = (3u32 << 24) / 8;
+const C: u32 = (1u32 << 24) / 4;
+
+/// Gets note scale. Input is ranging between 0 to 65535 where
+/// 32768 is the mid point that gives 1.0 scale. The input 65535 gives
+/// the maximum scale that is 4.0. The input 0 gives the minimum scale
+/// that is 1/4.
+///
+/// The output is in Q8.24 format.
+#[inline]
+pub fn calculate_note_scale(x: u16) -> u32 {
+    // t = x / 32768 in UQ8.24
+    let t: u32 = (x as u32) << 9;
+
+    // calculate 1.125 * t^2 - 0.375 * t + 0.25
+    let square = mul_uq8_24(A, mul_uq8_24(t, t));
+    let linear = mul_uq8_24(B, t);
+
+    // Q8.24
+    square - linear + C
+}
+
+/// Get the note tracking scale factor from note number and depth.
+///
+/// Args:
+/// - note: Note number in range 0..128
+/// - depth: Depth in UQ0.32 format that determines sensitivity of the note.
+///   depth 0 takes no effect, i.e. output is always 1.0 regardless the note.
+///   depth u32.MAX gives maximum scaling.
+///
+/// The return value is UQ8.24 scale factor.
+#[inline]
+pub fn note_to_scale(note: u8, depth: u32) -> u32 {
+    let mut scale_input: u32 = (note as u32) << 9; // 7bit to 16 bit
+    if scale_input >= 0x8000 {
+        scale_input = 0x8000 + mul_uq0_32(scale_input - 0x8000, depth);
+    } else {
+        scale_input = 0x8000 - mul_uq0_32(0x8000 - scale_input, depth);
+    }
+    calculate_note_scale(scale_input as u16)
+}
+
+// UQ0.32 to DAC value converters /////////////////////////////////////////
+
+/// Converts a UQ0.32 value of range [0..0.5) to 12-bit positive output.
+/// The function does not check boundary intentionally for performance.
+/// The call should ensure the input is less than 0x80000000.
+pub fn uq0_32_to_output_positive(value: u32, zero_point: u16) -> u16 {
+    (value >> 20) as u16 + zero_point
+}
