@@ -96,6 +96,15 @@ pub enum Request {
     // Fundamental requests
     GoToOpHome {
         engine_type: EngineType,
+        attack: u16,
+        decay: u16,
+        sustain: u16,
+        release: u16,
+        extra_1: u16,
+        extra_2: u16,
+    },
+    UpdatePot {
+        pot_info: PotInfo,
     },
     ShowPolarity {
         polarity_1: i8,
@@ -115,7 +124,7 @@ pub enum Request {
         index: usize,
     },
     // PotsDiag requests
-    UpdatePotValue {
+    UpdatePotForDiag {
         pot_info: PotInfo,
     },
     // CvDiag requests
@@ -136,10 +145,12 @@ impl Request {
             | Request::DrawTriangle { .. }
             | Request::DrawArc { .. }
             | Request::DisplayText { .. } => Mode::Any,
-            Request::GoToOpHome { .. } | Request::ShowPolarity { .. } => Mode::InOperation,
+            Request::GoToOpHome { .. }
+            | Request::UpdatePot { .. }
+            | Request::ShowPolarity { .. } => Mode::InOperation,
             Request::DisplayEngineTypeMenuItem { .. } => Mode::EngineTypeMenu,
             Request::DisplayAdminMenuItem { .. } => Mode::AdminMenu,
-            Request::UpdatePotValue { .. } => Mode::PotsDiag,
+            Request::UpdatePotForDiag { .. } => Mode::PotsDiag,
             Request::UpdateCvValues { .. } => Mode::CvDiag,
         }
     }
@@ -156,10 +167,11 @@ impl Request {
             Request::DrawArc { .. } => "DrawArc",
             Request::DisplayText { .. } => "DisplayText",
             Request::GoToOpHome { .. } => "GoToOpHome",
+            Request::UpdatePot { .. } => "UpdatePot",
             Request::ShowPolarity { .. } => "ShowPolarity",
             Request::DisplayEngineTypeMenuItem { .. } => "DisplayEngineTypeMenuItem",
             Request::DisplayAdminMenuItem { .. } => "DisplayAdminMenuItem",
-            Request::UpdatePotValue { .. } => "UpdatePotValue",
+            Request::UpdatePotForDiag { .. } => "UpdatePotForDiag",
             Request::UpdateCvValues { .. } => "UpdateCvValues",
         }
     }
@@ -368,7 +380,7 @@ impl Display {
                 | Request::DrawTriangle { .. }
                 | Request::DrawArc { .. }
                 | Request::DisplayText { .. } => self.handle_generic_request(request).await,
-                Request::UpdatePotValue { pot_info: info } => {
+                Request::UpdatePotForDiag { pot_info: info } => {
                     self.update_pot_value(info, &erase, &positions).await
                 }
                 _ => self.switch_mode(request.mode(), Some(request)).await,

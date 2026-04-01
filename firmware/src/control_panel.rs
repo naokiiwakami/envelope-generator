@@ -13,14 +13,17 @@ use embassy_stm32::{
     peripherals::TIM3,
     timer::qei::Qei,
 };
-use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel, pubsub};
+use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel, pubsub, watch};
 use embassy_time::{Duration, Instant, Timer};
 use heapless::String;
 use ssd1306_lite::{FontSize, TextBox};
 
-use crate::envelope_generator::{
-    EG_CHANNEL_SIZE, EG_PUBS, EG_SUBS, EgEvent, EgRequest, EngineType, get_eg_event_subscriber,
-    get_eg_request_sender,
+use crate::{
+    envelope_generator::{
+        EG_CHANNEL_SIZE, EG_PUBS, EG_SUBS, EgEvent, EgRequest, EngineType, get_eg_event_subscriber,
+        get_eg_request_sender,
+    },
+    input_reader::{InputReaderInfo, PotKind, get_reader_info_receiver},
 };
 
 use self::{
@@ -51,7 +54,7 @@ const _: () = {
     assert!(ALL_PAGES.len() == EngineType::Diag as u8 as usize + 1);
 };
 
-pub fn start(
+pub async fn start(
     spawner: Spawner,
     i2c: I2c<'static, Async, Master>,
     encoder: Qei<'static, TIM3>,
@@ -62,7 +65,7 @@ pub fn start(
     let eg_display = Display::new(i2c);
     spawner.spawn(display::run_display(eg_display).unwrap());
     let control_panel =
-        ControlPanel::new(encoder, encoder_button, encoder_ind_red, encoder_ind_green);
+        ControlPanel::new(encoder, encoder_button, encoder_ind_red, encoder_ind_green).await;
     spawner.spawn(run_control_panel(control_panel).unwrap());
 }
 
@@ -105,6 +108,15 @@ struct ControlPanel {
     eg_event_subscriber:
         pubsub::Subscriber<'static, ThreadModeRawMutex, EgEvent, EG_CHANNEL_SIZE, EG_SUBS, EG_PUBS>,
 
+    // Input Reader
+    reader_info_receiver: watch::Receiver<'static, ThreadModeRawMutex, InputReaderInfo, 2>,
+    attack: u16,
+    decay: u16,
+    sustain: u16,
+    release: u16,
+    extra_1: u16,
+    extra_2: u16,
+
     // EG states
     engine_type_index: usize,
     current_engine_type: EngineType,
@@ -128,7 +140,7 @@ struct ControlPanel {
 }
 
 impl ControlPanel {
-    pub fn new(
+    pub async fn new(
         encoder: Qei<'static, TIM3>,
         encoder_button: Input<'static>,
         encoder_ind_red: Output<'static>,
@@ -140,6 +152,13 @@ impl ControlPanel {
             display_request_sender,
             eg_request_sender: get_eg_request_sender(),
             eg_event_subscriber: get_eg_event_subscriber(),
+            reader_info_receiver: get_reader_info_receiver().await,
+            attack: 0,
+            decay: 0,
+            sustain: 0,
+            release: 0,
+            extra_1: 0,
+            extra_2: 0,
             engine_type_index: 0,
             current_engine_type: EngineType::Adsr,
             polarity: (1, 1),
@@ -160,17 +179,21 @@ impl ControlPanel {
 
     pub async fn run(&mut self) {
         self.clear_screen(false, true).await;
+        let mut last_updated = Instant::now();
         loop {
             match select(
                 self.eg_event_subscriber.next_message_pure(),
-                Timer::after_millis(10),
+                self.reader_info_receiver.changed(),
             )
             .await
             {
                 Either::First(event) => self.handle_eg_event(event).await,
-                Either::Second(()) => {}
+                Either::Second(info) => self.handle_reader_info(info).await,
             };
-            self.update().await;
+            if last_updated.elapsed().as_millis() > 10 {
+                self.update().await;
+                last_updated = Instant::now();
+            }
         }
     }
 
@@ -181,19 +204,52 @@ impl ControlPanel {
         }
     }
 
+    async fn handle_reader_info(&mut self, info: InputReaderInfo) {
+        let value = info.pot_info.value;
+        let mut updated = true;
+        match info.pot_info.kind {
+            PotKind::Attack => {
+                self.attack = value;
+            }
+            PotKind::Decay => {
+                self.decay = value;
+            }
+            PotKind::Sustain => {
+                self.sustain = value;
+            }
+            PotKind::Release => {
+                self.release = value;
+            }
+            PotKind::Extra1 => {
+                self.extra_1 = value;
+            }
+            PotKind::Extra2 => {
+                self.extra_2 = value;
+            }
+            _ => {
+                updated = false;
+            }
+        }
+        if updated
+            && matches!(self.mode, ControlPanelMode::Normal)
+            && matches!(self.page, OperationPage::Home)
+        {
+            self.display_request_sender
+                .send(DisplayRequest::UpdatePot {
+                    pot_info: info.pot_info,
+                })
+                .await;
+        }
+    }
+
     async fn update(&mut self) {
         let next_level = self.button.get_level();
         if next_level == Level::Low {
             // swiched on
             match self.button_pressed_at {
                 Some(button_pressed_at) => {
-                    match self.mode {
-                        ControlPanelMode::Normal => {
-                            if button_pressed_at.elapsed().as_millis() > 2000 {
-                                self.into_admin_menu_mode().await;
-                            }
-                        }
-                        _ => {} // do nothing, next mode is not determined yet
+                    if button_pressed_at.elapsed().as_millis() > 2000 {
+                        self.into_admin_menu_mode().await;
                     }
                 }
                 None => self.on_button_pressed(),
@@ -484,6 +540,12 @@ impl ControlPanel {
         self.display_request_sender
             .send(DisplayRequest::GoToOpHome {
                 engine_type: self.current_engine_type.clone(),
+                attack: self.attack,
+                decay: self.decay,
+                sustain: self.sustain,
+                release: self.release,
+                extra_1: self.extra_1,
+                extra_2: self.extra_2,
             })
             .await;
     }

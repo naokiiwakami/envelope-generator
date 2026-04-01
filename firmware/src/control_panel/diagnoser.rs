@@ -8,7 +8,6 @@ use ssd1306_lite::{FontSize, TextBox};
 
 use crate::{
     envelope_generator::EngineType,
-    input_reader::get_reader_info_receiver,
     patch_controller::{diagnose_button, diagnose_leds},
 };
 
@@ -94,7 +93,6 @@ impl<'a> Diagnoser<'a> {
     }
 
     async fn diagnose_pots(&mut self) {
-        let mut receiver = get_reader_info_receiver().await;
         let mut now = Instant::now();
         self.control_panel.button_pressed_at = if self.control_panel.button.is_low() {
             Some(now.clone())
@@ -107,13 +105,18 @@ impl<'a> Diagnoser<'a> {
         let mut first_one_covered = false;
         loop {
             let sleep_time = next.duration_since(now);
-            match select(receiver.changed(), Timer::after(sleep_time)).await {
+            match select(
+                self.control_panel.reader_info_receiver.changed(),
+                Timer::after(sleep_time),
+            )
+            .await
+            {
                 Either::First(reader_info) => {
                     let pot_info = reader_info.pot_info;
                     let index = pot_info.kind.clone() as usize;
                     self.control_panel
                         .display_request_sender
-                        .send(DisplayRequest::UpdatePotValue { pot_info })
+                        .send(DisplayRequest::UpdatePotForDiag { pot_info })
                         .await;
                     if index == 0 {
                         first_one_covered = true;
@@ -152,7 +155,6 @@ impl<'a> Diagnoser<'a> {
     }
 
     async fn diagnose_cv(&mut self) {
-        let mut receiver = get_reader_info_receiver().await;
         let mut now = Instant::now();
         self.control_panel.button_pressed_at = if self.control_panel.button.is_low() {
             Some(now.clone())
@@ -165,7 +167,12 @@ impl<'a> Diagnoser<'a> {
         let mut last_update_time = Instant::now();
         loop {
             let sleep_time = next.duration_since(now);
-            match select(receiver.changed(), Timer::after(sleep_time)).await {
+            match select(
+                self.control_panel.reader_info_receiver.changed(),
+                Timer::after(sleep_time),
+            )
+            .await
+            {
                 Either::First(reader_info) => {
                     let cv_info = reader_info.cv_info;
                     if last_update_time.elapsed().as_millis() >= 30 {
