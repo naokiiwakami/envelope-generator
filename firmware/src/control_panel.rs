@@ -33,6 +33,24 @@ use self::{
     menu::{ADMIN_MENU_ITEMS, AdminAction, ENGINE_TYPE_MENU_ITEMS},
 };
 
+const PARA_DECAYS_PAGES: [OperationPage; 2] = [OperationPage::Home, OperationPage::OutputPolarity];
+const ADDSR_PAGES: [OperationPage; 2] = [OperationPage::Home, OperationPage::OutputPolarity];
+const ADSR_PAGES: [OperationPage; 2] = [OperationPage::Home, OperationPage::OutputPolarity];
+const LINEAR_PAGES: [OperationPage; 2] = [OperationPage::Home, OperationPage::OutputPolarity];
+const DIAGNOSE_PAGES: [OperationPage; 1] = [OperationPage::Home];
+
+const ALL_PAGES: [&[OperationPage]; 5] = [
+    &PARA_DECAYS_PAGES,
+    &ADDSR_PAGES,
+    &ADSR_PAGES,
+    &LINEAR_PAGES,
+    &DIAGNOSE_PAGES,
+];
+
+const _: () = {
+    assert!(ALL_PAGES.len() == EngineType::Diag as u8 as usize + 1);
+};
+
 pub fn start(
     spawner: Spawner,
     i2c: I2c<'static, Async, Master>,
@@ -62,6 +80,7 @@ enum ControlPanelMode {
     AdminActionSelected,
 }
 
+#[derive(Clone)]
 enum OperationPage {
     Home,
     OutputPolarity,
@@ -85,8 +104,11 @@ struct ControlPanel {
     eg_request_sender: channel::Sender<'static, ThreadModeRawMutex, EgRequest, EG_CHANNEL_SIZE>,
     eg_event_subscriber:
         pubsub::Subscriber<'static, ThreadModeRawMutex, EgEvent, EG_CHANNEL_SIZE, EG_SUBS, EG_PUBS>,
+
+    // EG states
     engine_type_index: usize,
     current_engine_type: EngineType,
+    polarity: (i8, i8),
 
     // rotary encoder
     encoder: Qei<'static, TIM3>,
@@ -97,6 +119,7 @@ struct ControlPanel {
     button_pressed_at: Option<Instant>,
     mode: ControlPanelMode,
     page: OperationPage,
+    page_index: usize,
     next_action: Option<Action>,
 
     encoder_last_raw: i16,
@@ -119,6 +142,7 @@ impl ControlPanel {
             eg_event_subscriber: get_eg_event_subscriber(),
             engine_type_index: 0,
             current_engine_type: EngineType::Adsr,
+            polarity: (1, 1),
             encoder,
             button: encoder_button,
             ind_red: encoder_ind_red,
@@ -126,6 +150,7 @@ impl ControlPanel {
             button_pressed_at: Option::None,
             mode: ControlPanelMode::Normal,
             page: OperationPage::Home,
+            page_index: 0,
             next_action: None,
             encoder_last_raw,
             menu_item_index: 0,
@@ -152,6 +177,7 @@ impl ControlPanel {
     async fn handle_eg_event(&mut self, event: EgEvent) {
         match event {
             EgEvent::EngineSwitched(engine_type) => self.switch_engine_type(engine_type).await,
+            EgEvent::PolarityChanged((p1, p2)) => self.change_polarity(p1, p2).await,
         }
     }
 
@@ -178,6 +204,7 @@ impl ControlPanel {
         } else {
             // normal "button off" status, do regular task for the mode
             match self.mode {
+                ControlPanelMode::Normal => self.update_normal().await,
                 ControlPanelMode::EngineTypeMenu => self.update_engine_type_menu().await,
                 ControlPanelMode::AdminMenu => self.update_admin_menu().await,
                 _ => {}
@@ -243,7 +270,35 @@ impl ControlPanel {
         }
     }
 
-    // Engine type menu mode //////////////////////////////////////////////////////////
+    // Normal mode //////////////////////////////////////////////////////////
+    async fn update_normal(&mut self) {
+        let engine_index = self.current_engine_type.index();
+        if engine_index >= ALL_PAGES.len() {
+            return; // shouldn't happen but being defensive here
+        }
+        let raw = self.encoder.count() as i16;
+        let delta = (raw - self.encoder_last_raw) / 4;
+        if delta == 0 {
+            return;
+        }
+        self.encoder_last_raw = raw;
+
+        // switch page
+        let pages = ALL_PAGES[self.current_engine_type.index()];
+        if pages.len() <= 1 {
+            return; // switching page never happens
+        }
+        let mut index: i32 = (self.page_index as i32 + delta as i32) % pages.len() as i32;
+        while index < 0 {
+            index += pages.len() as i32;
+        }
+        self.page_index = index as usize;
+        self.page = pages[self.page_index].clone();
+        match self.page {
+            OperationPage::Home => self.go_to_op_home().await,
+            OperationPage::OutputPolarity => self.show_polarity().await,
+        }
+    }
 
     /// Transit the mode to EngineTypeMenu.
     async fn into_engine_type_menu_mode(&mut self) {
@@ -286,7 +341,19 @@ impl ControlPanel {
     async fn switch_engine_type(&mut self, next_engine_type: EngineType) {
         self.engine_type_index = (next_engine_type.clone() as u8) as usize;
         self.current_engine_type = next_engine_type;
+        self.page_index = 0;
+        self.page = OperationPage::Home;
+        self.encoder_last_raw = self.encoder.count() as i16;
         self.go_to_op_home().await;
+    }
+
+    async fn change_polarity(&mut self, polarity_1: i8, polarity_2: i8) {
+        self.polarity = (polarity_1, polarity_2);
+        if matches!(self.mode, ControlPanelMode::Normal)
+            && matches!(self.page, OperationPage::OutputPolarity)
+        {
+            self.show_polarity().await;
+        }
     }
 
     // Admin mode ////////////////////////////////////////////////////////////
@@ -446,6 +513,15 @@ impl ControlPanel {
                 text_box,
                 font_size,
                 flush,
+            })
+            .await;
+    }
+
+    async fn show_polarity(&mut self) {
+        self.display_request_sender
+            .send(DisplayRequest::ShowPolarity {
+                polarity_1: self.polarity.0,
+                polarity_2: self.polarity.1,
             })
             .await;
     }

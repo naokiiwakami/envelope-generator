@@ -55,6 +55,11 @@ impl EngineType {
             EngineType::Diag => "Diagnose",
         }
     }
+
+    #[inline]
+    pub fn index(&self) -> usize {
+        (self.clone() as u8) as usize
+    }
 }
 
 impl TryFrom<u8> for EngineType {
@@ -92,6 +97,7 @@ pub enum GateEventType {
 #[derive(Clone)]
 pub enum EgEvent {
     EngineSwitched(EngineType),
+    PolarityChanged((i8, i8)), // polarity_1, polarity_2
 }
 
 pub trait Engine {

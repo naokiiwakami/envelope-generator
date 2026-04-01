@@ -97,6 +97,10 @@ pub enum Request {
     GoToOpHome {
         engine_type: EngineType,
     },
+    ShowPolarity {
+        polarity_1: i8,
+        polarity_2: i8,
+    },
     DisplayText {
         text: String<32>,
         text_box: TextBox,
@@ -132,7 +136,7 @@ impl Request {
             | Request::DrawTriangle { .. }
             | Request::DrawArc { .. }
             | Request::DisplayText { .. } => Mode::Any,
-            Request::GoToOpHome { .. } => Mode::InOperation,
+            Request::GoToOpHome { .. } | Request::ShowPolarity { .. } => Mode::InOperation,
             Request::DisplayEngineTypeMenuItem { .. } => Mode::EngineTypeMenu,
             Request::DisplayAdminMenuItem { .. } => Mode::AdminMenu,
             Request::UpdatePotValue { .. } => Mode::PotsDiag,
@@ -152,6 +156,7 @@ impl Request {
             Request::DrawArc { .. } => "DrawArc",
             Request::DisplayText { .. } => "DisplayText",
             Request::GoToOpHome { .. } => "GoToOpHome",
+            Request::ShowPolarity { .. } => "ShowPolarity",
             Request::DisplayEngineTypeMenuItem { .. } => "DisplayEngineTypeMenuItem",
             Request::DisplayAdminMenuItem { .. } => "DisplayAdminMenuItem",
             Request::UpdatePotValue { .. } => "UpdatePotValue",
