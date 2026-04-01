@@ -1,21 +1,5 @@
 use crate::envelope_generator::EngineType;
 
-pub static OP_MENU_ITEMS: [MenuItem<OpAction>; 2] = [
-    MenuItem {
-        name: "EG TYPE",
-        selection: OpAction::EngineType,
-    },
-    MenuItem {
-        name: "CANCEL",
-        selection: OpAction::Cancel,
-    },
-];
-
-pub enum OpAction {
-    EngineType,
-    Cancel,
-}
-
 /// EG Engine type.
 /// IMPORTANT: The menu index must be the same as u8 representation of the
 /// EngineType entry, otherwise ControlPanel misbehaves on switching engine types.

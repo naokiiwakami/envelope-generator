@@ -30,7 +30,7 @@ use self::{
         CHANNEL_LENGTH as DISPLAY_CHANNEL_LENGTH, Display, Mode as DisplayMode,
         Request as DisplayRequest, get_request_sender,
     },
-    menu::{ADMIN_MENU_ITEMS, AdminAction, ENGINE_TYPE_MENU_ITEMS, OP_MENU_ITEMS, OpAction},
+    menu::{ADMIN_MENU_ITEMS, AdminAction, ENGINE_TYPE_MENU_ITEMS},
 };
 
 pub fn start(
@@ -56,8 +56,6 @@ async fn run_control_panel(mut control_panel: ControlPanel) {
 enum ControlPanelMode {
     Normal,
     ActionSelected,
-    OpMenu,
-    OpActionSelected,
     EngineTypeMenu,
     EngineTypeSelected,
     AdminMenu,
@@ -180,7 +178,6 @@ impl ControlPanel {
         } else {
             // normal "button off" status, do regular task for the mode
             match self.mode {
-                ControlPanelMode::OpMenu => self.update_op_menu().await,
                 ControlPanelMode::EngineTypeMenu => self.update_engine_type_menu().await,
                 ControlPanelMode::AdminMenu => self.update_admin_menu().await,
                 _ => {}
@@ -200,9 +197,6 @@ impl ControlPanel {
                 };
                 self.mode = ControlPanelMode::ActionSelected;
             }
-            ControlPanelMode::OpMenu => {
-                self.mode = ControlPanelMode::OpActionSelected;
-            }
             ControlPanelMode::EngineTypeMenu => {
                 self.mode = ControlPanelMode::EngineTypeSelected;
             }
@@ -218,15 +212,11 @@ impl ControlPanel {
             ControlPanelMode::Normal => {
                 self.ind_red.set_low();
                 self.ind_green.set_high();
-                self.into_op_menu_mode().await;
             }
             ControlPanelMode::ActionSelected => match &self.next_action {
                 Some(action) => self.execute_action(action.clone()).await,
                 None => error!("No action set up -- shouldn't happen"),
             },
-            ControlPanelMode::OpActionSelected => {
-                self.execute_op_action().await;
-            }
             ControlPanelMode::EngineTypeSelected => {
                 match &ENGINE_TYPE_MENU_ITEMS[self.menu_item_index].selection {
                     Some(engine_type) => {
@@ -250,38 +240,6 @@ impl ControlPanel {
         match action {
             Action::SelectEngineType => self.into_engine_type_menu_mode().await,
             Action::SetUpPolatiry => {}
-        }
-    }
-
-    // Op menu mode //////////////////////////////////////////////////////////
-
-    /// Transit the mode to OpMenu.
-    async fn into_op_menu_mode(&mut self) {
-        self.into_menu_mode(ControlPanelMode::OpMenu, 0, false, true, false)
-            .await;
-        self.display_current_op_menu().await;
-    }
-
-    /// Called periodically to update op menu state.
-    async fn update_op_menu(&mut self) {
-        if self.update_menu(OP_MENU_ITEMS.len(), false, true) {
-            self.display_current_op_menu().await;
-        }
-    }
-
-    async fn display_current_op_menu(&mut self) {
-        let request = DisplayRequest::DisplayOpMenuItem {
-            index: self.menu_item_index,
-        };
-        self.display_request_sender.send(request).await;
-    }
-
-    /// Called on button release in OpActionSelected mode to execute the next action.
-    async fn execute_op_action(&mut self) {
-        let action = &OP_MENU_ITEMS[self.menu_item_index].selection;
-        match action {
-            OpAction::EngineType => self.into_engine_type_menu_mode().await,
-            OpAction::Cancel => self.into_normal_mode().await,
         }
     }
 

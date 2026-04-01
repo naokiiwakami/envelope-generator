@@ -60,8 +60,7 @@ impl<'a, ActionT> MenuMode<'a, ActionT> {
                 | Request::DrawTriangle { .. }
                 | Request::DrawArc { .. }
                 | Request::DisplayText { .. } => self.display.handle_generic_request(request).await,
-                Request::DisplayOpMenuItem { index }
-                | Request::DisplayEngineTypeMenuItem { index }
+                Request::DisplayEngineTypeMenuItem { index }
                 | Request::DisplayAdminMenuItem { index } => {
                     if request.mode() != self.display.mode {
                         self.display

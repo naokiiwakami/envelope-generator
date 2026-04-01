@@ -27,7 +27,7 @@ use crate::{
     input_reader::{CvInfo, PotInfo},
 };
 
-use super::menu::{ADMIN_MENU_ITEMS, OP_MENU_ITEMS};
+use super::menu::ADMIN_MENU_ITEMS;
 
 use self::in_operation_mode::InOperationMode;
 
@@ -44,7 +44,6 @@ pub enum Mode {
     Any,
     Fundamental,
     InOperation,
-    OpMenu,
     EngineTypeMenu,
     AdminMenu,
     PotsDiag,
@@ -105,9 +104,6 @@ pub enum Request {
         flush: bool,
     },
     // Menu requests
-    DisplayOpMenuItem {
-        index: usize,
-    },
     DisplayEngineTypeMenuItem {
         index: usize,
     },
@@ -137,7 +133,6 @@ impl Request {
             | Request::DrawArc { .. }
             | Request::DisplayText { .. } => Mode::Any,
             Request::GoToOpHome { .. } => Mode::InOperation,
-            Request::DisplayOpMenuItem { .. } => Mode::OpMenu,
             Request::DisplayEngineTypeMenuItem { .. } => Mode::EngineTypeMenu,
             Request::DisplayAdminMenuItem { .. } => Mode::AdminMenu,
             Request::UpdatePotValue { .. } => Mode::PotsDiag,
@@ -157,7 +152,6 @@ impl Request {
             Request::DrawArc { .. } => "DrawArc",
             Request::DisplayText { .. } => "DisplayText",
             Request::GoToOpHome { .. } => "GoToOpHome",
-            Request::DisplayOpMenuItem { .. } => "DisplayOpMenuItem",
             Request::DisplayEngineTypeMenuItem { .. } => "DisplayEngineTypeMenuItem",
             Request::DisplayAdminMenuItem { .. } => "DisplayAdminMenuItem",
             Request::UpdatePotValue { .. } => "UpdatePotValue",
@@ -202,7 +196,6 @@ impl Display {
                 Mode::Any => {} // Generic requests don't have a specific mode
                 Mode::Fundamental => self.run_fundamental_mode().await,
                 Mode::InOperation => self.run_in_operation_mode().await,
-                Mode::OpMenu => self.run_op_menu_mode().await,
                 Mode::EngineTypeMenu => self.run_engine_type_menu_mode().await,
                 Mode::AdminMenu => self.run_admin_menu_mode().await,
                 Mode::PotsDiag => self.run_pots_diag_mode().await,
@@ -307,13 +300,6 @@ impl Display {
     async fn run_in_operation_mode(&mut self) {
         let mut in_operation_mode = InOperationMode::new(self);
         in_operation_mode.run().await;
-    }
-
-    // op menu mode /////////////////////////////////////////////////////////
-
-    async fn run_op_menu_mode(&mut self) {
-        let mut menu = MenuMode::new(self, "SETTINGS", &OP_MENU_ITEMS);
-        menu.run().await;
     }
 
     // op menu mode /////////////////////////////////////////////////////////
@@ -511,7 +497,6 @@ impl Display {
         match mode {
             Mode::Fundamental => self.into_fundamental_mode(request).await,
             Mode::InOperation => self.into_in_operation_mode(request).await,
-            Mode::OpMenu => self.into_menu_mode(Mode::OpMenu, request).await,
             Mode::EngineTypeMenu => self.into_menu_mode(Mode::EngineTypeMenu, request).await,
             Mode::AdminMenu => self.into_menu_mode(Mode::AdminMenu, request).await,
             Mode::PotsDiag => self.into_pots_diag_mode(request).await,
