@@ -134,12 +134,6 @@ impl<'a> InOperationMode<'a> {
 
     // ADSR ///////////////////////////////////////////////////////////////////////////////////
 
-    const SCALE_BAR_LEFT: i32 = 74;
-    const SCALE_BAR_Y: i32 = 55;
-    const SCALE_BAR_LENGTH_POW: usize = 5;
-    const SCALE_BAR_LENGTH: i32 = 1 << Self::SCALE_BAR_LENGTH_POW;
-    const SCALE_BAR_LENGTH_BIT_SHIFT: usize = 16 - Self::SCALE_BAR_LENGTH_POW;
-
     async fn show_home_page_adsr(
         &mut self,
         _attack: u16,
@@ -162,21 +156,7 @@ impl<'a> InOperationMode<'a> {
             .draw_string("ADSR", TextBox::center().build(), FontSize::Large)
             .await;
 
-        let stroke = PrimitiveStyleBuilder::new()
-            .stroke_width(3)
-            .stroke_alignment(StrokeAlignment::Center)
-            .stroke_color(BinaryColor::On)
-            .build();
-
-        let line_length: i32 = (extra_2 >> Self::SCALE_BAR_LENGTH_BIT_SHIFT) as i32;
-        self.display
-            .driver
-            .draw_line(
-                (Self::SCALE_BAR_LEFT, Self::SCALE_BAR_Y),
-                (Self::SCALE_BAR_LEFT + line_length, Self::SCALE_BAR_Y),
-                stroke,
-            )
-            .await;
+        self.draw_note_scaling_bar(extra_2).await;
 
         self.display.driver.flush().await;
     }
@@ -184,42 +164,68 @@ impl<'a> InOperationMode<'a> {
     async fn update_pot_adsr(&mut self, pot_info: PotInfo) {
         match pot_info.kind {
             PotKind::Extra2 => {
-                let erase = PrimitiveStyleBuilder::new()
-                    .stroke_width(3)
-                    .stroke_alignment(StrokeAlignment::Center)
-                    .stroke_color(BinaryColor::Off)
-                    .build();
-
-                let stroke = PrimitiveStyleBuilder::new()
-                    .stroke_width(3)
-                    .stroke_alignment(StrokeAlignment::Center)
-                    .stroke_color(BinaryColor::On)
-                    .build();
-
-                let line_length: i32 = (pot_info.value >> Self::SCALE_BAR_LENGTH_BIT_SHIFT) as i32;
-                self.display
-                    .driver
-                    .draw_line(
-                        (Self::SCALE_BAR_LEFT, Self::SCALE_BAR_Y),
-                        (Self::SCALE_BAR_LEFT + line_length, Self::SCALE_BAR_Y),
-                        stroke,
-                    )
-                    .await;
-                self.display
-                    .driver
-                    .draw_line(
-                        (Self::SCALE_BAR_LEFT + line_length, Self::SCALE_BAR_Y),
-                        (
-                            Self::SCALE_BAR_LEFT + Self::SCALE_BAR_LENGTH,
-                            Self::SCALE_BAR_Y,
-                        ),
-                        erase,
-                    )
-                    .await;
+                self.draw_note_scaling_bar(pot_info.value).await;
             }
             _ => {}
         }
         self.display.driver.flush().await;
+    }
+
+    /// Draws a note scaling bar
+    async fn draw_note_scaling_bar(&mut self, depth: u16) {
+        let erase = PrimitiveStyleBuilder::new()
+            .stroke_width(0)
+            .fill_color(BinaryColor::Off)
+            .build();
+        let fill = PrimitiveStyleBuilder::new()
+            .stroke_width(0)
+            .fill_color(BinaryColor::On)
+            .build();
+
+        let left: i32 = 80;
+        let width: u32 = 40;
+        let right: i32 = left + width as i32;
+        let bottom_y: i32 = 63;
+        let max_bar_thickness: u32 = 8;
+        let min_bar_thickness: u32 = 2;
+        let max_triangle_height: u32 = 15;
+
+        let thickness =
+            max_bar_thickness - ((depth as u32 * (max_bar_thickness - min_bar_thickness)) >> 16);
+        let triangle_height = (depth as u32 * (max_triangle_height - min_bar_thickness)) >> 16;
+
+        let bar_top_y = bottom_y + 1 - thickness as i32;
+        let triangle_base_y = bar_top_y.min(bottom_y);
+        let triangle_top_y = triangle_base_y - triangle_height as i32;
+
+        self.display
+            .driver
+            .draw_rectangle(
+                (left, bottom_y - max_triangle_height as i32 + 1),
+                width + 1,
+                max_triangle_height,
+                erase,
+            )
+            .await;
+
+        if thickness > 0 {
+            self.display
+                .driver
+                .draw_rectangle((left, bar_top_y), width, thickness, fill)
+                .await;
+        }
+
+        if triangle_height > 0 {
+            self.display
+                .driver
+                .draw_triangle(
+                    (left, triangle_top_y),
+                    (left, triangle_base_y),
+                    (right, triangle_base_y),
+                    fill,
+                )
+                .await;
+        }
     }
 
     // Linear //////////////////////////////////////////////////////////////////////////////////////////

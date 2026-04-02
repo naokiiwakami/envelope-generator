@@ -6,6 +6,7 @@ mod control_panel;
 mod envelope_generator;
 mod input_reader;
 mod patch_controller;
+pub mod utils;
 
 use analog3::{Analog3Config, definitions::*, storage};
 use core::future::pending;

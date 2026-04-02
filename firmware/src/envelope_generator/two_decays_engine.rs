@@ -1,12 +1,15 @@
 /// Default EG voice engine
 use defmt;
 
-use crate::input_reader::{InputReaderInfo, PotKind};
+use crate::{
+    input_reader::{InputReaderInfo, PotKind},
+    utils::{fraction_uq32_32, mul_uq0_32},
+};
 
 use super::{
     config::EgConfig,
     definitions::{Engine, VoiceParams},
-    utils::{fraction_uq32_32, mul_uq0_32, note_to_scale},
+    utils::note_to_scale,
 };
 
 #[derive(Debug, defmt::Format)]
