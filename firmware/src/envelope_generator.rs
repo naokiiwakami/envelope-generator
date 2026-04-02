@@ -419,7 +419,7 @@ struct EgVoice<'a, EngineT: Engine> {
 
     ind_gate: &'a mut Output<'static>,
 
-    analog_gate_enabled: bool,
+    physical_gate_enabled: bool,
 
     engine: EngineT,
 
@@ -437,7 +437,7 @@ impl<'a, EngineT: Engine> EgVoice<'a, EngineT> {
         engine.initialize(voice_index, config);
         Self {
             ind_gate,
-            analog_gate_enabled: false,
+            physical_gate_enabled: false,
             params,
             engine,
             last_value: 0,
@@ -445,7 +445,7 @@ impl<'a, EngineT: Engine> EgVoice<'a, EngineT> {
     }
 
     pub async fn handle_a3_message(&mut self, message: &A3Datagram) {
-        if self.analog_gate_enabled {
+        if self.physical_gate_enabled {
             // do nothing when analog gate is enabled
             return;
         }
@@ -481,12 +481,12 @@ impl<'a, EngineT: Engine> EgVoice<'a, EngineT> {
 
     pub fn handle_gate_event(&mut self, event: GateEventType) {
         match event {
-            GateEventType::AnalogGateEnabled => {
-                self.analog_gate_enabled = true;
+            GateEventType::PhysicalGateEnabled => {
+                self.physical_gate_enabled = true;
                 self.ind_gate.set_high();
             }
-            GateEventType::AnalogGateDisabled => {
-                self.analog_gate_enabled = false;
+            GateEventType::PhysicalGateDisabled => {
+                self.physical_gate_enabled = false;
             }
             GateEventType::GateOn { velocity } => {
                 self.params.velocity = velocity;

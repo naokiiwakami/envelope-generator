@@ -95,8 +95,8 @@ struct EgResources {
     ind_gate_2: Output<'static>,
     gate_src_sw_1: Input<'static>,
     gate_src_sw_2: Input<'static>,
-    ind_analog_gate_1: Output<'static>,
-    ind_analog_gate_2: Output<'static>,
+    ind_physical_gate_1: Output<'static>,
+    ind_physical_gate_2: Output<'static>,
     gate_trigger_1: ExtiInput<'static, Async>,
     gate_trigger_2: ExtiInput<'static, Async>,
     patch_button: Input<'static>,
@@ -128,8 +128,8 @@ async fn setup_peripherals(p: Peripherals) -> EgResources {
     let ind_gate_2 = Output::new(p.PD3, Level::Low, Speed::Low);
 
     // input source
-    let ind_analog_gate_1 = Output::new(p.PD0, Level::Low, Speed::Low);
-    let ind_analog_gate_2 = Output::new(p.PD1, Level::Low, Speed::Low);
+    let ind_physical_gate_1 = Output::new(p.PD0, Level::Low, Speed::Low);
+    let ind_physical_gate_2 = Output::new(p.PD1, Level::Low, Speed::Low);
     let gate_src_sw_1 = Input::new(p.PA8, Pull::None);
     let gate_src_sw_2 = Input::new(p.PA9, Pull::None);
 
@@ -267,8 +267,8 @@ async fn setup_peripherals(p: Peripherals) -> EgResources {
         ind_gate_2,
         gate_src_sw_1,
         gate_src_sw_2,
-        ind_analog_gate_1,
-        ind_analog_gate_2,
+        ind_physical_gate_1,
+        ind_physical_gate_2,
         gate_trigger_1,
         gate_trigger_2,
         patch_button,
@@ -298,8 +298,8 @@ async fn main(spawner: Spawner) {
         eg_resources.adc_resources,
         eg_resources.gate_src_sw_1,
         eg_resources.gate_src_sw_2,
-        eg_resources.ind_analog_gate_1,
-        eg_resources.ind_analog_gate_2,
+        eg_resources.ind_physical_gate_1,
+        eg_resources.ind_physical_gate_2,
         eg_resources.gate_trigger_1,
         eg_resources.gate_trigger_2,
     )
