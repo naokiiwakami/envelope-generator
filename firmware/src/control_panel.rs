@@ -245,7 +245,7 @@ impl ControlPanel {
     async fn update(&mut self) {
         let next_level = self.button.get_level();
         if next_level == Level::Low {
-            // swiched on
+            // switched on
             match self.button_pressed_at {
                 Some(button_pressed_at) => {
                     if button_pressed_at.elapsed().as_millis() > 2000 {
@@ -294,7 +294,7 @@ impl ControlPanel {
         match self.mode {
             ControlPanelMode::Normal => {
                 self.ind_red.set_low();
-                self.ind_green.set_high();
+                self.ind_green.set_low();
             }
             ControlPanelMode::ActionSelected => match &self.next_action {
                 Some(action) => self.execute_action(action.clone()).await,
@@ -315,7 +315,10 @@ impl ControlPanel {
                 self.ind_green.set_low();
                 self.execute_admin_action().await;
             }
-            _ => {}
+            _ => {
+                self.ind_red.set_low();
+                self.ind_green.set_low();
+            }
         }
     }
 

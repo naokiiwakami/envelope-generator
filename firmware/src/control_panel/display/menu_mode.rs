@@ -161,20 +161,17 @@ impl<'a, ActionT> MenuMode<'a, ActionT> {
     async fn clear_line(&mut self, reverse: bool, ypos: i32) {
         self.display
             .driver
-            .draw_styled(
-                Rectangle::new(
-                    Point::new(0, ypos),
-                    Size::new(128, Self::LINE_HEIGHT as u32),
-                )
-                .into_styled(
-                    PrimitiveStyleBuilder::new()
-                        .fill_color(if reverse {
-                            BinaryColor::On
-                        } else {
-                            BinaryColor::Off
-                        })
-                        .build(),
-                ),
+            .draw_rectangle(
+                (0, ypos),
+                128,
+                Self::LINE_HEIGHT as u32,
+                PrimitiveStyleBuilder::new()
+                    .fill_color(if reverse {
+                        BinaryColor::On
+                    } else {
+                        BinaryColor::Off
+                    })
+                    .build(),
             )
             .await;
     }

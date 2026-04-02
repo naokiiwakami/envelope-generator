@@ -2,9 +2,7 @@ use defmt::{debug, error};
 use embedded_graphics::{
     pixelcolor::BinaryColor,
     prelude::*,
-    primitives::{
-        Circle, Line, PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, StrokeAlignment, Triangle,
-    },
+    primitives::{PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, StrokeAlignment, Triangle},
 };
 use ssd1306_lite::{Angle, FontSize, Ssd1306Lite, TextBox};
 
@@ -54,7 +52,7 @@ impl<'a> InOperationMode<'a> {
                     extra_1,
                     extra_2,
                 } => {
-                    self.show_initial_screen(
+                    self.show_home_page(
                         engine_type,
                         attack,
                         decay,
@@ -80,7 +78,7 @@ impl<'a> InOperationMode<'a> {
         // debug!("[InOperation]: out to {}", self.display.mode);
     }
 
-    pub async fn show_initial_screen(
+    pub async fn show_home_page(
         &mut self,
         engine_type: EngineType,
         attack: u16,
@@ -94,22 +92,22 @@ impl<'a> InOperationMode<'a> {
         self.display.current_engine_type = engine_type;
         match self.display.current_engine_type {
             EngineType::Adsr => {
-                self.show_initial_screen_adsr(attack, decay, sustain, release, extra_1, extra_2)
+                self.show_home_page_adsr(attack, decay, sustain, release, extra_1, extra_2)
                     .await
             }
             EngineType::Linear => {
-                self.show_initial_screen_linear(attack, decay, sustain, release, extra_1, extra_2)
+                self.show_home_page_linear(attack, decay, sustain, release, extra_1, extra_2)
                     .await
             }
             EngineType::Diag => {}
             _ => {
-                self.show_default_initial_screen(attack, decay, sustain, release, extra_1, extra_2)
+                self.show_default_home_page(attack, decay, sustain, release, extra_1, extra_2)
                     .await
             }
         }
     }
 
-    async fn show_default_initial_screen(
+    async fn show_default_home_page(
         &mut self,
         attack: u16,
         decay: u16,
@@ -138,7 +136,13 @@ impl<'a> InOperationMode<'a> {
 
     // ADSR ///////////////////////////////////////////////////////////////////////////////////
 
-    async fn show_initial_screen_adsr(
+    const SCALE_BAR_LEFT: i32 = 74;
+    const SCALE_BAR_Y: i32 = 55;
+    const SCALE_BAR_LENGTH_POW: usize = 5;
+    const SCALE_BAR_LENGTH: i32 = 1 << Self::SCALE_BAR_LENGTH_POW;
+    const SCALE_BAR_LENGTH_BIT_SHIFT: usize = 16 - Self::SCALE_BAR_LENGTH_POW;
+
+    async fn show_home_page_adsr(
         &mut self,
         attack: u16,
         decay: u16,
@@ -151,22 +155,10 @@ impl<'a> InOperationMode<'a> {
         let fill = PrimitiveStyleBuilder::new()
             .fill_color(BinaryColor::On)
             .build();
-        self.display
-            .driver
-            .draw_styled(Circle::new(Point::new(0, 20), 12).into_styled(fill))
-            .await;
-        self.display
-            .driver
-            .draw_styled(Circle::new(Point::new(33, 0), 12).into_styled(fill))
-            .await;
-        self.display
-            .driver
-            .draw_styled(Circle::new(Point::new(67, 0), 12).into_styled(fill))
-            .await;
-        self.display
-            .driver
-            .draw_styled(Circle::new(Point::new(104, 20), 12).into_styled(fill))
-            .await;
+        self.display.driver.draw_circle((0, 20), 12, fill).await;
+        self.display.driver.draw_circle((33, 0), 12, fill).await;
+        self.display.driver.draw_circle((67, 0), 12, fill).await;
+        self.display.driver.draw_circle((104, 20), 12, fill).await;
         self.display
             .driver
             .draw_string("ADSR", TextBox::center().build(), FontSize::Large)
@@ -178,11 +170,13 @@ impl<'a> InOperationMode<'a> {
             .stroke_color(BinaryColor::On)
             .build();
 
-        let line_length: i32 = (extra_2 >> 12) as i32;
+        let line_length: i32 = (extra_2 >> Self::SCALE_BAR_LENGTH_BIT_SHIFT) as i32;
         self.display
             .driver
-            .draw_styled(
-                Line::new(Point::new(90, 60), Point::new(90 + line_length, 60)).into_styled(stroke),
+            .draw_line(
+                (Self::SCALE_BAR_LEFT, Self::SCALE_BAR_Y),
+                (Self::SCALE_BAR_LEFT + line_length, Self::SCALE_BAR_Y),
+                stroke,
             )
             .await;
 
@@ -204,18 +198,24 @@ impl<'a> InOperationMode<'a> {
                     .stroke_color(BinaryColor::On)
                     .build();
 
-                let line_length: i32 = (pot_info.value >> 12) as i32;
+                let line_length: i32 = (pot_info.value >> Self::SCALE_BAR_LENGTH_BIT_SHIFT) as i32;
                 self.display
                     .driver
-                    .draw_styled(
-                        Line::new(Point::new(90, 60), Point::new(90 + 16, 60)).into_styled(erase),
+                    .draw_line(
+                        (Self::SCALE_BAR_LEFT, Self::SCALE_BAR_Y),
+                        (Self::SCALE_BAR_LEFT + line_length, Self::SCALE_BAR_Y),
+                        stroke,
                     )
                     .await;
                 self.display
                     .driver
-                    .draw_styled(
-                        Line::new(Point::new(90, 60), Point::new(90 + line_length, 60))
-                            .into_styled(stroke),
+                    .draw_line(
+                        (Self::SCALE_BAR_LEFT + line_length, Self::SCALE_BAR_Y),
+                        (
+                            Self::SCALE_BAR_LEFT + Self::SCALE_BAR_LENGTH,
+                            Self::SCALE_BAR_Y,
+                        ),
+                        erase,
                     )
                     .await;
             }
@@ -226,7 +226,7 @@ impl<'a> InOperationMode<'a> {
 
     // Linear //////////////////////////////////////////////////////////////////////////////////////////
 
-    async fn show_initial_screen_linear(
+    async fn show_home_page_linear(
         &mut self,
         attack: u16,
         decay: u16,
@@ -239,22 +239,10 @@ impl<'a> InOperationMode<'a> {
         let fill = PrimitiveStyleBuilder::new()
             .fill_color(BinaryColor::On)
             .build();
-        self.display
-            .driver
-            .draw_styled(Circle::new(Point::new(0, 20), 12).into_styled(fill))
-            .await;
-        self.display
-            .driver
-            .draw_styled(Circle::new(Point::new(33, 0), 12).into_styled(fill))
-            .await;
-        self.display
-            .driver
-            .draw_styled(Circle::new(Point::new(67, 0), 12).into_styled(fill))
-            .await;
-        self.display
-            .driver
-            .draw_styled(Circle::new(Point::new(104, 20), 12).into_styled(fill))
-            .await;
+        self.display.driver.draw_circle((0, 20), 12, fill).await;
+        self.display.driver.draw_circle((33, 0), 12, fill).await;
+        self.display.driver.draw_circle((67, 0), 12, fill).await;
+        self.display.driver.draw_circle((104, 20), 12, fill).await;
         self.display
             .driver
             .draw_string("LINEAR", TextBox::center().build(), FontSize::Large)
@@ -280,36 +268,28 @@ impl<'a> InOperationMode<'a> {
             .stroke_width(1)
             .stroke_color(BinaryColor::On)
             .build();
+        self.display.driver.draw_circle((100, 5), 21, stroke).await;
         self.display
             .driver
-            .draw_styled(Circle::new(Point::new(100, 5), 21).into_styled(stroke))
-            .await;
-        self.display
-            .driver
-            .draw_styled(Line::new(Point::new(103, 15), Point::new(117, 15)).into_styled(stroke))
+            .draw_line((103, 15), (117, 15), stroke)
             .await;
         if polarity_1 > 0 {
             self.display
                 .driver
-                .draw_styled(Line::new(Point::new(110, 8), Point::new(110, 22)).into_styled(stroke))
+                .draw_line((110, 8), (110, 22), stroke)
                 .await;
         }
 
         // out 2
+        self.display.driver.draw_circle((100, 37), 21, stroke).await;
         self.display
             .driver
-            .draw_styled(Circle::new(Point::new(100, 37), 21).into_styled(stroke))
-            .await;
-        self.display
-            .driver
-            .draw_styled(Line::new(Point::new(103, 47), Point::new(117, 47)).into_styled(stroke))
+            .draw_line((103, 47), (117, 47), stroke)
             .await;
         if polarity_2 > 0 {
             self.display
                 .driver
-                .draw_styled(
-                    Line::new(Point::new(110, 38), Point::new(110, 52)).into_styled(stroke),
-                )
+                .draw_line((110, 40), (110, 54), stroke)
                 .await;
         }
 

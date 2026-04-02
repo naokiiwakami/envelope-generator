@@ -16,7 +16,7 @@ use embassy_time::{Duration, Instant};
 use embedded_graphics::{
     pixelcolor::BinaryColor,
     prelude::*,
-    primitives::{Circle, Line, PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, Triangle},
+    primitives::{PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, Triangle},
 };
 use heapless::String;
 use ssd1306_lite::{Angle, FontSize, Ssd1306Lite, TextBox};
@@ -364,7 +364,7 @@ impl Display {
         for index in 0..positions.len() {
             let (_, position) = positions[index];
             self.driver
-                .draw_styled(Circle::new(position, 12).into_styled(fill))
+                .draw_circle((position.x, position.y), 12, fill)
                 .await;
         }
 
@@ -401,7 +401,7 @@ impl Display {
         }
         let (position, _) = positions[index];
         self.driver
-            .draw_styled(Circle::new(position, 28).into_styled(*erase))
+            .draw_circle((position.x, position.y), 28, *erase)
             .await;
 
         let start = Angle::from_degrees(120);
@@ -545,7 +545,7 @@ impl Display {
         flush: bool,
     ) {
         self.driver
-            .draw_styled(Line::new(start, end).into_styled(style))
+            .draw_line((start.x, start.y), (end.x, end.y), style)
             .await;
         if flush {
             self.driver.flush().await;
@@ -560,7 +560,7 @@ impl Display {
         flush: bool,
     ) {
         self.driver
-            .draw_styled(Circle::new(top_left, diameter).into_styled(style))
+            .draw_circle((top_left.x, top_left.y), diameter, style)
             .await;
         if flush {
             self.driver.flush().await;
@@ -575,7 +575,7 @@ impl Display {
         flush: bool,
     ) {
         self.driver
-            .draw_styled(Rectangle::new(top_left, size).into_styled(style))
+            .draw_rectangle((top_left.x, top_left.y), size.width, size.height, style)
             .await;
         if flush {
             self.driver.flush().await;
@@ -591,7 +591,12 @@ impl Display {
         flush: bool,
     ) {
         self.driver
-            .draw_styled(Triangle::new(vertex1, vertex2, vertex3).into_styled(style))
+            .draw_triangle(
+                (vertex1.x, vertex1.y),
+                (vertex2.x, vertex2.y),
+                (vertex3.x, vertex3.y),
+                style,
+            )
             .await;
         if flush {
             self.driver.flush().await;
