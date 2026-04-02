@@ -36,7 +36,7 @@ impl<'a> Diagnoser<'a> {
             .await;
         let orig_engine_type = self.control_panel.current_engine_type.clone();
         self.control_panel
-            .request_switching_operation_mode(EgOperationMode::Diagnose)
+            .request_toggle_eg_mode(EgOperationMode::Diagnose)
             .await;
         analog3::diagnose(&SIGNAL_REPLY).await;
         Timer::after_millis(500).await;
@@ -46,7 +46,7 @@ impl<'a> Diagnoser<'a> {
         self.diagnose_pots().await;
         self.diagnose_cv().await;
         self.control_panel
-            .request_switching_operation_mode(EgOperationMode::Normal)
+            .request_toggle_eg_mode(EgOperationMode::Normal)
             .await;
         self.control_panel
             .switch_engine_type(orig_engine_type)

@@ -8,7 +8,7 @@ pub const DEFAULT_VOICE_IDS: [u16; 2] = [0x101, 0x102];
 pub const DEFAULT_ENGINE_TYPE: EngineType = EngineType::ParaDecays;
 
 /// Envelope Generator operation modes
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Debug, defmt::Format)]
 pub enum Mode {
     Normal,
     Diagnose,
@@ -28,18 +28,19 @@ pub struct VoiceParams {
 
 /// Request for the envelope generator
 pub enum EgRequest {
-    GateEvent {
-        id: GateId,
-        event: GateEventType,
-    },
+    /// Notifies the EnvelopeGenerator a physical gate event.
+    GateEvent { id: GateId, event: GateEventType },
+    /// Requests to switch the engine type.
     SwitchEngine {
         engine_type: EngineType,
         send_notif: bool,
     },
-    SwitchMode {
-        mode: Mode,
-    },
-    UpdateZeroPoint {
+    /// Requests to toggle the operation mode.
+    /// The EnvelopeGenerator switches operation mode if the requested mode is different
+    /// from the current one, otherwise switches to the Normal mode.
+    ToggleMode { mode: Mode },
+    /// Requests to update output zero points.
+    UpdateZeroPoints {
         value_1: u16,
         value_2: u16,
         save: bool,

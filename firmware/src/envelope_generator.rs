@@ -389,12 +389,21 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
                 }
                 true
             }
-            EgRequest::SwitchMode { mode } => {
-                self.voice_1.params.operation_mode = mode.clone();
-                self.voice_2.params.operation_mode = mode;
+            EgRequest::ToggleMode { mode } => {
+                debug!(
+                    "toggle mode {}, current={}",
+                    mode, self.voice_1.params.operation_mode
+                );
+                let next_mode = if self.voice_1.params.operation_mode == mode {
+                    Mode::Normal
+                } else {
+                    mode
+                };
+                self.voice_1.params.operation_mode = next_mode.clone();
+                self.voice_2.params.operation_mode = next_mode;
                 true
             }
-            EgRequest::UpdateZeroPoint {
+            EgRequest::UpdateZeroPoints {
                 value_1,
                 value_2,
                 save,

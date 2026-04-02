@@ -20,7 +20,7 @@ use ssd1306_lite::{FontSize, TextBox};
 
 use crate::{
     envelope_generator::{
-        self, EG_CHANNEL_SIZE, EG_PUBS, EG_SUBS, EgEvent, EgRequest, EngineType,
+        EG_CHANNEL_SIZE, EG_PUBS, EG_SUBS, EgEvent, EgRequest, EngineType, Mode as EgOperationMode,
         get_eg_event_subscriber, get_eg_request_sender,
     },
     input_reader::{InputReaderInfo, PotKind, get_reader_info_receiver},
@@ -392,9 +392,9 @@ impl ControlPanel {
     }
 
     /// Requests EnvelopeGenerator to switch operation mode.
-    async fn request_switching_operation_mode(&mut self, mode: envelope_generator::Mode) {
+    async fn request_toggle_eg_mode(&mut self, mode: EgOperationMode) {
         self.eg_request_sender
-            .send(EgRequest::SwitchMode { mode })
+            .send(EgRequest::ToggleMode { mode })
             .await;
     }
 
@@ -451,6 +451,10 @@ impl ControlPanel {
             AdminAction::Diagnose => {
                 let mut diagnoser = Diagnoser::new(self);
                 diagnoser.execute().await;
+                self.mode = ControlPanelMode::Normal;
+            }
+            AdminAction::ToggleDiagnoseMode => {
+                self.request_toggle_eg_mode(EgOperationMode::Diagnose).await;
                 self.mode = ControlPanelMode::Normal;
             }
             AdminAction::Cancel => self.into_normal_mode().await,
