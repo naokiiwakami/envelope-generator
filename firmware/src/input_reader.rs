@@ -118,28 +118,28 @@ pub async fn start(
     resources: AdcResources,
     gate_src_sw_1: Input<'static>,
     gate_src_sw_2: Input<'static>,
-    ind_physical_gate_1: Output<'static>,
-    ind_physical_gate_2: Output<'static>,
+    ind_analog_gate_1: Output<'static>,
+    ind_analog_gate_2: Output<'static>,
     gate_trigger_1: ExtiInput<'static, Async>,
     gate_trigger_2: ExtiInput<'static, Async>,
 ) {
     let mut input_reader = InputReader::new(resources);
     input_reader.load_cv_offsets().await;
     spawner.spawn(run_input_reader(input_reader).unwrap());
-    let physical_gate_1 = PhysicalGate::new(
+    let analog_gate_1 = AnalogGate::new(
         gate_src_sw_1,
-        ind_physical_gate_1,
+        ind_analog_gate_1,
         gate_trigger_1,
         GateId::Gate1,
     );
-    let physical_gate_2 = PhysicalGate::new(
+    let analog_gate_2 = AnalogGate::new(
         gate_src_sw_2,
-        ind_physical_gate_2,
+        ind_analog_gate_2,
         gate_trigger_2,
         GateId::Gate2,
     );
-    spawner.spawn(run_physical_gate(physical_gate_1).unwrap());
-    spawner.spawn(run_physical_gate(physical_gate_2).unwrap());
+    spawner.spawn(run_analog_gate(analog_gate_1).unwrap());
+    spawner.spawn(run_analog_gate(analog_gate_2).unwrap());
 }
 
 #[inline]
@@ -338,33 +338,33 @@ impl InputReader {
 }
 
 #[embassy_executor::task(pool_size = 2)]
-async fn run_physical_gate(mut physical_gate: PhysicalGate) {
-    physical_gate.run().await;
+async fn run_analog_gate(mut analog_gate: AnalogGate) {
+    analog_gate.run().await;
 }
-struct PhysicalGate {
+struct AnalogGate {
     src_sw: Input<'static>,
-    ind_physical_gate: Output<'static>,
+    ind_analog_gate: Output<'static>,
     trigger: ExtiInput<'static, Async>,
 
     gate_id: GateId,
-    state: PhysicalGateState,
+    state: AnalogGateState,
 
     request_sender: channel::Sender<'static, ThreadModeRawMutex, EgRequest, EG_CHANNEL_SIZE>,
 }
 
-impl PhysicalGate {
+impl AnalogGate {
     pub fn new(
         src_sw: Input<'static>,
-        ind_physical_gate: Output<'static>,
+        ind_analog_gate: Output<'static>,
         trigger: ExtiInput<'static, Async>,
         gate_id: GateId,
     ) -> Self {
         Self {
             src_sw,
-            ind_physical_gate,
+            ind_analog_gate,
             trigger,
             gate_id,
-            state: PhysicalGateState::Disabled,
+            state: AnalogGateState::Disabled,
             request_sender: get_eg_request_sender(),
         }
     }
@@ -372,36 +372,36 @@ impl PhysicalGate {
     pub async fn run(&mut self) {
         loop {
             match self.state {
-                PhysicalGateState::Disabled => {
+                AnalogGateState::Disabled => {
                     Timer::after_millis(10).await;
                     if self.src_sw.is_high() {
                         debug!(
                             "Analog gate {:?} enabled, state={:?}",
                             self.gate_id, self.state
                         );
-                        self.state = PhysicalGateState::GateOff;
-                        self.ind_physical_gate.set_high();
+                        self.state = AnalogGateState::GateOff;
+                        self.ind_analog_gate.set_high();
                         self.request_sender
                             .send(EgRequest::GateEvent {
                                 id: self.gate_id.clone(),
-                                event: GateEventType::PhysicalGateEnabled,
+                                event: GateEventType::AnalogGateEnabled,
                             })
                             .await;
                     }
                 }
-                _ => self.run_physical_gate().await,
+                _ => self.run_analog_gate().await,
             }
         }
     }
 
-    async fn run_physical_gate(&mut self) {
+    async fn run_analog_gate(&mut self) {
         let mut request_sender = CHANNEL_REQUEST.sender();
         loop {
             match self.state {
-                PhysicalGateState::Disabled => {
+                AnalogGateState::Disabled => {
                     break;
                 }
-                PhysicalGateState::GateOff => match select(
+                AnalogGateState::GateOff => match select(
                     self.trigger.wait_for_falling_edge(),
                     Timer::after_millis(10),
                 )
@@ -410,7 +410,7 @@ impl PhysicalGate {
                     Either::First(()) => self.handle_gate_on(&mut request_sender).await,
                     Either::Second(()) => self.check_gate_switch().await,
                 },
-                PhysicalGateState::GateOn => {
+                AnalogGateState::GateOn => {
                     match select(self.trigger.wait_for_rising_edge(), Timer::after_millis(10)).await
                     {
                         Either::First(()) => self.handle_gate_off().await,
@@ -425,7 +425,7 @@ impl PhysicalGate {
         &mut self,
         sender: &mut channel::Sender<'static, ThreadModeRawMutex, InputReaderRequest, 2>,
     ) {
-        self.state = PhysicalGateState::GateOn;
+        self.state = AnalogGateState::GateOn;
         Timer::after_micros(500).await;
         sender
             .send(InputReaderRequest::ReadGate {
@@ -447,7 +447,7 @@ impl PhysicalGate {
     }
 
     async fn handle_gate_off(&mut self) {
-        self.state = PhysicalGateState::GateOff;
+        self.state = AnalogGateState::GateOff;
         self.request_sender
             .send(EgRequest::GateEvent {
                 id: self.gate_id.clone(),
@@ -463,7 +463,7 @@ impl PhysicalGate {
                 "Analog gate {:?} disabled, state={:?}",
                 self.gate_id, self.state
             );
-            if !matches!(self.state, PhysicalGateState::GateOff) {
+            if !matches!(self.state, AnalogGateState::GateOff) {
                 self.request_sender
                     .send(EgRequest::GateEvent {
                         id: self.gate_id.clone(),
@@ -474,17 +474,17 @@ impl PhysicalGate {
             self.request_sender
                 .send(EgRequest::GateEvent {
                     id: self.gate_id.clone(),
-                    event: GateEventType::PhysicalGateDisabled,
+                    event: GateEventType::AnalogGateDisabled,
                 })
                 .await;
-            self.ind_physical_gate.set_low();
-            self.state = PhysicalGateState::Disabled
+            self.ind_analog_gate.set_low();
+            self.state = AnalogGateState::Disabled
         }
     }
 }
 
 #[derive(Debug, defmt::Format)]
-enum PhysicalGateState {
+enum AnalogGateState {
     Disabled,
     GateOff,
     GateOn,

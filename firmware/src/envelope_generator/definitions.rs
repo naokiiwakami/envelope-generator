@@ -34,14 +34,6 @@ pub enum EgRequest {
     },
 }
 
-/// EG operation modes
-#[derive(Clone)]
-pub enum Mode {
-    Normal,
-    Diag,
-    // Calib,
-}
-
 /// EG engine types
 #[derive(Clone, PartialEq, Debug, defmt::Format)]
 #[repr(u8)]
@@ -95,8 +87,8 @@ pub enum GateId {
 /// Gate event types
 #[derive(Clone, Debug, defmt::Format)]
 pub enum GateEventType {
-    PhysicalGateEnabled,
-    PhysicalGateDisabled,
+    AnalogGateEnabled,
+    AnalogGateDisabled,
     GateOn { velocity: u16 },
     GateOff,
 }
