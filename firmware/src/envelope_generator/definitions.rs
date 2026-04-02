@@ -14,6 +14,8 @@ pub struct VoiceParams {
     pub velocity: u16,
     pub out_zero_point: u16,
     pub value_to_output: &'static dyn Fn(u32, u16) -> u16,
+
+    pub physical_gate_enabled: bool,
 }
 
 /// Request for the envelope generator
@@ -87,8 +89,8 @@ pub enum GateId {
 /// Gate event types
 #[derive(Clone, Debug, defmt::Format)]
 pub enum GateEventType {
-    AnalogGateEnabled,
-    AnalogGateDisabled,
+    PhysicalGateEnabled,
+    PhysicalGateDisabled,
     GateOn { velocity: u16 },
     GateOff,
 }
