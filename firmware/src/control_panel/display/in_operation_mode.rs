@@ -1,7 +1,8 @@
 use defmt::debug;
 use embedded_graphics::{
     pixelcolor::BinaryColor,
-    primitives::{PrimitiveStyleBuilder, StrokeAlignment},
+    prelude::Point,
+    primitives::{PrimitiveStyle, PrimitiveStyleBuilder, StrokeAlignment},
 };
 use ssd1306_lite::{FontSize, TextBox};
 
@@ -14,11 +15,48 @@ use super::{Display, ENGINE_TYPE_MENU_ITEMS, Mode, Request};
 
 pub struct InOperationMode<'a> {
     display: &'a mut Display,
+
+    attack: i32,
+    decay: i32,
+    sustain: i32,
+    gate_off: i32,
+    release: i32,
+
+    // frequently used styles
+    erase_fill: PrimitiveStyle<BinaryColor>,
+    fill: PrimitiveStyle<BinaryColor>,
+    erase_stroke: PrimitiveStyle<BinaryColor>,
+    stroke: PrimitiveStyle<BinaryColor>,
 }
+
+const NODE_SIZE: u32 = 3;
 
 impl<'a> InOperationMode<'a> {
     pub fn new(display: &'a mut Display) -> Self {
-        Self { display }
+        Self {
+            display,
+            attack: 0,
+            decay: 0,
+            sustain: 0,
+            gate_off: 0,
+            release: 0,
+            erase_fill: PrimitiveStyleBuilder::new()
+                .stroke_width(0)
+                .fill_color(BinaryColor::Off)
+                .build(),
+            fill: PrimitiveStyleBuilder::new()
+                .stroke_width(0)
+                .fill_color(BinaryColor::On)
+                .build(),
+            erase_stroke: PrimitiveStyleBuilder::new()
+                .stroke_width(1)
+                .stroke_color(BinaryColor::Off)
+                .build(),
+            stroke: PrimitiveStyleBuilder::new()
+                .stroke_width(1)
+                .stroke_color(BinaryColor::On)
+                .build(),
+        }
     }
 
     pub async fn run(&mut self) {
@@ -136,25 +174,39 @@ impl<'a> InOperationMode<'a> {
 
     async fn show_home_page_adsr(
         &mut self,
-        _attack: u16,
-        _decay: u16,
-        _sustain: u16,
-        _release: u16,
+        attack: u16,
+        decay: u16,
+        sustain: u16,
+        release: u16,
         _extra_1: u16,
         extra_2: u16,
     ) {
         self.display.clear(false, false).await;
-        let fill = PrimitiveStyleBuilder::new()
-            .fill_color(BinaryColor::On)
-            .build();
-        self.display.driver.draw_circle((0, 20), 12, fill).await;
-        self.display.driver.draw_circle((33, 0), 12, fill).await;
-        self.display.driver.draw_circle((67, 0), 12, fill).await;
-        self.display.driver.draw_circle((104, 20), 12, fill).await;
+
+        self.attack = self.attack_pos(attack);
+        self.decay = self.decay_pos(decay);
+        self.sustain = self.sustain_pos(sustain);
+        self.gate_off = self.gate_off_pos();
+        self.release = self.release_pos(release);
+
+        self.draw_node(0, 28).await;
+        self.draw_node(self.attack, 0).await;
+        self.draw_line((0, 28), (self.attack, 0)).await;
+        self.draw_node(self.decay, self.sustain).await;
+        self.draw_line((self.attack, 0), (self.decay, self.sustain))
+            .await;
+        self.draw_node(self.gate_off, self.sustain).await;
+        self.draw_line((self.decay, self.sustain), (self.gate_off, self.sustain))
+            .await;
+        self.draw_node(self.release, 28).await;
+        self.draw_line((self.gate_off, self.sustain), (self.release, 28))
+            .await;
+        /*
         self.display
             .driver
             .draw_string("ADSR", TextBox::center().build(), FontSize::Large)
             .await;
+        */
 
         self.draw_note_scaling_bar(extra_2).await;
 
@@ -163,6 +215,90 @@ impl<'a> InOperationMode<'a> {
 
     async fn update_pot_adsr(&mut self, pot_info: PotInfo) {
         match pot_info.kind {
+            PotKind::Attack => {
+                let next_attack = self.attack_pos(pot_info.value);
+                if next_attack == self.attack {
+                    return;
+                }
+                self.erase_node(self.attack, 0).await;
+                self.erase_line((0, 28), (self.attack, 0)).await;
+                self.erase_line((self.attack, 0), (self.decay, self.sustain))
+                    .await;
+
+                self.attack = next_attack;
+
+                self.draw_node(self.attack, 0).await;
+                self.draw_line((0, 28), (self.attack, 0)).await;
+                self.draw_line((self.attack, 0), (self.decay, self.sustain))
+                    .await;
+            }
+            PotKind::Decay => {
+                let next_decay = self.decay_pos(pot_info.value);
+                if next_decay == self.decay {
+                    return;
+                }
+
+                self.erase_node(self.decay, self.sustain).await;
+                self.erase_node(self.gate_off, self.sustain).await;
+                self.erase_line((self.attack, 0), (self.decay, self.sustain))
+                    .await;
+                self.erase_line((self.decay, self.sustain), (self.gate_off, self.sustain))
+                    .await;
+                self.erase_line((self.gate_off, self.sustain), (self.release, 28))
+                    .await;
+
+                self.decay = next_decay;
+                self.gate_off = self.gate_off_pos();
+
+                self.draw_node(self.decay, self.sustain).await;
+                self.draw_node(self.gate_off, self.sustain).await;
+                self.draw_line((self.attack, 0), (self.decay, self.sustain))
+                    .await;
+                self.draw_line((self.decay, self.sustain), (self.gate_off, self.sustain))
+                    .await;
+                self.draw_line((self.gate_off, self.sustain), (self.release, 28))
+                    .await;
+            }
+            PotKind::Sustain => {
+                let next_sustain = self.sustain_pos(pot_info.value);
+                if next_sustain == self.sustain {
+                    return;
+                }
+                self.erase_node(self.decay, self.sustain).await;
+                self.erase_node(self.gate_off, self.sustain).await;
+                self.erase_line((self.attack, 0), (self.decay, self.sustain))
+                    .await;
+                self.erase_line((self.decay, self.sustain), (self.gate_off, self.sustain))
+                    .await;
+                self.erase_line((self.gate_off, self.sustain), (self.release, 28))
+                    .await;
+
+                self.sustain = next_sustain;
+
+                self.draw_node(self.decay, self.sustain).await;
+                self.draw_node(self.gate_off, self.sustain).await;
+                self.draw_line((self.attack, 0), (self.decay, self.sustain))
+                    .await;
+                self.draw_line((self.decay, self.sustain), (self.gate_off, self.sustain))
+                    .await;
+                self.draw_line((self.gate_off, self.sustain), (self.release, 28))
+                    .await;
+            }
+            PotKind::Release => {
+                let next_release = self.release_pos(pot_info.value);
+                if next_release == self.release {
+                    return;
+                }
+                self.erase_node(self.release, 28).await;
+                self.erase_line((self.gate_off, self.sustain), (self.release, 28))
+                    .await;
+
+                self.release = next_release;
+
+                self.draw_node(self.release, 28).await;
+                self.draw_line((self.gate_off, self.sustain), (self.release, 28))
+                    .await;
+            }
             PotKind::Extra2 => {
                 self.draw_note_scaling_bar(pot_info.value).await;
             }
@@ -171,24 +307,64 @@ impl<'a> InOperationMode<'a> {
         self.display.driver.flush().await;
     }
 
+    fn attack_pos(&self, attack: u16) -> i32 {
+        ((24 * (attack as i32 + 1)) >> 16) + NODE_SIZE as i32
+    }
+
+    fn decay_pos(&self, decay: u16) -> i32 {
+        ((30 * (decay as i32 + 1)) >> 16) + NODE_SIZE as i32 + self.attack
+    }
+
+    fn sustain_pos(&self, sustain: u16) -> i32 {
+        28 - ((28 * (sustain as i32 + 1)) >> 16)
+    }
+
+    fn gate_off_pos(&self) -> i32 {
+        self.decay + 32 + NODE_SIZE as i32
+    }
+
+    fn release_pos(&self, release: u16) -> i32 {
+        ((30 * (release as i32 + 1)) >> 16) + NODE_SIZE as i32 + self.gate_off
+    }
+
+    #[inline(always)]
+    async fn draw_node(&mut self, top_left_x: i32, top_left_y: i32) {
+        self.display
+            .driver
+            .draw_circle((top_left_x, top_left_y), NODE_SIZE, self.fill)
+            .await;
+    }
+
+    #[inline(always)]
+    async fn erase_node(&mut self, top_left_x: i32, top_left_y: i32) {
+        self.display
+            .driver
+            .draw_circle((top_left_x, top_left_y), NODE_SIZE, self.erase_fill)
+            .await;
+    }
+
+    #[inline(always)]
+    async fn draw_line(&mut self, start: (i32, i32), end: (i32, i32)) {
+        self.display.driver.draw_line(start, end, self.stroke).await;
+    }
+
+    #[inline(always)]
+    async fn erase_line(&mut self, start: (i32, i32), end: (i32, i32)) {
+        self.display
+            .driver
+            .draw_line(start, end, self.erase_stroke)
+            .await;
+    }
+
     /// Draws a note scaling bar
     async fn draw_note_scaling_bar(&mut self, depth: u16) {
-        let erase = PrimitiveStyleBuilder::new()
-            .stroke_width(0)
-            .fill_color(BinaryColor::Off)
-            .build();
-        let fill = PrimitiveStyleBuilder::new()
-            .stroke_width(0)
-            .fill_color(BinaryColor::On)
-            .build();
-
         let left: i32 = 80;
         let width: u32 = 40;
         let right: i32 = left + width as i32;
         let bottom_y: i32 = 63;
-        let max_bar_thickness: u32 = 8;
+        let max_bar_thickness: u32 = 11;
         let min_bar_thickness: u32 = 2;
-        let max_triangle_height: u32 = 15;
+        let max_triangle_height: u32 = 20;
 
         let thickness =
             max_bar_thickness - ((depth as u32 * (max_bar_thickness - min_bar_thickness)) >> 16);
@@ -204,14 +380,22 @@ impl<'a> InOperationMode<'a> {
                 (left, bottom_y - max_triangle_height as i32 + 1),
                 width + 1,
                 max_triangle_height,
-                erase,
+                self.erase_fill,
             )
             .await;
 
+        self.draw_line((left, bottom_y), (right, bottom_y)).await;
+        self.draw_line((right, bottom_y), (right, bar_top_y)).await;
+        self.draw_line((right, bar_top_y), (left, triangle_top_y))
+            .await;
+        self.draw_line((left, triangle_top_y), (left, bottom_y))
+            .await;
+
+        /*
         if thickness > 0 {
             self.display
                 .driver
-                .draw_rectangle((left, bar_top_y), width, thickness, fill)
+                .draw_rectangle((left, bar_top_y), width, thickness, self.fill)
                 .await;
         }
 
@@ -222,10 +406,11 @@ impl<'a> InOperationMode<'a> {
                     (left, triangle_top_y),
                     (left, triangle_base_y),
                     (right, triangle_base_y),
-                    fill,
+                    self.fill,
                 )
                 .await;
         }
+        */
     }
 
     // Linear //////////////////////////////////////////////////////////////////////////////////////////

@@ -16,7 +16,7 @@ use embassy_time::{Duration, Instant};
 use embedded_graphics::{
     pixelcolor::BinaryColor,
     prelude::*,
-    primitives::{PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, Triangle},
+    primitives::{PrimitiveStyle, PrimitiveStyleBuilder},
 };
 use heapless::String;
 use ssd1306_lite::{Angle, FontSize, Ssd1306Lite, TextBox};
@@ -162,7 +162,7 @@ impl Request {
             Request::Flush => "Flush",
             Request::DrawLine { .. } => "DrawLine",
             Request::DrawCircle { .. } => "DrawCircle",
-            Request::DrawRectangle { .. } => "Drawrectangle",
+            Request::DrawRectangle { .. } => "DrawRectangle",
             Request::DrawTriangle { .. } => "DrawTriangle",
             Request::DrawArc { .. } => "DrawArc",
             Request::DisplayText { .. } => "DisplayText",
