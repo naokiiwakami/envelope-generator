@@ -20,8 +20,8 @@ use ssd1306_lite::{FontSize, TextBox};
 
 use crate::{
     envelope_generator::{
-        EG_CHANNEL_SIZE, EG_PUBS, EG_SUBS, EgEvent, EgRequest, EngineType, get_eg_event_subscriber,
-        get_eg_request_sender,
+        self, EG_CHANNEL_SIZE, EG_PUBS, EG_SUBS, EgEvent, EgRequest, EngineType,
+        get_eg_event_subscriber, get_eg_request_sender,
     },
     input_reader::{InputReaderInfo, PotKind, get_reader_info_receiver},
 };
@@ -42,16 +42,11 @@ const ADSR_PAGES: [OperationPage; 2] = [OperationPage::Home, OperationPage::Outp
 const LINEAR_PAGES: [OperationPage; 2] = [OperationPage::Home, OperationPage::OutputPolarity];
 const DIAGNOSE_PAGES: [OperationPage; 1] = [OperationPage::Home];
 
-const ALL_PAGES: [&[OperationPage]; 5] = [
-    &PARA_DECAYS_PAGES,
-    &ADDSR_PAGES,
-    &ADSR_PAGES,
-    &LINEAR_PAGES,
-    &DIAGNOSE_PAGES,
-];
+const ALL_PAGES: [&[OperationPage]; 4] =
+    [&PARA_DECAYS_PAGES, &ADDSR_PAGES, &ADSR_PAGES, &LINEAR_PAGES];
 
 const _: () = {
-    assert!(ALL_PAGES.len() == EngineType::Diag as u8 as usize + 1);
+    assert!(ALL_PAGES.len() == EngineType::Linear as u8 as usize + 1);
 };
 
 pub async fn start(
@@ -303,7 +298,7 @@ impl ControlPanel {
             ControlPanelMode::EngineTypeSelected => {
                 match &ENGINE_TYPE_MENU_ITEMS[self.menu_item_index].selection {
                     Some(engine_type) => {
-                        self.request_switching_engine(&engine_type, true).await;
+                        self.request_switching_engine(&engine_type).await;
                         self.switch_engine_type(engine_type.clone()).await;
                     }
                     None => {} // do not switch the engine type
@@ -386,14 +381,20 @@ impl ControlPanel {
         self.display_request_sender.send(request).await;
     }
 
-    /// Called to request EnvelopeGenerator to switch engine mode.
-    async fn request_switching_engine(&mut self, engine_type: &EngineType, save: bool) {
+    /// Requests EnvelopeGenerator to switch engine type.
+    async fn request_switching_engine(&mut self, engine_type: &EngineType) {
         self.eg_request_sender
             .send(EgRequest::SwitchEngine {
                 engine_type: engine_type.clone(),
                 send_notif: false,
-                save,
             })
+            .await;
+    }
+
+    /// Requests EnvelopeGenerator to switch operation mode.
+    async fn request_switching_operation_mode(&mut self, mode: envelope_generator::Mode) {
+        self.eg_request_sender
+            .send(EgRequest::SwitchMode { mode })
             .await;
     }
 

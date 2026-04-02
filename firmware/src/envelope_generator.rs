@@ -32,17 +32,16 @@ use {defmt_rtt as _, panic_probe as _};
 
 use crate::{
     addresses::{ADDR_EG_TYPE_1, ADDR_OUT_ZERO_POINT_1, ADDR_OUT_ZERO_POINT_2, ADDR_VOICE_ID_1},
-    envelope_generator::definitions::DEFAULT_ENGINE_TYPE,
     input_reader::{InputReaderInfo, get_reader_info_receiver},
 };
 
 pub use self::definitions::{
-    DEFAULT_OUT_ZERO_POINT, EgEvent, EgRequest, EngineType, GateEventType, GateId,
+    DEFAULT_OUT_ZERO_POINT, EgEvent, EgRequest, EngineType, GateEventType, GateId, Mode,
 };
 use self::{
     adsr_engine::AdsrEngine,
     config::EgConfig,
-    definitions::{DEFAULT_VOICE_IDS, Engine, VoiceParams},
+    definitions::{DEFAULT_ENGINE_TYPE, DEFAULT_VOICE_IDS, Engine, VoiceParams},
     diag_engine::DiagEngine,
     linear_engine::LinearEngine,
     para_decays_engine::ParaDecaysEngine,
@@ -204,24 +203,26 @@ async fn run_envelope_generator(
     dac2.enable();
 
     loop {
-        match eg_resources.config.engine_type[0] {
-            EngineType::ParaDecays => {
-                let mut eg = EnvelopeGenerator::<ParaDecaysEngine>::new(&mut eg_resources);
-                eg.run().await;
-            }
-            EngineType::Addsr => {
-                let mut eg = EnvelopeGenerator::<TwoDecaysEngine>::new(&mut eg_resources);
-                eg.run().await;
-            }
-            EngineType::Adsr => {
-                let mut eg = EnvelopeGenerator::<AdsrEngine>::new(&mut eg_resources);
-                eg.run().await;
-            }
-            EngineType::Linear => {
-                let mut eg = EnvelopeGenerator::<LinearEngine>::new(&mut eg_resources);
-                eg.run().await;
-            }
-            EngineType::Diag => {
+        match eg_resources.voice_params_1.operation_mode {
+            Mode::Normal => match eg_resources.config.engine_type[0] {
+                EngineType::ParaDecays => {
+                    let mut eg = EnvelopeGenerator::<ParaDecaysEngine>::new(&mut eg_resources);
+                    eg.run().await;
+                }
+                EngineType::Addsr => {
+                    let mut eg = EnvelopeGenerator::<TwoDecaysEngine>::new(&mut eg_resources);
+                    eg.run().await;
+                }
+                EngineType::Adsr => {
+                    let mut eg = EnvelopeGenerator::<AdsrEngine>::new(&mut eg_resources);
+                    eg.run().await;
+                }
+                EngineType::Linear => {
+                    let mut eg = EnvelopeGenerator::<LinearEngine>::new(&mut eg_resources);
+                    eg.run().await;
+                }
+            },
+            Mode::Diagnose => {
                 let mut eg = EnvelopeGenerator::<DiagEngine>::new(&mut eg_resources);
                 eg.run().await;
             }
@@ -249,6 +250,7 @@ impl EgResources {
             out_zero_point: DEFAULT_OUT_ZERO_POINT,
             value_to_output: &uq0_32_to_output_positive,
             physical_gate_enabled: false,
+            operation_mode: Mode::Normal,
         };
         let voice_params_2 = VoiceParams {
             voice_index: 1,
@@ -257,6 +259,7 @@ impl EgResources {
             out_zero_point: DEFAULT_OUT_ZERO_POINT,
             value_to_output: &uq0_32_to_output_positive,
             physical_gate_enabled: false,
+            operation_mode: Mode::Normal,
         };
         Self {
             config: EgConfig::new(),
@@ -373,20 +376,22 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
             EgRequest::SwitchEngine {
                 engine_type,
                 send_notif,
-                save,
             } => {
                 debug!("switching engine to {}", engine_type.name());
                 self.config.engine_type[0] = engine_type.clone();
                 self.config.engine_type[1] = engine_type.clone();
-                if save {
-                    save_engine_type(0, &engine_type).await;
-                    save_engine_type(1, &engine_type).await;
-                }
+                save_engine_type(0, &engine_type).await;
+                save_engine_type(1, &engine_type).await;
                 if send_notif {
                     self.event_publisher
                         .publish(EgEvent::EngineSwitched(engine_type))
                         .await;
                 }
+                true
+            }
+            EgRequest::SwitchMode { mode } => {
+                self.voice_1.params.operation_mode = mode.clone();
+                self.voice_2.params.operation_mode = mode;
                 true
             }
             EgRequest::UpdateZeroPoint {

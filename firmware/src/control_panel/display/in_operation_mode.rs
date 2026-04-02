@@ -1,10 +1,9 @@
-use defmt::{debug, error};
+use defmt::debug;
 use embedded_graphics::{
     pixelcolor::BinaryColor,
-    prelude::*,
-    primitives::{PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, StrokeAlignment, Triangle},
+    primitives::{PrimitiveStyleBuilder, StrokeAlignment},
 };
-use ssd1306_lite::{Angle, FontSize, Ssd1306Lite, TextBox};
+use ssd1306_lite::{FontSize, TextBox};
 
 use crate::{
     envelope_generator::EngineType,
@@ -99,7 +98,6 @@ impl<'a> InOperationMode<'a> {
                 self.show_home_page_linear(attack, decay, sustain, release, extra_1, extra_2)
                     .await
             }
-            EngineType::Diag => {}
             _ => {
                 self.show_default_home_page(attack, decay, sustain, release, extra_1, extra_2)
                     .await
@@ -109,12 +107,12 @@ impl<'a> InOperationMode<'a> {
 
     async fn show_default_home_page(
         &mut self,
-        attack: u16,
-        decay: u16,
-        sustain: u16,
-        release: u16,
-        extra_1: u16,
-        extra_2: u16,
+        _attack: u16,
+        _decay: u16,
+        _sustain: u16,
+        _release: u16,
+        _extra_1: u16,
+        _extra_2: u16,
     ) {
         self.display.clear(false, false).await;
         let name =
@@ -144,11 +142,11 @@ impl<'a> InOperationMode<'a> {
 
     async fn show_home_page_adsr(
         &mut self,
-        attack: u16,
-        decay: u16,
-        sustain: u16,
-        release: u16,
-        extra_1: u16,
+        _attack: u16,
+        _decay: u16,
+        _sustain: u16,
+        _release: u16,
+        _extra_1: u16,
         extra_2: u16,
     ) {
         self.display.clear(false, false).await;
@@ -228,12 +226,12 @@ impl<'a> InOperationMode<'a> {
 
     async fn show_home_page_linear(
         &mut self,
-        attack: u16,
-        decay: u16,
-        sustain: u16,
-        release: u16,
-        extra_1: u16,
-        extra_2: u16,
+        _attack: u16,
+        _decay: u16,
+        _sustain: u16,
+        _release: u16,
+        _extra_1: u16,
+        _extra_2: u16,
     ) {
         self.display.clear(false, false).await;
         let fill = PrimitiveStyleBuilder::new()

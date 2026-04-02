@@ -7,6 +7,13 @@ use crate::input_reader::InputReaderInfo;
 pub const DEFAULT_VOICE_IDS: [u16; 2] = [0x101, 0x102];
 pub const DEFAULT_ENGINE_TYPE: EngineType = EngineType::ParaDecays;
 
+/// Envelope Generator operation modes
+#[derive(Clone)]
+pub enum Mode {
+    Normal,
+    Diagnose,
+}
+
 /// Parameters shared between the EG voice controller and EG engine
 pub struct VoiceParams {
     pub voice_index: usize,
@@ -16,6 +23,7 @@ pub struct VoiceParams {
     pub value_to_output: &'static dyn Fn(u32, u16) -> u16,
 
     pub physical_gate_enabled: bool,
+    pub operation_mode: Mode,
 }
 
 /// Request for the envelope generator
@@ -27,7 +35,9 @@ pub enum EgRequest {
     SwitchEngine {
         engine_type: EngineType,
         send_notif: bool,
-        save: bool,
+    },
+    SwitchMode {
+        mode: Mode,
     },
     UpdateZeroPoint {
         value_1: u16,
@@ -44,7 +54,6 @@ pub enum EngineType {
     Addsr = 1,
     Adsr = 2,
     Linear = 3,
-    Diag = 4,
 }
 
 impl EngineType {
@@ -54,7 +63,6 @@ impl EngineType {
             EngineType::Addsr => "ADDSR",
             EngineType::Adsr => "ADSR",
             EngineType::Linear => "Linear",
-            EngineType::Diag => "Diagnose",
         }
     }
 
@@ -73,7 +81,6 @@ impl TryFrom<u8> for EngineType {
             1 => Ok(EngineType::Addsr),
             2 => Ok(EngineType::Adsr),
             3 => Ok(EngineType::Linear),
-            4 => Ok(EngineType::Diag),
             _ => Err(()),
         }
     }
