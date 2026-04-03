@@ -461,10 +461,10 @@ impl Display {
         for i in 0..data_len {
             if erase_needed {
                 let erase_index = (i + cv_points.head) % data_len;
-                let mut erase_y = 16u32 + 22u32 - cv_points.data1[erase_index] as u32;
-                self.driver.unset_pixel(i as u32, erase_y);
-                erase_y = 16u32 + 24u32 + 22u32 - cv_points.data2[erase_index] as u32;
-                self.driver.unset_pixel(i as u32, erase_y);
+                let mut erase_y = 16i32 + 22i32 - cv_points.data1[erase_index] as i32;
+                self.driver.unset_pixel(i as i32, erase_y);
+                erase_y = 16i32 + 24i32 + 22i32 - cv_points.data2[erase_index] as i32;
+                self.driver.unset_pixel(i as i32, erase_y);
             }
             let set_index = (i + 1 + cv_points.head) % data_len;
             if set_index == cv_points.head {
@@ -474,10 +474,10 @@ impl Display {
                 cv_points.data2[set_index] =
                     (((cv_info.cv_b as i32 + 32768) as u32 * 304) >> 20) as u8;
             }
-            let mut set_y = 16u32 + 22u32 - cv_points.data1[set_index] as u32;
-            self.driver.set_pixel(i as u32, set_y);
-            set_y = 16u32 + 24u32 + 22u32 - cv_points.data2[set_index] as u32;
-            self.driver.set_pixel(i as u32, set_y);
+            let mut set_y = 16i32 + 22i32 - cv_points.data1[set_index] as i32;
+            self.driver.set_pixel(i as i32, set_y);
+            set_y = 16i32 + 24i32 + 22i32 - cv_points.data2[set_index] as i32;
+            self.driver.set_pixel(i as i32, set_y);
             if last_yield.elapsed().as_micros() > 15 {
                 yield_now().await;
                 last_yield = Instant::now();

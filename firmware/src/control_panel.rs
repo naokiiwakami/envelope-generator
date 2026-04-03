@@ -40,7 +40,6 @@ const PARA_DECAYS_PAGES: [OperationPage; 2] = [OperationPage::Home, OperationPag
 const ADDSR_PAGES: [OperationPage; 2] = [OperationPage::Home, OperationPage::OutputPolarity];
 const ADSR_PAGES: [OperationPage; 2] = [OperationPage::Home, OperationPage::OutputPolarity];
 const LINEAR_PAGES: [OperationPage; 2] = [OperationPage::Home, OperationPage::OutputPolarity];
-const DIAGNOSE_PAGES: [OperationPage; 1] = [OperationPage::Home];
 
 const ALL_PAGES: [&[OperationPage]; 4] =
     [&PARA_DECAYS_PAGES, &ADDSR_PAGES, &ADSR_PAGES, &LINEAR_PAGES];

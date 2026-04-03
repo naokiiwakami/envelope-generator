@@ -1,11 +1,7 @@
 use core::cmp::min;
 
 use defmt::{debug, error};
-use embedded_graphics::{
-    pixelcolor::BinaryColor,
-    prelude::*,
-    primitives::{PrimitiveStyleBuilder, Rectangle},
-};
+use embedded_graphics::{pixelcolor::BinaryColor, primitives::PrimitiveStyleBuilder};
 use ssd1306_lite::TextBox;
 
 use crate::control_panel::menu::MenuItem;
