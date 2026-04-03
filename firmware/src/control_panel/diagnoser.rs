@@ -7,12 +7,11 @@ use embedded_graphics::{
 use ssd1306_lite::{FontSize, TextBox};
 
 use crate::{
-    envelope_generator::EngineType,
-    input_reader::get_reader_info_receiver,
+    envelope_generator::Mode as EgOperationMode,
     patch_controller::{diagnose_button, diagnose_leds},
 };
 
-use super::{ControlPanel, DisplayRequest};
+use super::{ControlPanel, DisplayRequest, display::Mode as DisplayMode};
 
 // signal to receive nudges.
 static SIGNAL_REPLY: Signal<ThreadModeRawMutex, ()> = Signal::new();
@@ -28,13 +27,16 @@ impl<'a> Diagnoser<'a> {
 
     pub async fn execute(&mut self) {
         let text_box = TextBox::center().fg_color(BinaryColor::Off).build();
+        self.control_panel
+            .switch_display_mode(DisplayMode::Fundamental)
+            .await;
         self.control_panel.clear_screen(true, false).await;
         self.control_panel
             .display_text("Diagnosing...", text_box.clone(), FontSize::Medium, true)
             .await;
         let orig_engine_type = self.control_panel.current_engine_type.clone();
         self.control_panel
-            .request_switching_engine(&EngineType::Diag, false)
+            .request_toggle_eg_mode(EgOperationMode::Diagnose)
             .await;
         analog3::diagnose(&SIGNAL_REPLY).await;
         Timer::after_millis(500).await;
@@ -44,7 +46,7 @@ impl<'a> Diagnoser<'a> {
         self.diagnose_pots().await;
         self.diagnose_cv().await;
         self.control_panel
-            .request_switching_engine(&orig_engine_type, false)
+            .request_toggle_eg_mode(EgOperationMode::Normal)
             .await;
         self.control_panel
             .switch_engine_type(orig_engine_type)
@@ -91,7 +93,6 @@ impl<'a> Diagnoser<'a> {
     }
 
     async fn diagnose_pots(&mut self) {
-        let mut receiver = get_reader_info_receiver().await;
         let mut now = Instant::now();
         self.control_panel.button_pressed_at = if self.control_panel.button.is_low() {
             Some(now.clone())
@@ -104,13 +105,18 @@ impl<'a> Diagnoser<'a> {
         let mut first_one_covered = false;
         loop {
             let sleep_time = next.duration_since(now);
-            match select(receiver.changed(), Timer::after(sleep_time)).await {
+            match select(
+                self.control_panel.reader_info_receiver.changed(),
+                Timer::after(sleep_time),
+            )
+            .await
+            {
                 Either::First(reader_info) => {
                     let pot_info = reader_info.pot_info;
                     let index = pot_info.kind.clone() as usize;
                     self.control_panel
                         .display_request_sender
-                        .send(DisplayRequest::UpdatePotValue { pot_info })
+                        .send(DisplayRequest::UpdatePotForDiag { pot_info })
                         .await;
                     if index == 0 {
                         first_one_covered = true;
@@ -149,7 +155,6 @@ impl<'a> Diagnoser<'a> {
     }
 
     async fn diagnose_cv(&mut self) {
-        let mut receiver = get_reader_info_receiver().await;
         let mut now = Instant::now();
         self.control_panel.button_pressed_at = if self.control_panel.button.is_low() {
             Some(now.clone())
@@ -162,7 +167,12 @@ impl<'a> Diagnoser<'a> {
         let mut last_update_time = Instant::now();
         loop {
             let sleep_time = next.duration_since(now);
-            match select(receiver.changed(), Timer::after(sleep_time)).await {
+            match select(
+                self.control_panel.reader_info_receiver.changed(),
+                Timer::after(sleep_time),
+            )
+            .await
+            {
                 Either::First(reader_info) => {
                     let cv_info = reader_info.cv_info;
                     if last_update_time.elapsed().as_millis() >= 30 {

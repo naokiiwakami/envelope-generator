@@ -7,6 +7,13 @@ use crate::input_reader::InputReaderInfo;
 pub const DEFAULT_VOICE_IDS: [u16; 2] = [0x101, 0x102];
 pub const DEFAULT_ENGINE_TYPE: EngineType = EngineType::ParaDecays;
 
+/// Envelope Generator operation modes
+#[derive(Clone, PartialEq, Debug, defmt::Format)]
+pub enum Mode {
+    Normal,
+    Diagnose,
+}
+
 /// Parameters shared between the EG voice controller and EG engine
 pub struct VoiceParams {
     pub voice_index: usize,
@@ -14,20 +21,26 @@ pub struct VoiceParams {
     pub velocity: u16,
     pub out_zero_point: u16,
     pub value_to_output: &'static dyn Fn(u32, u16) -> u16,
+
+    pub physical_gate_enabled: bool,
+    pub operation_mode: Mode,
 }
 
 /// Request for the envelope generator
 pub enum EgRequest {
-    GateEvent {
-        id: GateId,
-        event: GateEventType,
-    },
+    /// Notifies the EnvelopeGenerator a physical gate event.
+    GateEvent { id: GateId, event: GateEventType },
+    /// Requests to switch the engine type.
     SwitchEngine {
         engine_type: EngineType,
         send_notif: bool,
-        save: bool,
     },
-    UpdateZeroPoint {
+    /// Requests to toggle the operation mode.
+    /// The EnvelopeGenerator switches operation mode if the requested mode is different
+    /// from the current one, otherwise switches to the Normal mode.
+    ToggleMode { mode: Mode },
+    /// Requests to update output zero points.
+    UpdateZeroPoints {
         value_1: u16,
         value_2: u16,
         save: bool,
@@ -35,14 +48,13 @@ pub enum EgRequest {
 }
 
 /// EG engine types
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug, defmt::Format)]
 #[repr(u8)]
 pub enum EngineType {
     ParaDecays = 0,
     Addsr = 1,
     Adsr = 2,
     Linear = 3,
-    Diag = 4,
 }
 
 impl EngineType {
@@ -52,8 +64,12 @@ impl EngineType {
             EngineType::Addsr => "ADDSR",
             EngineType::Adsr => "ADSR",
             EngineType::Linear => "Linear",
-            EngineType::Diag => "Diagnose",
         }
+    }
+
+    #[inline]
+    pub fn index(&self) -> usize {
+        (self.clone() as u8) as usize
     }
 }
 
@@ -66,7 +82,6 @@ impl TryFrom<u8> for EngineType {
             1 => Ok(EngineType::Addsr),
             2 => Ok(EngineType::Adsr),
             3 => Ok(EngineType::Linear),
-            4 => Ok(EngineType::Diag),
             _ => Err(()),
         }
     }
@@ -82,8 +97,8 @@ pub enum GateId {
 /// Gate event types
 #[derive(Clone, Debug, defmt::Format)]
 pub enum GateEventType {
-    AnalogGateEnabled,
-    AnalogGateDisabled,
+    PhysicalGateEnabled,
+    PhysicalGateDisabled,
     GateOn { velocity: u16 },
     GateOff,
 }
@@ -92,6 +107,7 @@ pub enum GateEventType {
 #[derive(Clone)]
 pub enum EgEvent {
     EngineSwitched(EngineType),
+    PolarityChanged((i8, i8)), // polarity_1, polarity_2
 }
 
 pub trait Engine {

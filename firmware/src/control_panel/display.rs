@@ -1,7 +1,8 @@
+mod in_operation_mode;
 mod menu_mode;
 
 use core::cmp::min;
-use defmt::error;
+use defmt::{debug, error};
 use embassy_futures::yield_now;
 use embassy_stm32::{
     i2c::{I2c, Master},
@@ -15,7 +16,7 @@ use embassy_time::{Duration, Instant};
 use embedded_graphics::{
     pixelcolor::BinaryColor,
     prelude::*,
-    primitives::{Circle, Line, PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, Triangle},
+    primitives::{PrimitiveStyle, PrimitiveStyleBuilder},
 };
 use heapless::String;
 use ssd1306_lite::{Angle, FontSize, Ssd1306Lite, TextBox};
@@ -26,21 +27,23 @@ use crate::{
     input_reader::{CvInfo, PotInfo},
 };
 
-use super::menu::{ADMIN_MENU_ITEMS, OP_MENU_ITEMS};
+use super::menu::ADMIN_MENU_ITEMS;
+
+use self::in_operation_mode::InOperationMode;
 
 pub const CHANNEL_LENGTH: usize = 4;
 static CHANNEL_REQUEST: Channel<ThreadModeRawMutex, Request, CHANNEL_LENGTH> = Channel::new();
 
 #[embassy_executor::task]
-pub async fn run_display(mut eg_display: EgDisplay) {
+pub async fn run_display(mut eg_display: Display) {
     eg_display.run().await;
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug, defmt::Format)]
 pub enum Mode {
     Any,
     Fundamental,
-    OpMenu,
+    InOperation,
     EngineTypeMenu,
     AdminMenu,
     PotsDiag,
@@ -91,8 +94,21 @@ pub enum Request {
         flush: bool,
     },
     // Fundamental requests
-    ShowInitialScreen {
+    GoToOpHome {
         engine_type: EngineType,
+        attack: u16,
+        decay: u16,
+        sustain: u16,
+        release: u16,
+        extra_1: u16,
+        extra_2: u16,
+    },
+    UpdatePot {
+        pot_info: PotInfo,
+    },
+    ShowPolarity {
+        polarity_1: i8,
+        polarity_2: i8,
     },
     DisplayText {
         text: String<32>,
@@ -101,9 +117,6 @@ pub enum Request {
         flush: bool,
     },
     // Menu requests
-    DisplayOpMenuItem {
-        index: usize,
-    },
     DisplayEngineTypeMenuItem {
         index: usize,
     },
@@ -111,7 +124,7 @@ pub enum Request {
         index: usize,
     },
     // PotsDiag requests
-    UpdatePotValue {
+    UpdatePotForDiag {
         pot_info: PotInfo,
     },
     // CvDiag requests
@@ -130,13 +143,36 @@ impl Request {
             | Request::DrawCircle { .. }
             | Request::DrawRectangle { .. }
             | Request::DrawTriangle { .. }
-            | Request::DrawArc { .. } => Mode::Any,
-            Request::ShowInitialScreen { .. } | Request::DisplayText { .. } => Mode::Fundamental,
-            Request::DisplayOpMenuItem { .. } => Mode::OpMenu,
+            | Request::DrawArc { .. }
+            | Request::DisplayText { .. } => Mode::Any,
+            Request::GoToOpHome { .. }
+            | Request::UpdatePot { .. }
+            | Request::ShowPolarity { .. } => Mode::InOperation,
             Request::DisplayEngineTypeMenuItem { .. } => Mode::EngineTypeMenu,
             Request::DisplayAdminMenuItem { .. } => Mode::AdminMenu,
-            Request::UpdatePotValue { .. } => Mode::PotsDiag,
+            Request::UpdatePotForDiag { .. } => Mode::PotsDiag,
             Request::UpdateCvValues { .. } => Mode::CvDiag,
+        }
+    }
+
+    fn name(&self) -> &str {
+        match self {
+            Request::SwitchMode { .. } => "SwitchMode",
+            Request::Clear { .. } => "Clear",
+            Request::Flush => "Flush",
+            Request::DrawLine { .. } => "DrawLine",
+            Request::DrawCircle { .. } => "DrawCircle",
+            Request::DrawRectangle { .. } => "DrawRectangle",
+            Request::DrawTriangle { .. } => "DrawTriangle",
+            Request::DrawArc { .. } => "DrawArc",
+            Request::DisplayText { .. } => "DisplayText",
+            Request::GoToOpHome { .. } => "GoToOpHome",
+            Request::UpdatePot { .. } => "UpdatePot",
+            Request::ShowPolarity { .. } => "ShowPolarity",
+            Request::DisplayEngineTypeMenuItem { .. } => "DisplayEngineTypeMenuItem",
+            Request::DisplayAdminMenuItem { .. } => "DisplayAdminMenuItem",
+            Request::UpdatePotForDiag { .. } => "UpdatePotForDiag",
+            Request::UpdateCvValues { .. } => "UpdateCvValues",
         }
     }
 }
@@ -146,7 +182,7 @@ pub fn get_request_sender() -> channel::Sender<'static, ThreadModeRawMutex, Requ
     CHANNEL_REQUEST.sender()
 }
 
-pub struct EgDisplay {
+pub struct Display {
     driver: Ssd1306Lite<I2c<'static, Async, Master>>,
 
     mode: Mode,
@@ -155,7 +191,7 @@ pub struct EgDisplay {
     pending_request: Option<Request>,
 }
 
-impl EgDisplay {
+impl Display {
     pub fn new(i2c: I2c<'static, Async, Master>) -> Self {
         let mut driver = Ssd1306Lite::new(i2c);
         driver.set_yield_interval(Duration::from_micros(15));
@@ -171,11 +207,12 @@ impl EgDisplay {
 
     pub async fn run(&mut self) {
         self.driver.initialize().await;
+        debug!("initialized");
         loop {
             match self.mode {
                 Mode::Any => {} // Generic requests don't have a specific mode
                 Mode::Fundamental => self.run_fundamental_mode().await,
-                Mode::OpMenu => self.run_op_menu_mode().await,
+                Mode::InOperation => self.run_in_operation_mode().await,
                 Mode::EngineTypeMenu => self.run_engine_type_menu_mode().await,
                 Mode::AdminMenu => self.run_admin_menu_mode().await,
                 Mode::PotsDiag => self.run_pots_diag_mode().await,
@@ -228,6 +265,16 @@ impl EgDisplay {
                 self.draw_arc(center, radius, start_degree, end_degree, color, flush)
                     .await
             }
+            Request::DisplayText {
+                text,
+                text_box,
+                font_size,
+                flush,
+            } => {
+                self.display_text(text.as_str(), text_box, font_size, flush)
+                    .await
+            }
+
             _ => {} // Other requests shouldn't reach here
         }
     }
@@ -240,8 +287,10 @@ impl EgDisplay {
     }
 
     async fn run_fundamental_mode(&mut self) {
+        debug!("In fundamental mode");
         while matches!(self.mode, Mode::Fundamental) {
             let request = self.fetch_request().await;
+            debug!("[Fundamental]: request: {}", request.name());
             match request {
                 Request::SwitchMode { .. }
                 | Request::Clear { .. }
@@ -250,76 +299,24 @@ impl EgDisplay {
                 | Request::DrawCircle { .. }
                 | Request::DrawRectangle { .. }
                 | Request::DrawTriangle { .. }
-                | Request::DrawArc { .. } => self.handle_generic_request(request).await,
-                Request::ShowInitialScreen { engine_type } => {
-                    self.show_initial_screen(engine_type).await
-                }
-                Request::DisplayText {
-                    text,
-                    text_box,
-                    font_size,
-                    flush,
-                } => {
-                    self.display_text(text.as_str(), text_box, font_size, flush)
-                        .await
-                }
+                | Request::DrawArc { .. }
+                | Request::DisplayText { .. } => self.handle_generic_request(request).await,
                 _ => self.switch_mode(request.mode(), Some(request)).await,
             }
         }
+        debug!("[Fundamental] out to {}", self.mode);
     }
 
-    pub async fn show_initial_screen(&mut self, engine_type: EngineType) {
-        self.mode = Mode::Fundamental;
-        self.current_engine_type = engine_type;
-        match self.current_engine_type {
-            EngineType::Adsr => self.show_adsr_initial_screen().await,
-            EngineType::Diag => {}
-            _ => self.show_default_initial_screen().await,
-        }
+    // operational mode ///////////////////////////////////////////////////////////
+
+    async fn into_in_operation_mode(&mut self, pending_request: Option<Request>) {
+        self.mode = Mode::InOperation;
+        self.pending_request = pending_request;
     }
 
-    async fn show_adsr_initial_screen(&mut self) {
-        self.clear(false, false).await;
-        yield_now().await;
-        let fill = PrimitiveStyleBuilder::new()
-            .fill_color(BinaryColor::On)
-            .stroke_width(5)
-            .build();
-        yield_now().await;
-        self.driver
-            .draw_styled(Circle::new(Point::new(0, 20), 24).into_styled(fill))
-            .await;
-        yield_now().await;
-        self.driver
-            .draw_styled(Circle::new(Point::new(33, 0), 24).into_styled(fill))
-            .await;
-        yield_now().await;
-        self.driver
-            .draw_styled(Circle::new(Point::new(67, 0), 24).into_styled(fill))
-            .await;
-        yield_now().await;
-        self.driver
-            .draw_styled(Circle::new(Point::new(104, 20), 24).into_styled(fill))
-            .await;
-        self.driver.flush().await;
-    }
-
-    async fn show_default_initial_screen(&mut self) {
-        self.clear(false, false).await;
-        let name = ENGINE_TYPE_MENU_ITEMS[(self.current_engine_type.clone() as u8) as usize].name;
-        let text_box = TextBox::center().build();
-        self.driver
-            .draw_string(name, text_box, FontSize::Large)
-            .await;
-
-        self.driver.flush().await;
-    }
-
-    // op menu mode /////////////////////////////////////////////////////////
-
-    async fn run_op_menu_mode(&mut self) {
-        let mut menu = MenuMode::new(self, "SETTINGS", &OP_MENU_ITEMS);
-        menu.run().await;
+    async fn run_in_operation_mode(&mut self) {
+        let mut in_operation_mode = InOperationMode::new(self);
+        in_operation_mode.run().await;
     }
 
     // op menu mode /////////////////////////////////////////////////////////
@@ -367,7 +364,7 @@ impl EgDisplay {
         for index in 0..positions.len() {
             let (_, position) = positions[index];
             self.driver
-                .draw_styled(Circle::new(position, 12).into_styled(fill))
+                .draw_circle((position.x, position.y), 12, fill)
                 .await;
         }
 
@@ -381,8 +378,9 @@ impl EgDisplay {
                 | Request::DrawCircle { .. }
                 | Request::DrawRectangle { .. }
                 | Request::DrawTriangle { .. }
-                | Request::DrawArc { .. } => self.handle_generic_request(request).await,
-                Request::UpdatePotValue { pot_info: info } => {
+                | Request::DrawArc { .. }
+                | Request::DisplayText { .. } => self.handle_generic_request(request).await,
+                Request::UpdatePotForDiag { pot_info: info } => {
                     self.update_pot_value(info, &erase, &positions).await
                 }
                 _ => self.switch_mode(request.mode(), Some(request)).await,
@@ -403,7 +401,7 @@ impl EgDisplay {
         }
         let (position, _) = positions[index];
         self.driver
-            .draw_styled(Circle::new(position, 28).into_styled(*erase))
+            .draw_circle((position.x, position.y), 28, *erase)
             .await;
 
         let start = Angle::from_degrees(120);
@@ -446,7 +444,8 @@ impl EgDisplay {
                 | Request::DrawCircle { .. }
                 | Request::DrawRectangle { .. }
                 | Request::DrawTriangle { .. }
-                | Request::DrawArc { .. } => self.handle_generic_request(request).await,
+                | Request::DrawArc { .. }
+                | Request::DisplayText { .. } => self.handle_generic_request(request).await,
                 Request::UpdateCvValues { cv_info } => {
                     self.update_cv_info(cv_info, &mut cv_points).await
                 }
@@ -462,10 +461,10 @@ impl EgDisplay {
         for i in 0..data_len {
             if erase_needed {
                 let erase_index = (i + cv_points.head) % data_len;
-                let mut erase_y = 16u32 + 22u32 - cv_points.data1[erase_index] as u32;
-                self.driver.unset_pixel(i as u32, erase_y);
-                erase_y = 16u32 + 24u32 + 22u32 - cv_points.data2[erase_index] as u32;
-                self.driver.unset_pixel(i as u32, erase_y);
+                let mut erase_y = 16i32 + 22i32 - cv_points.data1[erase_index] as i32;
+                self.driver.unset_pixel(i as i32, erase_y);
+                erase_y = 16i32 + 24i32 + 22i32 - cv_points.data2[erase_index] as i32;
+                self.driver.unset_pixel(i as i32, erase_y);
             }
             let set_index = (i + 1 + cv_points.head) % data_len;
             if set_index == cv_points.head {
@@ -475,10 +474,10 @@ impl EgDisplay {
                 cv_points.data2[set_index] =
                     (((cv_info.cv_b as i32 + 32768) as u32 * 304) >> 20) as u8;
             }
-            let mut set_y = 16u32 + 22u32 - cv_points.data1[set_index] as u32;
-            self.driver.set_pixel(i as u32, set_y);
-            set_y = 16u32 + 24u32 + 22u32 - cv_points.data2[set_index] as u32;
-            self.driver.set_pixel(i as u32, set_y);
+            let mut set_y = 16i32 + 22i32 - cv_points.data1[set_index] as i32;
+            self.driver.set_pixel(i as i32, set_y);
+            set_y = 16i32 + 24i32 + 22i32 - cv_points.data2[set_index] as i32;
+            self.driver.set_pixel(i as i32, set_y);
             if last_yield.elapsed().as_micros() > 15 {
                 yield_now().await;
                 last_yield = Instant::now();
@@ -511,9 +510,10 @@ impl EgDisplay {
 
     /// Switches display mode based on the request kind
     async fn switch_mode(&mut self, mode: Mode, request: Option<Request>) {
+        debug!("switch_mode, Switching mode to {:?}", mode);
         match mode {
             Mode::Fundamental => self.into_fundamental_mode(request).await,
-            Mode::OpMenu => self.into_menu_mode(Mode::OpMenu, request).await,
+            Mode::InOperation => self.into_in_operation_mode(request).await,
             Mode::EngineTypeMenu => self.into_menu_mode(Mode::EngineTypeMenu, request).await,
             Mode::AdminMenu => self.into_menu_mode(Mode::AdminMenu, request).await,
             Mode::PotsDiag => self.into_pots_diag_mode(request).await,
@@ -545,7 +545,7 @@ impl EgDisplay {
         flush: bool,
     ) {
         self.driver
-            .draw_styled(Line::new(start, end).into_styled(style))
+            .draw_line((start.x, start.y), (end.x, end.y), style)
             .await;
         if flush {
             self.driver.flush().await;
@@ -560,7 +560,7 @@ impl EgDisplay {
         flush: bool,
     ) {
         self.driver
-            .draw_styled(Circle::new(top_left, diameter).into_styled(style))
+            .draw_circle((top_left.x, top_left.y), diameter, style)
             .await;
         if flush {
             self.driver.flush().await;
@@ -575,7 +575,7 @@ impl EgDisplay {
         flush: bool,
     ) {
         self.driver
-            .draw_styled(Rectangle::new(top_left, size).into_styled(style))
+            .draw_rectangle((top_left.x, top_left.y), size.width, size.height, style)
             .await;
         if flush {
             self.driver.flush().await;
@@ -591,7 +591,12 @@ impl EgDisplay {
         flush: bool,
     ) {
         self.driver
-            .draw_styled(Triangle::new(vertex1, vertex2, vertex3).into_styled(style))
+            .draw_triangle(
+                (vertex1.x, vertex1.y),
+                (vertex2.x, vertex2.y),
+                (vertex3.x, vertex3.y),
+                style,
+            )
             .await;
         if flush {
             self.driver.flush().await;

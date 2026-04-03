@@ -6,6 +6,7 @@ mod control_panel;
 mod envelope_generator;
 mod input_reader;
 mod patch_controller;
+pub mod utils;
 
 use analog3::{Analog3Config, definitions::*, storage};
 use core::future::pending;
@@ -319,7 +320,8 @@ async fn main(spawner: Spawner) {
         eg_resources.encoder_button,
         eg_resources.encoder_ind_red,
         eg_resources.encoder_ind_green,
-    );
+    )
+    .await;
 
     envelope_generator::start(
         spawner,

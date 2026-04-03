@@ -3,7 +3,7 @@ mod diagnoser;
 mod display;
 mod menu;
 
-use defmt::debug;
+use defmt::{debug, error};
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_stm32::{
@@ -13,27 +13,42 @@ use embassy_stm32::{
     peripherals::TIM3,
     timer::qei::Qei,
 };
-use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel, pubsub};
+use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel, pubsub, watch};
 use embassy_time::{Duration, Instant, Timer};
 use heapless::String;
 use ssd1306_lite::{FontSize, TextBox};
 
-use crate::envelope_generator::{
-    EG_CHANNEL_SIZE, EG_PUBS, EG_SUBS, EgEvent, EgRequest, EngineType, get_eg_event_subscriber,
-    get_eg_request_sender,
+use crate::{
+    envelope_generator::{
+        EG_CHANNEL_SIZE, EG_PUBS, EG_SUBS, EgEvent, EgRequest, EngineType, Mode as EgOperationMode,
+        get_eg_event_subscriber, get_eg_request_sender,
+    },
+    input_reader::{InputReaderInfo, PotKind, get_reader_info_receiver},
 };
 
 use self::{
     calibrator::Calibrator,
     diagnoser::Diagnoser,
     display::{
-        CHANNEL_LENGTH as DISPLAY_CHANNEL_LENGTH, EgDisplay, Request as DisplayRequest,
-        get_request_sender,
+        CHANNEL_LENGTH as DISPLAY_CHANNEL_LENGTH, Display, Mode as DisplayMode,
+        Request as DisplayRequest, get_request_sender,
     },
-    menu::{ADMIN_MENU_ITEMS, AdminAction, ENGINE_TYPE_MENU_ITEMS, OP_MENU_ITEMS, OpAction},
+    menu::{ADMIN_MENU_ITEMS, AdminAction, ENGINE_TYPE_MENU_ITEMS},
 };
 
-pub fn start(
+const PARA_DECAYS_PAGES: [OperationPage; 2] = [OperationPage::Home, OperationPage::OutputPolarity];
+const ADDSR_PAGES: [OperationPage; 2] = [OperationPage::Home, OperationPage::OutputPolarity];
+const ADSR_PAGES: [OperationPage; 2] = [OperationPage::Home, OperationPage::OutputPolarity];
+const LINEAR_PAGES: [OperationPage; 2] = [OperationPage::Home, OperationPage::OutputPolarity];
+
+const ALL_PAGES: [&[OperationPage]; 4] =
+    [&PARA_DECAYS_PAGES, &ADDSR_PAGES, &ADSR_PAGES, &LINEAR_PAGES];
+
+const _: () = {
+    assert!(ALL_PAGES.len() == EngineType::Linear as u8 as usize + 1);
+};
+
+pub async fn start(
     spawner: Spawner,
     i2c: I2c<'static, Async, Master>,
     encoder: Qei<'static, TIM3>,
@@ -41,10 +56,10 @@ pub fn start(
     encoder_ind_red: Output<'static>,
     encoder_ind_green: Output<'static>,
 ) {
-    let eg_display = EgDisplay::new(i2c);
+    let eg_display = Display::new(i2c);
     spawner.spawn(display::run_display(eg_display).unwrap());
     let control_panel =
-        ControlPanel::new(encoder, encoder_button, encoder_ind_red, encoder_ind_green);
+        ControlPanel::new(encoder, encoder_button, encoder_ind_red, encoder_ind_green).await;
     spawner.spawn(run_control_panel(control_panel).unwrap());
 }
 
@@ -55,12 +70,26 @@ async fn run_control_panel(mut control_panel: ControlPanel) {
 
 enum ControlPanelMode {
     Normal,
-    OpMenu,
-    OpActionSelected,
+    ActionSelected,
     EngineTypeMenu,
     EngineTypeSelected,
     AdminMenu,
     AdminActionSelected,
+}
+
+#[derive(Clone)]
+enum OperationPage {
+    Home,
+    OutputPolarity,
+    // CvAssignment,
+    // VelocitySensitivity,
+    // NoteScaling,
+}
+
+#[derive(Clone)]
+enum Action {
+    SelectEngineType,
+    SetUpPolatiry,
 }
 
 struct ControlPanel {
@@ -72,8 +101,20 @@ struct ControlPanel {
     eg_request_sender: channel::Sender<'static, ThreadModeRawMutex, EgRequest, EG_CHANNEL_SIZE>,
     eg_event_subscriber:
         pubsub::Subscriber<'static, ThreadModeRawMutex, EgEvent, EG_CHANNEL_SIZE, EG_SUBS, EG_PUBS>,
+
+    // Input Reader
+    reader_info_receiver: watch::Receiver<'static, ThreadModeRawMutex, InputReaderInfo, 2>,
+    attack: u16,
+    decay: u16,
+    sustain: u16,
+    release: u16,
+    extra_1: u16,
+    extra_2: u16,
+
+    // EG states
     engine_type_index: usize,
     current_engine_type: EngineType,
+    polarity: (i8, i8),
 
     // rotary encoder
     encoder: Qei<'static, TIM3>,
@@ -83,75 +124,126 @@ struct ControlPanel {
 
     button_pressed_at: Option<Instant>,
     mode: ControlPanelMode,
+    page: OperationPage,
+    page_index: usize,
+    next_action: Option<Action>,
 
-    encoder_origin: i16,
+    encoder_last_raw: i16,
     menu_item_index: usize,
     toggle_time: Instant,
 }
 
 impl ControlPanel {
-    pub fn new(
+    pub async fn new(
         encoder: Qei<'static, TIM3>,
         encoder_button: Input<'static>,
         encoder_ind_red: Output<'static>,
         encoder_ind_green: Output<'static>,
     ) -> Self {
         let display_request_sender = get_request_sender();
-        let encoder_origin = encoder.count() as i16 / 4;
+        let encoder_last_raw = encoder.count() as i16;
         Self {
             display_request_sender,
             eg_request_sender: get_eg_request_sender(),
             eg_event_subscriber: get_eg_event_subscriber(),
+            reader_info_receiver: get_reader_info_receiver().await,
+            attack: 0,
+            decay: 0,
+            sustain: 0,
+            release: 0,
+            extra_1: 0,
+            extra_2: 0,
             engine_type_index: 0,
             current_engine_type: EngineType::Adsr,
+            polarity: (1, 1),
             encoder,
             button: encoder_button,
             ind_red: encoder_ind_red,
             ind_green: encoder_ind_green,
             button_pressed_at: Option::None,
             mode: ControlPanelMode::Normal,
-            encoder_origin,
+            page: OperationPage::Home,
+            page_index: 0,
+            next_action: None,
+            encoder_last_raw,
             menu_item_index: 0,
             toggle_time: Instant::now(),
         }
     }
 
     pub async fn run(&mut self) {
-        self.show_initial_screen().await;
-        // self.blink_leds().await;
+        self.clear_screen(false, true).await;
+        let mut last_updated = Instant::now();
         loop {
             match select(
                 self.eg_event_subscriber.next_message_pure(),
-                Timer::after_millis(10),
+                self.reader_info_receiver.changed(),
             )
             .await
             {
                 Either::First(event) => self.handle_eg_event(event).await,
-                Either::Second(()) => {}
+                Either::Second(info) => self.handle_reader_info(info).await,
             };
-            self.update().await;
+            if last_updated.elapsed().as_millis() > 10 {
+                self.update().await;
+                last_updated = Instant::now();
+            }
         }
     }
 
     async fn handle_eg_event(&mut self, event: EgEvent) {
         match event {
             EgEvent::EngineSwitched(engine_type) => self.switch_engine_type(engine_type).await,
+            EgEvent::PolarityChanged((p1, p2)) => self.change_polarity(p1, p2).await,
+        }
+    }
+
+    async fn handle_reader_info(&mut self, info: InputReaderInfo) {
+        let value = info.pot_info.value;
+        let mut updated = true;
+        match info.pot_info.kind {
+            PotKind::Attack => {
+                self.attack = value;
+            }
+            PotKind::Decay => {
+                self.decay = value;
+            }
+            PotKind::Sustain => {
+                self.sustain = value;
+            }
+            PotKind::Release => {
+                self.release = value;
+            }
+            PotKind::Extra1 => {
+                self.extra_1 = value;
+            }
+            PotKind::Extra2 => {
+                self.extra_2 = value;
+            }
+            _ => {
+                updated = false;
+            }
+        }
+        if updated
+            && matches!(self.mode, ControlPanelMode::Normal)
+            && matches!(self.page, OperationPage::Home)
+        {
+            self.display_request_sender
+                .send(DisplayRequest::UpdatePot {
+                    pot_info: info.pot_info,
+                })
+                .await;
         }
     }
 
     async fn update(&mut self) {
         let next_level = self.button.get_level();
         if next_level == Level::Low {
-            // swiched on
+            // switched on
             match self.button_pressed_at {
                 Some(button_pressed_at) => {
-                    match self.mode {
-                        ControlPanelMode::Normal => {
-                            if button_pressed_at.elapsed().as_millis() > 2000 {
-                                self.into_admin_menu_mode().await;
-                            }
-                        }
-                        _ => {} // do nothing, next mode is not determined yet
+                    if button_pressed_at.elapsed().as_millis() > 2000 {
+                        self.into_admin_menu_mode().await;
                     }
                 }
                 None => self.on_button_pressed(),
@@ -162,7 +254,7 @@ impl ControlPanel {
         } else {
             // normal "button off" status, do regular task for the mode
             match self.mode {
-                ControlPanelMode::OpMenu => self.update_op_menu().await,
+                ControlPanelMode::Normal => self.update_normal().await,
                 ControlPanelMode::EngineTypeMenu => self.update_engine_type_menu().await,
                 ControlPanelMode::AdminMenu => self.update_admin_menu().await,
                 _ => {}
@@ -176,9 +268,11 @@ impl ControlPanel {
             ControlPanelMode::Normal => {
                 self.ind_red.set_high();
                 self.ind_green.set_high();
-            }
-            ControlPanelMode::OpMenu => {
-                self.mode = ControlPanelMode::OpActionSelected;
+                self.next_action = match self.page {
+                    OperationPage::Home => Some(Action::SelectEngineType),
+                    OperationPage::OutputPolarity => Some(Action::SetUpPolatiry),
+                };
+                self.mode = ControlPanelMode::ActionSelected;
             }
             ControlPanelMode::EngineTypeMenu => {
                 self.mode = ControlPanelMode::EngineTypeSelected;
@@ -194,16 +288,16 @@ impl ControlPanel {
         match self.mode {
             ControlPanelMode::Normal => {
                 self.ind_red.set_low();
-                self.ind_green.set_high();
-                self.into_op_menu_mode().await;
+                self.ind_green.set_low();
             }
-            ControlPanelMode::OpActionSelected => {
-                self.execute_op_action().await;
-            }
+            ControlPanelMode::ActionSelected => match &self.next_action {
+                Some(action) => self.execute_action(action.clone()).await,
+                None => error!("No action set up -- shouldn't happen"),
+            },
             ControlPanelMode::EngineTypeSelected => {
                 match &ENGINE_TYPE_MENU_ITEMS[self.menu_item_index].selection {
                     Some(engine_type) => {
-                        self.request_switching_engine(&engine_type, true).await;
+                        self.request_switching_engine(&engine_type).await;
                         self.switch_engine_type(engine_type.clone()).await;
                     }
                     None => {} // do not switch the engine type
@@ -215,43 +309,49 @@ impl ControlPanel {
                 self.ind_green.set_low();
                 self.execute_admin_action().await;
             }
-            _ => {}
+            _ => {
+                self.ind_red.set_low();
+                self.ind_green.set_low();
+            }
         }
     }
 
-    // Op menu mode //////////////////////////////////////////////////////////
-
-    /// Transit the mode to OpMenu.
-    async fn into_op_menu_mode(&mut self) {
-        self.into_menu_mode(ControlPanelMode::OpMenu, 0, false, true, false)
-            .await;
-        self.display_current_op_menu().await;
-    }
-
-    /// Called periodically to update op menu state.
-    async fn update_op_menu(&mut self) {
-        if self.update_menu(OP_MENU_ITEMS.len(), false, true) {
-            self.display_current_op_menu().await;
-        }
-    }
-
-    async fn display_current_op_menu(&mut self) {
-        let request = DisplayRequest::DisplayOpMenuItem {
-            index: self.menu_item_index,
-        };
-        self.display_request_sender.send(request).await;
-    }
-
-    /// Called on button release in OpActionSelected mode to execute the next action.
-    async fn execute_op_action(&mut self) {
-        let action = &OP_MENU_ITEMS[self.menu_item_index].selection;
+    async fn execute_action(&mut self, action: Action) {
         match action {
-            OpAction::EngineType => self.into_engine_type_menu_mode().await,
-            OpAction::Cancel => self.into_normal_mode().await,
+            Action::SelectEngineType => self.into_engine_type_menu_mode().await,
+            Action::SetUpPolatiry => {}
         }
     }
 
-    // Engine type menu mode //////////////////////////////////////////////////////////
+    // Normal mode //////////////////////////////////////////////////////////
+    async fn update_normal(&mut self) {
+        let engine_index = self.current_engine_type.index();
+        if engine_index >= ALL_PAGES.len() {
+            return; // shouldn't happen but being defensive here
+        }
+        let raw = self.encoder.count() as i16;
+        let delta = (raw - self.encoder_last_raw) / 4;
+        if delta == 0 {
+            return;
+        }
+        self.encoder_last_raw = raw;
+
+        // switch page
+        let pages = ALL_PAGES[self.current_engine_type.index()];
+        if pages.len() <= 1 {
+            return; // switching page never happens
+        }
+        let mut index: i32 = (self.page_index as i32 + delta as i32) % pages.len() as i32;
+        while index < 0 {
+            index += pages.len() as i32;
+        }
+        self.page_index = index as usize;
+        self.page = pages[self.page_index].clone();
+        match self.page {
+            OperationPage::Home => self.go_to_op_home().await,
+            OperationPage::OutputPolarity => self.show_polarity().await,
+        }
+    }
 
     /// Transit the mode to EngineTypeMenu.
     async fn into_engine_type_menu_mode(&mut self) {
@@ -280,22 +380,38 @@ impl ControlPanel {
         self.display_request_sender.send(request).await;
     }
 
-    /// Called to request EnvelopeGenerator to switch engine mode.
-    async fn request_switching_engine(&mut self, engine_type: &EngineType, save: bool) {
+    /// Requests EnvelopeGenerator to switch engine type.
+    async fn request_switching_engine(&mut self, engine_type: &EngineType) {
         self.eg_request_sender
             .send(EgRequest::SwitchEngine {
                 engine_type: engine_type.clone(),
                 send_notif: false,
-                save,
             })
             .await;
     }
 
+    /// Requests EnvelopeGenerator to switch operation mode.
+    async fn request_toggle_eg_mode(&mut self, mode: EgOperationMode) {
+        self.eg_request_sender
+            .send(EgRequest::ToggleMode { mode })
+            .await;
+    }
+
     async fn switch_engine_type(&mut self, next_engine_type: EngineType) {
-        if next_engine_type != self.current_engine_type {
-            self.engine_type_index = (next_engine_type.clone() as u8) as usize;
-            self.current_engine_type = next_engine_type;
-            self.show_initial_screen().await;
+        self.engine_type_index = (next_engine_type.clone() as u8) as usize;
+        self.current_engine_type = next_engine_type;
+        self.page_index = 0;
+        self.page = OperationPage::Home;
+        self.encoder_last_raw = self.encoder.count() as i16;
+        self.go_to_op_home().await;
+    }
+
+    async fn change_polarity(&mut self, polarity_1: i8, polarity_2: i8) {
+        self.polarity = (polarity_1, polarity_2);
+        if matches!(self.mode, ControlPanelMode::Normal)
+            && matches!(self.page, OperationPage::OutputPolarity)
+        {
+            self.show_polarity().await;
         }
     }
 
@@ -336,6 +452,10 @@ impl ControlPanel {
                 diagnoser.execute().await;
                 self.mode = ControlPanelMode::Normal;
             }
+            AdminAction::ToggleDiagnoseMode => {
+                self.request_toggle_eg_mode(EgOperationMode::Diagnose).await;
+                self.mode = ControlPanelMode::Normal;
+            }
             AdminAction::Cancel => self.into_normal_mode().await,
         };
     }
@@ -347,7 +467,7 @@ impl ControlPanel {
         self.ind_red.set_low();
         self.ind_green.set_low();
         self.mode = ControlPanelMode::Normal;
-        self.show_initial_screen().await;
+        self.go_to_op_home().await;
     }
 
     /// Switch to a menu mode.
@@ -360,7 +480,7 @@ impl ControlPanel {
         blink: bool,
     ) {
         self.mode = mode;
-        self.encoder_origin = self.encoder.count() as i16 / 4;
+        self.encoder_last_raw = self.encoder.count() as i16;
         self.ind_red
             .set_level(if red { Level::High } else { Level::Low });
         self.ind_green
@@ -389,21 +509,15 @@ impl ControlPanel {
     /// Checks the encoder value and update the index if there's any change.
     /// Returns true if the index has changed.
     fn update_menu_index(&mut self, menu_size: usize) -> bool {
-        let raw_count = self.encoder.count();
-        if raw_count % 4 != 0 {
-            // the encoder is still moving
+        let raw = self.encoder.count() as i16;
+        let delta = (raw - self.encoder_last_raw) / 4;
+        if delta == 0 {
             return false;
         }
-        let count = raw_count as i16 / 4;
-        if count == self.encoder_origin {
-            // no change in the counter
-            return false;
-        }
-        let delta = count - self.encoder_origin;
         let mut idx: i32 = (self.menu_item_index as i32 + delta as i32) % (menu_size as i32);
         debug!(
             "count: {}, origin: {}, delta: {}, idx: {}",
-            count, self.encoder_origin, delta, idx
+            raw, self.encoder_last_raw, delta, idx
         );
         if idx < 0 {
             idx += menu_size as i32;
@@ -411,9 +525,9 @@ impl ControlPanel {
         self.menu_item_index = idx as usize;
         debug!(
             "count: {}, index: {}, origin: {}",
-            count, self.menu_item_index, self.encoder_origin
+            raw, self.menu_item_index, self.encoder_last_raw
         );
-        self.encoder_origin = count;
+        self.encoder_last_raw = raw;
         return true;
     }
 
@@ -429,11 +543,23 @@ impl ControlPanel {
         }
     }
 
-    async fn show_initial_screen(&self) {
+    async fn go_to_op_home(&self) {
         self.display_request_sender
-            .send(DisplayRequest::ShowInitialScreen {
+            .send(DisplayRequest::GoToOpHome {
                 engine_type: self.current_engine_type.clone(),
+                attack: self.attack,
+                decay: self.decay,
+                sustain: self.sustain,
+                release: self.release,
+                extra_1: self.extra_1,
+                extra_2: self.extra_2,
             })
+            .await;
+    }
+
+    async fn switch_display_mode(&mut self, mode: DisplayMode) {
+        self.display_request_sender
+            .send(DisplayRequest::SwitchMode { mode })
             .await;
     }
 
@@ -456,6 +582,15 @@ impl ControlPanel {
                 text_box,
                 font_size,
                 flush,
+            })
+            .await;
+    }
+
+    async fn show_polarity(&mut self) {
+        self.display_request_sender
+            .send(DisplayRequest::ShowPolarity {
+                polarity_1: self.polarity.0,
+                polarity_2: self.polarity.1,
             })
             .await;
     }

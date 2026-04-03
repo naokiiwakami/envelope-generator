@@ -1,21 +1,5 @@
 use crate::envelope_generator::EngineType;
 
-pub static OP_MENU_ITEMS: [MenuItem<OpAction>; 2] = [
-    MenuItem {
-        name: "EG TYPE",
-        selection: OpAction::EngineType,
-    },
-    MenuItem {
-        name: "CANCEL",
-        selection: OpAction::Cancel,
-    },
-];
-
-pub enum OpAction {
-    EngineType,
-    Cancel,
-}
-
 /// EG Engine type.
 /// IMPORTANT: The menu index must be the same as u8 representation of the
 /// EngineType entry, otherwise ControlPanel misbehaves on switching engine types.
@@ -42,7 +26,7 @@ pub static ENGINE_TYPE_MENU_ITEMS: [MenuItem<Option<EngineType>>; 5] = [
     },
 ];
 
-pub static ADMIN_MENU_ITEMS: [MenuItem<AdminAction>; 3] = [
+pub static ADMIN_MENU_ITEMS: [MenuItem<AdminAction>; 4] = [
     MenuItem {
         name: "CALIBRATE",
         selection: AdminAction::Calibrate,
@@ -50,6 +34,10 @@ pub static ADMIN_MENU_ITEMS: [MenuItem<AdminAction>; 3] = [
     MenuItem {
         name: "DIAGNOSE",
         selection: AdminAction::Diagnose,
+    },
+    MenuItem {
+        name: "TOGGLE DIAG",
+        selection: AdminAction::ToggleDiagnoseMode,
     },
     MenuItem {
         name: "CANCEL",
@@ -65,5 +53,6 @@ pub struct MenuItem<SelectionT> {
 pub enum AdminAction {
     Calibrate,
     Diagnose,
+    ToggleDiagnoseMode,
     Cancel,
 }

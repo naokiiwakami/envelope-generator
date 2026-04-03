@@ -18,7 +18,7 @@ use crate::{
     },
 };
 
-use super::{ControlPanel, DisplayRequest};
+use super::{ControlPanel, DisplayRequest, display::Mode as DisplayMode};
 
 pub struct Calibrator<'a> {
     control_panel: &'a mut ControlPanel,
@@ -58,6 +58,9 @@ impl<'a> Calibrator<'a> {
     }
 
     async fn prepare(&mut self) {
+        self.control_panel
+            .switch_display_mode(DisplayMode::Fundamental)
+            .await;
         self.control_panel
             .switch_engine_type(EngineType::Adsr)
             .await;
@@ -204,7 +207,7 @@ impl<'a> Calibrator<'a> {
     ) {
         let eg_request_sender = get_eg_request_sender();
         eg_request_sender
-            .send(crate::envelope_generator::EgRequest::UpdateZeroPoint {
+            .send(crate::envelope_generator::EgRequest::UpdateZeroPoints {
                 value_1: DEFAULT_OUT_ZERO_POINT,
                 value_2: DEFAULT_OUT_ZERO_POINT,
                 save: false,
@@ -274,7 +277,7 @@ impl<'a> Calibrator<'a> {
         debug!("zero_points: 1={:#x}, 2={:#x}", value_1, value_2);
 
         eg_request_sender
-            .send(crate::envelope_generator::EgRequest::UpdateZeroPoint {
+            .send(crate::envelope_generator::EgRequest::UpdateZeroPoints {
                 value_1,
                 value_2,
                 save: true,
