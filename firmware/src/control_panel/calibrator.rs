@@ -223,7 +223,7 @@ impl<'a> Calibrator<'a> {
                 radius: 57,
                 start_degree: 214,
                 end_degree: 279,
-                color: true,
+                color: BinaryColor::On,
                 flush: false,
             })
             .await;
@@ -235,7 +235,7 @@ impl<'a> Calibrator<'a> {
                 radius: 16,
                 start_degree: 239,
                 end_degree: 303,
-                color: true,
+                color: BinaryColor::On,
                 flush: true,
             })
             .await;
@@ -295,7 +295,7 @@ impl<'a> Calibrator<'a> {
                 radius: 57,
                 start_degree: 214,
                 end_degree: 279,
-                color: false,
+                color: BinaryColor::Off,
                 flush: false,
             })
             .await;
@@ -307,7 +307,7 @@ impl<'a> Calibrator<'a> {
                 radius: 16,
                 start_degree: 239,
                 end_degree: 303,
-                color: false,
+                color: BinaryColor::Off,
                 flush: false,
             })
             .await;

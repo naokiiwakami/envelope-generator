@@ -87,10 +87,10 @@ pub enum Request {
     },
     DrawArc {
         center: Point,
-        radius: i32,
+        radius: u32,
         start_degree: i32,
         end_degree: i32,
-        color: bool,
+        color: BinaryColor,
         flush: bool,
     },
     // Fundamental requests
@@ -409,7 +409,14 @@ impl Display {
         sweep >>= 16;
         let end = Angle::from_degrees(120 + sweep as i32);
         self.driver
-            .draw_arc(position.x + 14, position.y + 14, 14, start, end, true)
+            .draw_arc(
+                position.x + 14,
+                position.y + 14,
+                14,
+                start,
+                end,
+                BinaryColor::On,
+            )
             .await;
     }
 
@@ -606,10 +613,10 @@ impl Display {
     async fn draw_arc(
         &mut self,
         center: Point,
-        radius: i32,
+        radius: u32,
         start_degree: i32,
         end_degree: i32,
-        color: bool,
+        color: BinaryColor,
         flush: bool,
     ) {
         self.driver
