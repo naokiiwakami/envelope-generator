@@ -397,81 +397,7 @@ impl<'a> InOperationMode<'a> {
         self.display.driver.flush().await;
     }
 
-    // Utils /////////////////////////////////////////////////////////////////////////////////////
-
-    #[inline]
-    fn attack_pos(&self, attack: u16) -> i32 {
-        ((35 * (distort(attack) as i32 + 1)) >> 16) + LEFT
-    }
-
-    #[inline]
-    fn decay_pos(&self, decay: u16) -> i32 {
-        ((35 * (distort(decay) as i32 + 1)) >> 16) + self.attack + 1
-    }
-
-    #[inline]
-    fn sustain_pos(&self, sustain: u16) -> i32 {
-        // sustain should not drop to the bottom as we want to show the release curve
-        // even at sustain = 0
-        BOTTOM - ((BOTTOM * ((sustain as i32 * 3) / 4 + 16384)) >> 16)
-    }
-
-    #[inline]
-    fn release_pos(&self, release: u16) -> i32 {
-        125 - ((35 * (distort(release) as i32 + 1)) >> 16)
-    }
-
-    #[inline(always)]
-    async fn _draw_node(&mut self, top_left_x: i32, top_left_y: i32) {
-        self.display
-            .driver
-            .draw_circle((top_left_x, top_left_y), _NODE_SIZE, self._fill_area)
-            .await;
-    }
-
-    #[inline(always)]
-    async fn _erase_node(&mut self, top_left_x: i32, top_left_y: i32) {
-        self.display
-            .driver
-            .draw_circle((top_left_x, top_left_y), _NODE_SIZE, self.erase_area)
-            .await;
-    }
-
-    #[inline(always)]
-    async fn draw_line(&mut self, start: (i32, i32), end: (i32, i32)) {
-        self.display.driver.draw_line(start, end, self.stroke).await;
-    }
-
-    #[inline(always)]
-    async fn erase_line(&mut self, start: (i32, i32), end: (i32, i32)) {
-        self.display
-            .driver
-            .draw_line(start, end, self.erase_stroke)
-            .await;
-    }
-
-    #[inline(always)]
-    async fn erase_x_range(&mut self, left: i32, right: i32) {
-        self.display
-            .driver
-            .draw_rectangle(
-                (left, TOP),
-                (right - left + 1) as u32,
-                (BOTTOM + 1) as u32,
-                self.erase_area,
-            )
-            .await;
-    }
-
-    #[inline(always)]
-    async fn draw_curve(&mut self, start: (i32, i32), end: (i32, i32)) {
-        let p2_x = (start.0 + end.0) / 2;
-        let p2_y = (end.1 * 2 + start.1) / 3;
-        self.display
-            .driver
-            .draw_3p_curve(start, (p2_x, p2_y), end, BinaryColor::On)
-            .await;
-    }
+    // Note scaling //////////////////////////////////////////////////////////////////////////////
 
     /// Draws a note scaling bar
     async fn draw_note_scaling_bar(&mut self, depth: u16) {
@@ -555,6 +481,82 @@ impl<'a> InOperationMode<'a> {
         }
 
         self.display.driver.flush().await;
+    }
+
+    // Utils /////////////////////////////////////////////////////////////////////////////////////
+
+    #[inline]
+    fn attack_pos(&self, attack: u16) -> i32 {
+        ((35 * (distort(attack) as i32 + 1)) >> 16) + LEFT
+    }
+
+    #[inline]
+    fn decay_pos(&self, decay: u16) -> i32 {
+        ((35 * (distort(decay) as i32 + 1)) >> 16) + self.attack + 1
+    }
+
+    #[inline]
+    fn sustain_pos(&self, sustain: u16) -> i32 {
+        // sustain should not drop to the bottom as we want to show the release curve
+        // even at sustain = 0
+        BOTTOM - ((BOTTOM * ((sustain as i32 * 3) / 4 + 16384)) >> 16)
+    }
+
+    #[inline]
+    fn release_pos(&self, release: u16) -> i32 {
+        125 - ((35 * (distort(release) as i32 + 1)) >> 16)
+    }
+
+    #[inline(always)]
+    async fn _draw_node(&mut self, top_left_x: i32, top_left_y: i32) {
+        self.display
+            .driver
+            .draw_circle((top_left_x, top_left_y), _NODE_SIZE, self._fill_area)
+            .await;
+    }
+
+    #[inline(always)]
+    async fn _erase_node(&mut self, top_left_x: i32, top_left_y: i32) {
+        self.display
+            .driver
+            .draw_circle((top_left_x, top_left_y), _NODE_SIZE, self.erase_area)
+            .await;
+    }
+
+    #[inline(always)]
+    async fn draw_line(&mut self, start: (i32, i32), end: (i32, i32)) {
+        self.display.driver.draw_line(start, end, self.stroke).await;
+    }
+
+    #[inline(always)]
+    async fn erase_line(&mut self, start: (i32, i32), end: (i32, i32)) {
+        self.display
+            .driver
+            .draw_line(start, end, self.erase_stroke)
+            .await;
+    }
+
+    #[inline(always)]
+    async fn erase_x_range(&mut self, left: i32, right: i32) {
+        self.display
+            .driver
+            .draw_rectangle(
+                (left, TOP),
+                (right - left + 1) as u32,
+                (BOTTOM + 1) as u32,
+                self.erase_area,
+            )
+            .await;
+    }
+
+    #[inline(always)]
+    async fn draw_curve(&mut self, start: (i32, i32), end: (i32, i32)) {
+        let p2_x = (start.0 + end.0) / 2;
+        let p2_y = (end.1 * 2 + start.1) / 3;
+        self.display
+            .driver
+            .draw_3p_curve(start, (p2_x, p2_y), end, BinaryColor::On)
+            .await;
     }
 }
 
