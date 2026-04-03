@@ -186,27 +186,21 @@ impl<'a> InOperationMode<'a> {
         self.attack = self.attack_pos(attack);
         self.decay = self.decay_pos(decay);
         self.sustain = self.sustain_pos(sustain);
-        self.gate_off = self.gate_off_pos();
+        // self.gate_off = self.gate_off_pos();
         self.release = self.release_pos(release);
 
-        self.draw_node(0, 28).await;
-        self.draw_node(self.attack, 0).await;
+        // self.draw_node(0, 28).await;
+        // self.draw_node(self.attack, 0).await;
         self.draw_line((0, 28), (self.attack, 0)).await;
-        self.draw_node(self.decay, self.sustain).await;
+        // self.draw_node(self.decay, self.sustain).await;
         self.draw_line((self.attack, 0), (self.decay, self.sustain))
             .await;
-        self.draw_node(self.gate_off, self.sustain).await;
-        self.draw_line((self.decay, self.sustain), (self.gate_off, self.sustain))
+        // self.draw_node(self.gate_off, self.sustain).await;
+        self.draw_line((self.decay, self.sustain), (self.release, self.sustain))
             .await;
-        self.draw_node(self.release, 28).await;
-        self.draw_line((self.gate_off, self.sustain), (self.release, 28))
+        // self.draw_node(self.release, 28).await;
+        self.draw_line((self.release, self.sustain), (127, 28))
             .await;
-        /*
-        self.display
-            .driver
-            .draw_string("ADSR", TextBox::center().build(), FontSize::Large)
-            .await;
-        */
 
         self.draw_note_scaling_bar(extra_2).await;
 
@@ -220,14 +214,14 @@ impl<'a> InOperationMode<'a> {
                 if next_attack == self.attack {
                     return;
                 }
-                self.erase_node(self.attack, 0).await;
+                // self.erase_node(self.attack, 0).await;
                 self.erase_line((0, 28), (self.attack, 0)).await;
                 self.erase_line((self.attack, 0), (self.decay, self.sustain))
                     .await;
 
                 self.attack = next_attack;
 
-                self.draw_node(self.attack, 0).await;
+                // self.draw_node(self.attack, 0).await;
                 self.draw_line((0, 28), (self.attack, 0)).await;
                 self.draw_line((self.attack, 0), (self.decay, self.sustain))
                     .await;
@@ -238,25 +232,25 @@ impl<'a> InOperationMode<'a> {
                     return;
                 }
 
-                self.erase_node(self.decay, self.sustain).await;
-                self.erase_node(self.gate_off, self.sustain).await;
+                // self.erase_node(self.decay, self.sustain).await;
+                // self.erase_node(self.gate_off, self.sustain).await;
                 self.erase_line((self.attack, 0), (self.decay, self.sustain))
                     .await;
-                self.erase_line((self.decay, self.sustain), (self.gate_off, self.sustain))
+                self.erase_line((self.decay, self.sustain), (self.release, self.sustain))
                     .await;
-                self.erase_line((self.gate_off, self.sustain), (self.release, 28))
+                self.erase_line((self.release, self.sustain), (127, 28))
                     .await;
 
                 self.decay = next_decay;
-                self.gate_off = self.gate_off_pos();
+                // self.gate_off = self.gate_off_pos();
 
-                self.draw_node(self.decay, self.sustain).await;
-                self.draw_node(self.gate_off, self.sustain).await;
+                // self.draw_node(self.decay, self.sustain).await;
+                // self.draw_node(self.gate_off, self.sustain).await;
                 self.draw_line((self.attack, 0), (self.decay, self.sustain))
                     .await;
-                self.draw_line((self.decay, self.sustain), (self.gate_off, self.sustain))
+                self.draw_line((self.decay, self.sustain), (self.release, self.sustain))
                     .await;
-                self.draw_line((self.gate_off, self.sustain), (self.release, 28))
+                self.draw_line((self.release, self.sustain), (127, 28))
                     .await;
             }
             PotKind::Sustain => {
@@ -264,24 +258,24 @@ impl<'a> InOperationMode<'a> {
                 if next_sustain == self.sustain {
                     return;
                 }
-                self.erase_node(self.decay, self.sustain).await;
-                self.erase_node(self.gate_off, self.sustain).await;
+                // self.erase_node(self.decay, self.sustain).await;
+                // self.erase_node(self.gate_off, self.sustain).await;
                 self.erase_line((self.attack, 0), (self.decay, self.sustain))
                     .await;
-                self.erase_line((self.decay, self.sustain), (self.gate_off, self.sustain))
+                self.erase_line((self.decay, self.sustain), (self.release, self.sustain))
                     .await;
-                self.erase_line((self.gate_off, self.sustain), (self.release, 28))
+                self.erase_line((self.release, self.sustain), (127, 28))
                     .await;
 
                 self.sustain = next_sustain;
 
-                self.draw_node(self.decay, self.sustain).await;
-                self.draw_node(self.gate_off, self.sustain).await;
+                // self.draw_node(self.decay, self.sustain).await;
+                // self.draw_node(self.gate_off, self.sustain).await;
                 self.draw_line((self.attack, 0), (self.decay, self.sustain))
                     .await;
-                self.draw_line((self.decay, self.sustain), (self.gate_off, self.sustain))
+                self.draw_line((self.decay, self.sustain), (self.release, self.sustain))
                     .await;
-                self.draw_line((self.gate_off, self.sustain), (self.release, 28))
+                self.draw_line((self.release, self.sustain), (127, 28))
                     .await;
             }
             PotKind::Release => {
@@ -289,14 +283,18 @@ impl<'a> InOperationMode<'a> {
                 if next_release == self.release {
                     return;
                 }
-                self.erase_node(self.release, 28).await;
-                self.erase_line((self.gate_off, self.sustain), (self.release, 28))
+                // self.erase_node(self.release, 28).await;
+                self.erase_line((self.decay, self.sustain), (self.release, self.sustain))
+                    .await;
+                self.erase_line((self.release, self.sustain), (127, 28))
                     .await;
 
                 self.release = next_release;
 
-                self.draw_node(self.release, 28).await;
-                self.draw_line((self.gate_off, self.sustain), (self.release, 28))
+                // self.draw_node(self.release, 28).await;
+                self.draw_line((self.decay, self.sustain), (self.release, self.sustain))
+                    .await;
+                self.draw_line((self.release, self.sustain), (127, 28))
                     .await;
             }
             PotKind::Extra2 => {
@@ -324,7 +322,7 @@ impl<'a> InOperationMode<'a> {
     }
 
     fn release_pos(&self, release: u16) -> i32 {
-        ((30 * (release as i32 + 1)) >> 16) + NODE_SIZE as i32 + self.gate_off
+        125 - ((30 * (release as i32 + 1)) >> 16)
     }
 
     #[inline(always)]
