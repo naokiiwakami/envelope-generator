@@ -1,7 +1,6 @@
 use core::ops::Add;
 
 use defmt::debug;
-use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, watch};
 use embassy_time::{Instant, Timer};
 use embedded_graphics::{
     pixelcolor::BinaryColor,
@@ -13,9 +12,7 @@ use ssd1306_lite::{FontSize, TextBox};
 use crate::{
     control_panel::display::Mode,
     envelope_generator::{DEFAULT_OUT_ZERO_POINT, EngineType, get_eg_request_sender},
-    input_reader::{
-        InputReaderInfo, InputReaderRequest, get_reader_info_receiver, get_reader_request_sender,
-    },
+    input_reader::{InputReaderRequest, get_reader_request_sender},
 };
 
 use super::{ControlPanel, DisplayRequest, display::Mode as DisplayMode};
@@ -51,9 +48,8 @@ impl<'a> Calibrator<'a> {
         let orig_engine_type = self.control_panel.current_engine_type.clone();
         self.prepare().await;
 
-        let mut reader_info_receiver = get_reader_info_receiver().await;
-        self.calibrate_cv(&mut reader_info_receiver).await;
-        self.calibrate_output(&mut reader_info_receiver).await;
+        self.calibrate_cv().await;
+        self.calibrate_output().await;
         self.wrap_up(orig_engine_type).await;
     }
 
@@ -91,10 +87,7 @@ impl<'a> Calibrator<'a> {
         self.wait_for_button_pressed().await;
     }
 
-    async fn calibrate_cv(
-        &mut self,
-        reader_info_receiver: &mut watch::Receiver<'_, ThreadModeRawMutex, InputReaderInfo, 2>,
-    ) {
+    async fn calibrate_cv(&mut self) {
         self.display_title("CV: MEASURING").await;
 
         let request_sender = get_reader_request_sender();
@@ -121,7 +114,7 @@ impl<'a> Calibrator<'a> {
 
         // measure offset
         for i in 0..repeat {
-            let reader_info = reader_info_receiver.changed().await;
+            let reader_info = self.control_panel.reader_info_receiver.changed().await;
             let cv_info = reader_info.cv_info;
             offset_a -= cv_info.cv_a as i32;
             offset_b -= cv_info.cv_b as i32;
@@ -178,7 +171,7 @@ impl<'a> Calibrator<'a> {
             .build();
 
         for i in 0..repeat {
-            let reader_info = reader_info_receiver.changed().await;
+            let reader_info = self.control_panel.reader_info_receiver.changed().await;
             let cv_info = reader_info.cv_info;
             offset_a -= cv_info.cv_a as i32;
             offset_b -= cv_info.cv_b as i32;
@@ -201,10 +194,7 @@ impl<'a> Calibrator<'a> {
         Timer::after_millis(2000).await;
     }
 
-    async fn calibrate_output(
-        &mut self,
-        reader_info_receiver: &mut watch::Receiver<'_, ThreadModeRawMutex, InputReaderInfo, 2>,
-    ) {
+    async fn calibrate_output(&mut self) {
         let eg_request_sender = get_eg_request_sender();
         eg_request_sender
             .send(crate::envelope_generator::EgRequest::UpdateZeroPoints {
@@ -254,7 +244,7 @@ impl<'a> Calibrator<'a> {
 
         // measure offset
         for i in 0..repeat {
-            let reader_info = reader_info_receiver.changed().await;
+            let reader_info = self.control_panel.reader_info_receiver.changed().await;
             let cv_info = reader_info.cv_info;
             offset_1 += cv_info.cv_a as i32;
             offset_2 += cv_info.cv_b as i32;
@@ -341,7 +331,7 @@ impl<'a> Calibrator<'a> {
             .build();
 
         for i in 0..repeat {
-            let reader_info = reader_info_receiver.changed().await;
+            let reader_info = self.control_panel.reader_info_receiver.changed().await;
             let cv_info = reader_info.cv_info;
             offset_1 += cv_info.cv_a as i32;
             offset_2 += cv_info.cv_b as i32;
