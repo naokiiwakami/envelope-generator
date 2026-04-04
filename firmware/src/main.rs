@@ -8,11 +8,11 @@ mod input_reader;
 mod patch_controller;
 pub mod utils;
 
-use analog3::{Analog3Config, definitions::*, storage};
+use analog3::{Analog3Config, definitions::*, rng, storage};
 use core::future::pending;
 use defmt::debug;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::{Adc, AdcChannel};
+use embassy_stm32::adc::{Adc, AdcChannel, SampleTime};
 use embassy_stm32::can::{self, Can};
 use embassy_stm32::dac::Dac;
 use embassy_stm32::dma;
@@ -22,7 +22,7 @@ use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::i2c::{self, I2c, Master};
 use embassy_stm32::mode::{Async, Blocking};
 use embassy_stm32::pac;
-use embassy_stm32::peripherals::{self, TIM3};
+use embassy_stm32::peripherals::{self, ADC1, TIM3};
 use embassy_stm32::rcc::{
     AHBPrescaler, APBPrescaler, Hse, HseMode, Pll, PllMul, PllPreDiv, PllRDiv, PllSource, Sysclk,
 };
@@ -286,10 +286,28 @@ async fn setup_peripherals(p: Peripherals) -> EgResources {
     }
 }
 
+fn generate_rng_initial_values(adc: &mut Adc<'static, ADC1>) -> (u16, u16, u16) {
+    let mut temp_channel = adc.enable_temperature();
+    let raw1 = adc.blocking_read(&mut temp_channel, SampleTime::CYCLES39_5);
+    let raw2 = adc.blocking_read(&mut temp_channel, SampleTime::CYCLES39_5);
+    let raw3 = adc.blocking_read(&mut temp_channel, SampleTime::CYCLES39_5);
+
+    debug!(
+        "RNG seeding from temperature sensor: {=u16} {=u16} {=u16}",
+        raw1, raw2, raw3
+    );
+
+    (raw1, raw2, raw3)
+}
+
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let p = init().await;
     let mut eg_resources = setup_peripherals(p).await;
+
+    // seed the PRNG from the internal temperature sensor
+    let initial_values = generate_rng_initial_values(&mut eg_resources.adc_resources.adc);
+    rng::init(initial_values);
 
     // start the modules
     storage::start(spawner, eg_resources.flash).await;
