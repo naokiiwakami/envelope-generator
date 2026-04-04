@@ -11,6 +11,7 @@ use analog3::{
     self,
     addresses_common::*,
     definitions::*,
+    rng,
     storage::{self, load_string, load_u8, load_u16, load_u16_or_default, load_u32},
 };
 use defmt::{debug, warn};
@@ -167,7 +168,8 @@ pub async fn get_uid() -> u32 {
     let mut uid = load_u32(A3_ADDR_MODULE_UID, &SIGNAL_STORAGE).await;
     debug!("loaded UID: {=u32:#x}", uid);
     if uid == u32::MAX {
-        uid = 0xe9de9d;
+        uid = rng::RNG.random_u32() & 0x1fffffff; // a 29-bit random value
+        debug!("generated UID={:#x}", uid);
         storage::save(A3_ADDR_MODULE_UID, Value::U32(uid), &SIGNAL_STORAGE)
             .await
             .unwrap();
