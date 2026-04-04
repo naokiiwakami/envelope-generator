@@ -6,6 +6,7 @@ mod control_panel;
 mod envelope_generator;
 mod input_reader;
 mod patch_controller;
+mod rng;
 pub mod utils;
 
 use analog3::{Analog3Config, definitions::*, storage};
@@ -290,6 +291,9 @@ async fn setup_peripherals(p: Peripherals) -> EgResources {
 async fn main(spawner: Spawner) {
     let p = init().await;
     let mut eg_resources = setup_peripherals(p).await;
+
+    // seed the PRNG from the internal temperature sensor
+    rng::init_from_temperature(&mut eg_resources.adc_resources.adc);
 
     // start the modules
     storage::start(spawner, eg_resources.flash).await;
