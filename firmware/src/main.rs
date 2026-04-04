@@ -295,6 +295,9 @@ async fn main(spawner: Spawner) {
     // seed the PRNG from the internal temperature sensor
     rng::init_from_temperature(&mut eg_resources.adc_resources.adc);
 
+    debug!("random={:#x}", rng::RNG.random_u32());
+    debug!("random={:#x}", rng::RNG.random_u32());
+
     // start the modules
     storage::start(spawner, eg_resources.flash).await;
 
