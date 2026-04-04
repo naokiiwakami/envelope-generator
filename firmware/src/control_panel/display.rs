@@ -1,6 +1,7 @@
 mod in_operation_mode;
 mod menu_mode;
 
+use analog3::rng::local_rng;
 use core::cmp::min;
 use defmt::{debug, error};
 use embassy_futures::yield_now;
@@ -12,7 +13,7 @@ use embassy_sync::{
     blocking_mutex::raw::ThreadModeRawMutex,
     channel::{self, Channel},
 };
-use embassy_time::{Duration, Instant};
+use embassy_time::{Duration, Instant, Timer};
 use embedded_graphics::{
     pixelcolor::BinaryColor,
     prelude::*,
@@ -24,7 +25,7 @@ use ssd1306_lite::{Angle, FontSize, Ssd1306Lite, TextBox};
 use crate::{
     control_panel::{display::menu_mode::MenuMode, menu::ENGINE_TYPE_MENU_ITEMS},
     envelope_generator::EngineType,
-    input_reader::{CvInfo, PotInfo},
+    input_reader::{CvInfo, PotInfo, PotKind},
 };
 
 use super::menu::ADMIN_MENU_ITEMS;
@@ -35,8 +36,8 @@ pub const CHANNEL_LENGTH: usize = 4;
 static CHANNEL_REQUEST: Channel<ThreadModeRawMutex, Request, CHANNEL_LENGTH> = Channel::new();
 
 #[embassy_executor::task]
-pub async fn run_display(mut eg_display: Display) {
-    eg_display.run().await;
+pub async fn run_display(mut display: Display) {
+    display.run().await;
 }
 
 #[derive(PartialEq, Debug, defmt::Format)]
@@ -205,9 +206,13 @@ impl Display {
         }
     }
 
-    pub async fn run(&mut self) {
+    pub async fn initialize(&mut self) {
         self.driver.initialize().await;
         debug!("initialized");
+    }
+
+    pub async fn run(&mut self) {
+        self.splash_screen().await;
         loop {
             match self.mode {
                 Mode::Any => {} // Generic requests don't have a specific mode
@@ -218,6 +223,113 @@ impl Display {
                 Mode::PotsDiag => self.run_pots_diag_mode().await,
                 Mode::CvDiag => self.run_cv_diag_mode().await,
             };
+        }
+    }
+
+    /*
+    pub async fn splash_screen(&mut self) {
+        let rng = local_rng();
+        let blank = PrimitiveStyleBuilder::new()
+            .fill_color(BinaryColor::Off)
+            .build();
+        for threshold in (0..128).rev().step_by(4) {
+            for x in 0..128 {
+                for y in 0..128 {
+                    if rng.random_u8() < threshold {
+                        self.driver.set_pixel(x, y);
+                    } else {
+                        self.driver.unset_pixel(x, y);
+                    }
+                }
+            }
+            self.driver
+                .draw_triangle((28, 50), (100, 50), (64, 14), blank)
+                .await;
+            self.driver.flush().await;
+        }
+    }
+    */
+
+    pub async fn splash_screen(&mut self) {
+        let rng = local_rng();
+        let blank = PrimitiveStyleBuilder::new()
+            .fill_color(BinaryColor::Off)
+            .build();
+        let mut attack = 0u16;
+        let mut decay = 0u16;
+        let mut sustain = 0u16;
+        let mut release = 0u16;
+        let mut extra_1 = 0u16;
+        let mut extra_2 = 0u16;
+        let mut last_mode = Mode::Fundamental;
+        let mut engine_type = EngineType::ParaDecays;
+        for threshold in (0..32).rev() {
+            if let Ok(request) = self.request_receiver.try_receive() {
+                last_mode = request.mode();
+                match request {
+                    Request::GoToOpHome {
+                        engine_type: e,
+                        attack: a,
+                        decay: d,
+                        sustain: s,
+                        release: r,
+                        extra_1: e1,
+                        extra_2: e2,
+                    } => {
+                        engine_type = e;
+                        attack = a;
+                        decay = d;
+                        sustain = s;
+                        release = r;
+                        extra_1 = e1;
+                        extra_2 = e2;
+                    }
+                    Request::UpdatePot { pot_info } => {
+                        match pot_info.kind {
+                            PotKind::Attack => attack = pot_info.value,
+                            PotKind::Decay => decay = pot_info.value,
+                            PotKind::Sustain => sustain = pot_info.value,
+                            PotKind::Release => release = pot_info.value,
+                            PotKind::Extra1 => extra_1 = pot_info.value,
+                            PotKind::Extra2 => extra_2 = pot_info.value,
+                            _ => {}
+                        };
+                    }
+                    _ => {}
+                }
+            }
+            for y in 0..64 {
+                for x in 0..32 {
+                    let mut random = rng.random_u64();
+                    for seg in 0..8 {
+                        if random & 0x3f < threshold {
+                            self.driver.set_pixel(x * 8 + seg, y);
+                        } else {
+                            self.driver.unset_pixel(x * 8 + seg, y);
+                        }
+                        random >>= 8;
+                    }
+                }
+                yield_now().await;
+            }
+            self.driver
+                .draw_triangle((28, 50), (100, 50), (64, 14), blank)
+                .await;
+            self.driver.flush().await;
+        }
+        Timer::after_millis(300).await;
+        if matches!(last_mode, Mode::InOperation) {
+            self.mode = Mode::InOperation;
+            debug!("attacK: {:#x}, extra_2: {:#x}", attack, extra_2);
+            self.pending_request = Some(Request::GoToOpHome {
+                engine_type,
+                attack,
+                decay,
+                sustain,
+                release,
+                extra_1,
+                extra_2,
+            });
         }
     }
 

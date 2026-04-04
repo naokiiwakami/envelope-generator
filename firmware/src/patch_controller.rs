@@ -1,3 +1,4 @@
+use analog3::rng::local_rng;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Input, Output};
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel, signal::Signal};
@@ -52,6 +53,17 @@ struct PatchController {
     ind_green: Output<'static>,
 }
 
+async fn random_blink(repeat: usize, leds: &mut [&mut Output<'static>]) {
+    let rng = local_rng();
+    for _ in 0..repeat {
+        let random = rng.random_u64();
+        Timer::after_millis(100 + random % 256).await;
+        leds[random as usize % leds.len()].set_high();
+        Timer::after_millis(30).await;
+        leds[random as usize % leds.len()].set_low();
+    }
+}
+
 impl PatchController {
     pub fn new(
         button: Input<'static>,
@@ -67,6 +79,10 @@ impl PatchController {
 
     pub async fn run(&mut self) {
         let request_receiver = CHANNEL_PATCH_CONTROLLER.receiver();
+        {
+            let mut leds = [&mut self.ind_red, &mut self.ind_green];
+            random_blink(5, &mut leds).await;
+        }
         loop {
             let request = request_receiver.receive().await;
             match request {
