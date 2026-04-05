@@ -244,9 +244,9 @@ impl Display {
         let mut last_mode = Mode::Fundamental;
         let mut engine_type = EngineType::ParaDecays;
         let rng = make_local_rng();
-        let mut patch_controller_tracking = BlinkTracking::new(&rng);
+        let mut patch_controller_blinker = InitialBlinker::new(&rng);
         let pc_request_sender = get_patch_controller_request_sender();
-        let mut a3_tracking = BlinkTracking::new(&rng);
+        let mut a3_blinker = InitialBlinker::new(&rng);
         let a3_request_sender = analog3::get_indicator_request_sender();
         for threshold in (0..32).rev() {
             if let Ok(request) = self.request_receiver.try_receive() {
@@ -294,27 +294,27 @@ impl Display {
                         }
                         random >>= 8;
                     }
-                    if patch_controller_tracking.check() {
+                    if patch_controller_blinker.check() {
                         pc_request_sender
                             .send(PatchControllerRequest::OperateIndicator {
-                                led_color: if patch_controller_tracking.index == 0 {
+                                led_color: if patch_controller_blinker.index == 0 {
                                     LedColor::Red
                                 } else {
                                     LedColor::Green
                                 },
-                                is_high: patch_controller_tracking.turned_on,
+                                is_high: patch_controller_blinker.turn_on,
                             })
                             .await;
                     }
-                    if a3_tracking.check() {
-                        let request = if a3_tracking.turned_on {
-                            if a3_tracking.index == 0 {
+                    if a3_blinker.check() {
+                        let request = if a3_blinker.turn_on {
+                            if a3_blinker.index == 0 {
                                 IndicatorRequest::SetRedLed
                             } else {
                                 IndicatorRequest::SetBlueLed
                             }
                         } else {
-                            if a3_tracking.index == 0 {
+                            if a3_blinker.index == 0 {
                                 IndicatorRequest::ResetRedLed
                             } else {
                                 IndicatorRequest::ResetBlueLed
@@ -782,17 +782,18 @@ struct CvPoints {
     pub data_len: usize,
 }
 
-struct BlinkTracking<'a> {
+/// Controls initial blink
+struct InitialBlinker<'a> {
     rng: &'a LocalRng,
     last_lit: Instant,
     interval_c: u64,
     interval: Duration,
     pub remaining: usize,
     pub index: usize,
-    pub turned_on: bool,
+    pub turn_on: bool,
 }
 
-impl<'a> BlinkTracking<'a> {
+impl<'a> InitialBlinker<'a> {
     pub fn new(rng: &'a LocalRng) -> Self {
         let interval_c = 100;
         let interval = Duration::from_millis(rng.random_u64() % interval_c + interval_c / 2);
@@ -803,21 +804,24 @@ impl<'a> BlinkTracking<'a> {
             interval,
             remaining: 6,
             index: 0,
-            turned_on: false,
+            turn_on: false,
         }
     }
 
+    /// Checks whether any action is required.
+    /// The user should check properties `turn_on` and `index` to determine what to do.
+    /// If `turn_on` is true, the user should turn on an indicator LED for the `index`.
     pub fn check(&mut self) -> bool {
         if self.remaining > 0 && self.last_lit.elapsed() >= self.interval {
-            if self.turned_on {
-                self.turned_on = false;
+            if self.turn_on {
+                self.turn_on = false;
                 self.interval = Duration::from_millis(
                     self.rng.random_u64() % self.interval_c + self.interval_c / 2,
                 );
                 self.remaining -= 1;
                 return true;
             } else {
-                self.turned_on = true;
+                self.turn_on = true;
                 self.index = (self.rng.random_u64() % 2) as usize;
                 self.interval_c = self.interval_c * 3 / 2;
                 self.interval = Duration::from_millis(30);
