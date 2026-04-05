@@ -3,7 +3,7 @@ mod diagnoser;
 mod display;
 mod menu;
 
-use analog3::rng::local_rng;
+use analog3::rng::make_local_rng;
 use defmt::{debug, error};
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
@@ -603,7 +603,7 @@ impl ControlPanel {
 }
 
 async fn random_blink(repeat: usize, leds: &mut [&mut Output<'static>]) {
-    let rng = local_rng();
+    let rng = make_local_rng();
     for _ in 0..repeat {
         let random = rng.random_u64();
         Timer::after_millis(100 + random % 256).await;

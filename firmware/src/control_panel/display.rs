@@ -1,7 +1,10 @@
 mod in_operation_mode;
 mod menu_mode;
 
-use analog3::rng::local_rng;
+use analog3::{
+    IndicatorRequest,
+    rng::{LocalRng, make_local_rng},
+};
 use core::cmp::min;
 use defmt::{debug, error};
 use embassy_futures::yield_now;
@@ -26,6 +29,7 @@ use crate::{
     control_panel::{display::menu_mode::MenuMode, menu::ENGINE_TYPE_MENU_ITEMS},
     envelope_generator::EngineType,
     input_reader::{CvInfo, PotInfo, PotKind},
+    patch_controller::{LedColor, PatchControllerRequest, get_patch_controller_request_sender},
 };
 
 use super::menu::ADMIN_MENU_ITEMS;
@@ -213,6 +217,7 @@ impl Display {
 
     pub async fn run(&mut self) {
         self.splash_screen().await;
+        analog3::start_operation().await;
         loop {
             match self.mode {
                 Mode::Any => {} // Generic requests don't have a specific mode
@@ -226,32 +231,7 @@ impl Display {
         }
     }
 
-    /*
     pub async fn splash_screen(&mut self) {
-        let rng = local_rng();
-        let blank = PrimitiveStyleBuilder::new()
-            .fill_color(BinaryColor::Off)
-            .build();
-        for threshold in (0..128).rev().step_by(4) {
-            for x in 0..128 {
-                for y in 0..128 {
-                    if rng.random_u8() < threshold {
-                        self.driver.set_pixel(x, y);
-                    } else {
-                        self.driver.unset_pixel(x, y);
-                    }
-                }
-            }
-            self.driver
-                .draw_triangle((28, 50), (100, 50), (64, 14), blank)
-                .await;
-            self.driver.flush().await;
-        }
-    }
-    */
-
-    pub async fn splash_screen(&mut self) {
-        let rng = local_rng();
         let blank = PrimitiveStyleBuilder::new()
             .fill_color(BinaryColor::Off)
             .build();
@@ -263,6 +243,11 @@ impl Display {
         let mut extra_2 = 0u16;
         let mut last_mode = Mode::Fundamental;
         let mut engine_type = EngineType::ParaDecays;
+        let rng = make_local_rng();
+        let mut patch_controller_tracking = BlinkTracking::new(&rng);
+        let pc_request_sender = get_patch_controller_request_sender();
+        let mut a3_tracking = BlinkTracking::new(&rng);
+        let a3_request_sender = analog3::get_indicator_request_sender();
         for threshold in (0..32).rev() {
             if let Ok(request) = self.request_receiver.try_receive() {
                 last_mode = request.mode();
@@ -308,6 +293,34 @@ impl Display {
                             self.driver.unset_pixel(x * 8 + seg, y);
                         }
                         random >>= 8;
+                    }
+                    if patch_controller_tracking.check() {
+                        pc_request_sender
+                            .send(PatchControllerRequest::OperateIndicator {
+                                led_color: if patch_controller_tracking.index == 0 {
+                                    LedColor::Red
+                                } else {
+                                    LedColor::Green
+                                },
+                                is_high: patch_controller_tracking.turned_on,
+                            })
+                            .await;
+                    }
+                    if a3_tracking.check() {
+                        let request = if a3_tracking.turned_on {
+                            if a3_tracking.index == 0 {
+                                IndicatorRequest::SetRedLed
+                            } else {
+                                IndicatorRequest::SetBlueLed
+                            }
+                        } else {
+                            if a3_tracking.index == 0 {
+                                IndicatorRequest::ResetRedLed
+                            } else {
+                                IndicatorRequest::ResetBlueLed
+                            }
+                        };
+                        a3_request_sender.send(request).await;
                     }
                 }
                 yield_now().await;
@@ -767,4 +780,51 @@ struct CvPoints {
     pub data2: [u8; 128],
     pub head: usize,
     pub data_len: usize,
+}
+
+struct BlinkTracking<'a> {
+    rng: &'a LocalRng,
+    last_lit: Instant,
+    interval_c: u64,
+    interval: Duration,
+    pub remaining: usize,
+    pub index: usize,
+    pub turned_on: bool,
+}
+
+impl<'a> BlinkTracking<'a> {
+    pub fn new(rng: &'a LocalRng) -> Self {
+        let interval_c = 100;
+        let interval = Duration::from_millis(rng.random_u64() % interval_c + interval_c / 2);
+        Self {
+            rng,
+            last_lit: Instant::now(),
+            interval_c,
+            interval,
+            remaining: 6,
+            index: 0,
+            turned_on: false,
+        }
+    }
+
+    pub fn check(&mut self) -> bool {
+        if self.remaining > 0 && self.last_lit.elapsed() >= self.interval {
+            if self.turned_on {
+                self.turned_on = false;
+                self.interval = Duration::from_millis(
+                    self.rng.random_u64() % self.interval_c + self.interval_c / 2,
+                );
+                self.remaining -= 1;
+                return true;
+            } else {
+                self.turned_on = true;
+                self.index = (self.rng.random_u64() % 2) as usize;
+                self.interval_c = self.interval_c * 3 / 2;
+                self.interval = Duration::from_millis(30);
+                self.last_lit = Instant::now();
+                return true;
+            }
+        }
+        false
+    }
 }

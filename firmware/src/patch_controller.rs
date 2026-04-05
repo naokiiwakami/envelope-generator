@@ -1,7 +1,10 @@
-use analog3::rng::local_rng;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Input, Output};
-use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel, signal::Signal};
+use embassy_sync::{
+    blocking_mutex::raw::ThreadModeRawMutex,
+    channel::{self, Channel},
+    signal::Signal,
+};
 use embassy_time::Timer;
 
 static CHANNEL_PATCH_CONTROLLER: Channel<ThreadModeRawMutex, PatchControllerRequest, 2> =
@@ -33,12 +36,26 @@ pub async fn diagnose_button(reply: &'static Signal<ThreadModeRawMutex, ()>) {
     reply.wait().await;
 }
 
+pub fn get_patch_controller_request_sender()
+-> channel::Sender<'static, ThreadModeRawMutex, PatchControllerRequest, 2> {
+    CHANNEL_PATCH_CONTROLLER.sender()
+}
+
+pub enum LedColor {
+    Red,
+    Green,
+}
+
 pub enum PatchControllerRequest {
     DiagnoseLeds {
         reply: &'static Signal<ThreadModeRawMutex, ()>,
     },
     DiagnoseButton {
         reply: &'static Signal<ThreadModeRawMutex, ()>,
+    },
+    OperateIndicator {
+        led_color: LedColor,
+        is_high: bool,
     },
 }
 
@@ -51,17 +68,6 @@ struct PatchController {
     button: Input<'static>,
     ind_red: Output<'static>,
     ind_green: Output<'static>,
-}
-
-async fn random_blink(repeat: usize, leds: &mut [&mut Output<'static>]) {
-    let rng = local_rng();
-    for _ in 0..repeat {
-        let random = rng.random_u64();
-        Timer::after_millis(100 + random % 256).await;
-        leds[random as usize % leds.len()].set_high();
-        Timer::after_millis(30).await;
-        leds[random as usize % leds.len()].set_low();
-    }
 }
 
 impl PatchController {
@@ -79,10 +85,6 @@ impl PatchController {
 
     pub async fn run(&mut self) {
         let request_receiver = CHANNEL_PATCH_CONTROLLER.receiver();
-        {
-            let mut leds = [&mut self.ind_red, &mut self.ind_green];
-            random_blink(5, &mut leds).await;
-        }
         loop {
             let request = request_receiver.receive().await;
             match request {
@@ -93,6 +95,17 @@ impl PatchController {
                 PatchControllerRequest::DiagnoseButton { reply } => {
                     self.diagnose_button().await;
                     reply.signal(());
+                }
+                PatchControllerRequest::OperateIndicator { led_color, is_high } => {
+                    let led = match led_color {
+                        LedColor::Red => &mut self.ind_red,
+                        LedColor::Green => &mut self.ind_green,
+                    };
+                    if is_high {
+                        led.set_high();
+                    } else {
+                        led.set_low();
+                    }
                 }
             };
         }
