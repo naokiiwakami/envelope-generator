@@ -1,6 +1,10 @@
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Input, Output};
-use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel, signal::Signal};
+use embassy_sync::{
+    blocking_mutex::raw::ThreadModeRawMutex,
+    channel::{self, Channel},
+    signal::Signal,
+};
 use embassy_time::Timer;
 
 static CHANNEL_PATCH_CONTROLLER: Channel<ThreadModeRawMutex, PatchControllerRequest, 2> =
@@ -32,12 +36,26 @@ pub async fn diagnose_button(reply: &'static Signal<ThreadModeRawMutex, ()>) {
     reply.wait().await;
 }
 
+pub fn get_patch_controller_request_sender()
+-> channel::Sender<'static, ThreadModeRawMutex, PatchControllerRequest, 2> {
+    CHANNEL_PATCH_CONTROLLER.sender()
+}
+
+pub enum LedColor {
+    Red,
+    Green,
+}
+
 pub enum PatchControllerRequest {
     DiagnoseLeds {
         reply: &'static Signal<ThreadModeRawMutex, ()>,
     },
     DiagnoseButton {
         reply: &'static Signal<ThreadModeRawMutex, ()>,
+    },
+    OperateIndicator {
+        led_color: LedColor,
+        is_high: bool,
     },
 }
 
@@ -77,6 +95,17 @@ impl PatchController {
                 PatchControllerRequest::DiagnoseButton { reply } => {
                     self.diagnose_button().await;
                     reply.signal(());
+                }
+                PatchControllerRequest::OperateIndicator { led_color, is_high } => {
+                    let led = match led_color {
+                        LedColor::Red => &mut self.ind_red,
+                        LedColor::Green => &mut self.ind_green,
+                    };
+                    if is_high {
+                        led.set_high();
+                    } else {
+                        led.set_low();
+                    }
                 }
             };
         }

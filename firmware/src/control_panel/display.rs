@@ -1,6 +1,10 @@
 mod in_operation_mode;
 mod menu_mode;
 
+use analog3::{
+    IndicatorRequest,
+    rng::{LocalRng, make_local_rng},
+};
 use core::cmp::min;
 use defmt::{debug, error};
 use embassy_futures::yield_now;
@@ -12,7 +16,7 @@ use embassy_sync::{
     blocking_mutex::raw::ThreadModeRawMutex,
     channel::{self, Channel},
 };
-use embassy_time::{Duration, Instant};
+use embassy_time::{Duration, Instant, Timer};
 use embedded_graphics::{
     pixelcolor::BinaryColor,
     prelude::*,
@@ -24,7 +28,8 @@ use ssd1306_lite::{Angle, FontSize, Ssd1306Lite, TextBox};
 use crate::{
     control_panel::{display::menu_mode::MenuMode, menu::ENGINE_TYPE_MENU_ITEMS},
     envelope_generator::EngineType,
-    input_reader::{CvInfo, PotInfo},
+    input_reader::{CvInfo, PotInfo, PotKind},
+    patch_controller::{LedColor, PatchControllerRequest, get_patch_controller_request_sender},
 };
 
 use super::menu::ADMIN_MENU_ITEMS;
@@ -35,8 +40,8 @@ pub const CHANNEL_LENGTH: usize = 4;
 static CHANNEL_REQUEST: Channel<ThreadModeRawMutex, Request, CHANNEL_LENGTH> = Channel::new();
 
 #[embassy_executor::task]
-pub async fn run_display(mut eg_display: Display) {
-    eg_display.run().await;
+pub async fn run_display(mut display: Display) {
+    display.run().await;
 }
 
 #[derive(PartialEq, Debug, defmt::Format)]
@@ -205,9 +210,14 @@ impl Display {
         }
     }
 
-    pub async fn run(&mut self) {
+    pub async fn initialize(&mut self) {
         self.driver.initialize().await;
         debug!("initialized");
+    }
+
+    pub async fn run(&mut self) {
+        self.splash_screen().await;
+        analog3::start_operation().await;
         loop {
             match self.mode {
                 Mode::Any => {} // Generic requests don't have a specific mode
@@ -218,6 +228,121 @@ impl Display {
                 Mode::PotsDiag => self.run_pots_diag_mode().await,
                 Mode::CvDiag => self.run_cv_diag_mode().await,
             };
+        }
+    }
+
+    pub async fn splash_screen(&mut self) {
+        let blank = PrimitiveStyleBuilder::new()
+            .fill_color(BinaryColor::Off)
+            .build();
+        let mut attack = 0u16;
+        let mut decay = 0u16;
+        let mut sustain = 0u16;
+        let mut release = 0u16;
+        let mut extra_1 = 0u16;
+        let mut extra_2 = 0u16;
+        let mut last_mode = Mode::Fundamental;
+        let mut engine_type = EngineType::ParaDecays;
+        let rng = make_local_rng();
+        let mut patch_controller_blinker = InitialBlinker::new(&rng);
+        let pc_request_sender = get_patch_controller_request_sender();
+        let mut a3_blinker = InitialBlinker::new(&rng);
+        let a3_request_sender = analog3::get_indicator_request_sender();
+        for threshold in (0..32).rev() {
+            if let Ok(request) = self.request_receiver.try_receive() {
+                last_mode = request.mode();
+                match request {
+                    Request::GoToOpHome {
+                        engine_type: e,
+                        attack: a,
+                        decay: d,
+                        sustain: s,
+                        release: r,
+                        extra_1: e1,
+                        extra_2: e2,
+                    } => {
+                        engine_type = e;
+                        attack = a;
+                        decay = d;
+                        sustain = s;
+                        release = r;
+                        extra_1 = e1;
+                        extra_2 = e2;
+                    }
+                    Request::UpdatePot { pot_info } => {
+                        match pot_info.kind {
+                            PotKind::Attack => attack = pot_info.value,
+                            PotKind::Decay => decay = pot_info.value,
+                            PotKind::Sustain => sustain = pot_info.value,
+                            PotKind::Release => release = pot_info.value,
+                            PotKind::Extra1 => extra_1 = pot_info.value,
+                            PotKind::Extra2 => extra_2 = pot_info.value,
+                            _ => {}
+                        };
+                    }
+                    _ => {}
+                }
+            }
+            for y in 0..64 {
+                for x in 0..32 {
+                    let mut random = rng.random_u64();
+                    for seg in 0..8 {
+                        if random & 0x3f < threshold {
+                            self.driver.set_pixel(x * 8 + seg, y);
+                        } else {
+                            self.driver.unset_pixel(x * 8 + seg, y);
+                        }
+                        random >>= 8;
+                    }
+                    if patch_controller_blinker.check() {
+                        pc_request_sender
+                            .send(PatchControllerRequest::OperateIndicator {
+                                led_color: if patch_controller_blinker.index == 0 {
+                                    LedColor::Red
+                                } else {
+                                    LedColor::Green
+                                },
+                                is_high: patch_controller_blinker.turn_on,
+                            })
+                            .await;
+                    }
+                    if a3_blinker.check() {
+                        let request = if a3_blinker.turn_on {
+                            if a3_blinker.index == 0 {
+                                IndicatorRequest::SetRedLed
+                            } else {
+                                IndicatorRequest::SetBlueLed
+                            }
+                        } else {
+                            if a3_blinker.index == 0 {
+                                IndicatorRequest::ResetRedLed
+                            } else {
+                                IndicatorRequest::ResetBlueLed
+                            }
+                        };
+                        a3_request_sender.send(request).await;
+                    }
+                }
+                yield_now().await;
+            }
+            self.driver
+                .draw_triangle((28, 50), (100, 50), (64, 14), blank)
+                .await;
+            self.driver.flush().await;
+        }
+        Timer::after_millis(300).await;
+        if matches!(last_mode, Mode::InOperation) {
+            self.mode = Mode::InOperation;
+            debug!("attacK: {:#x}, extra_2: {:#x}", attack, extra_2);
+            self.pending_request = Some(Request::GoToOpHome {
+                engine_type,
+                attack,
+                decay,
+                sustain,
+                release,
+                extra_1,
+                extra_2,
+            });
         }
     }
 
@@ -655,4 +780,55 @@ struct CvPoints {
     pub data2: [u8; 128],
     pub head: usize,
     pub data_len: usize,
+}
+
+/// Controls initial blink
+struct InitialBlinker<'a> {
+    rng: &'a LocalRng,
+    last_lit: Instant,
+    interval_c: u64,
+    interval: Duration,
+    pub remaining: usize,
+    pub index: usize,
+    pub turn_on: bool,
+}
+
+impl<'a> InitialBlinker<'a> {
+    pub fn new(rng: &'a LocalRng) -> Self {
+        let interval_c = 100;
+        let interval = Duration::from_millis(rng.random_u64() % interval_c + interval_c / 2);
+        Self {
+            rng,
+            last_lit: Instant::now(),
+            interval_c,
+            interval,
+            remaining: 6,
+            index: 0,
+            turn_on: false,
+        }
+    }
+
+    /// Checks whether any action is required.
+    /// The user should check properties `turn_on` and `index` to determine what to do.
+    /// If `turn_on` is true, the user should turn on an indicator LED for the `index`.
+    pub fn check(&mut self) -> bool {
+        if self.remaining > 0 && self.last_lit.elapsed() >= self.interval {
+            if self.turn_on {
+                self.turn_on = false;
+                self.interval = Duration::from_millis(
+                    self.rng.random_u64() % self.interval_c + self.interval_c / 2,
+                );
+                self.remaining -= 1;
+                return true;
+            } else {
+                self.turn_on = true;
+                self.index = (self.rng.random_u64() % 2) as usize;
+                self.interval_c = self.interval_c * 3 / 2;
+                self.interval = Duration::from_millis(30);
+                self.last_lit = Instant::now();
+                return true;
+            }
+        }
+        false
+    }
 }

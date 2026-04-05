@@ -3,6 +3,7 @@ mod diagnoser;
 mod display;
 mod menu;
 
+use analog3::rng::make_local_rng;
 use defmt::{debug, error};
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
@@ -56,8 +57,9 @@ pub async fn start(
     encoder_ind_red: Output<'static>,
     encoder_ind_green: Output<'static>,
 ) {
-    let eg_display = Display::new(i2c);
-    spawner.spawn(display::run_display(eg_display).unwrap());
+    let mut display = Display::new(i2c);
+    display.initialize().await;
+    spawner.spawn(display::run_display(display).unwrap());
     let control_panel =
         ControlPanel::new(encoder, encoder_button, encoder_ind_red, encoder_ind_green).await;
     spawner.spawn(run_control_panel(control_panel).unwrap());
@@ -173,6 +175,10 @@ impl ControlPanel {
 
     pub async fn run(&mut self) {
         self.clear_screen(false, true).await;
+        {
+            let mut leds = [&mut self.ind_red, &mut self.ind_green];
+            random_blink(5, &mut leds).await;
+        }
         let mut last_updated = Instant::now();
         loop {
             match select(
@@ -593,5 +599,16 @@ impl ControlPanel {
                 polarity_2: self.polarity.1,
             })
             .await;
+    }
+}
+
+async fn random_blink(repeat: usize, leds: &mut [&mut Output<'static>]) {
+    let rng = make_local_rng();
+    for _ in 0..repeat {
+        let random = rng.random_u64();
+        Timer::after_millis(100 + random % 256).await;
+        leds[random as usize % leds.len()].set_high();
+        Timer::after_millis(30).await;
+        leds[random as usize % leds.len()].set_low();
     }
 }
