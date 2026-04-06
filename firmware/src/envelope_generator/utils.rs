@@ -1,4 +1,7 @@
-use crate::utils::{mul_uq0_32, mul_uq8_24};
+use crate::{
+    envelope_generator::definitions::OutputPolarity,
+    utils::{mul_uq0_32, mul_uq8_24},
+};
 
 // Note scale calculator ////////////////////////////////////////////////////
 
@@ -50,7 +53,21 @@ pub fn note_to_scale(note: u8, depth: u32) -> u32 {
 
 /// Converts a UQ0.32 value of range [0..0.5) to 12-bit positive output.
 /// The function does not check boundary intentionally for performance.
-/// The call should ensure the input is less than 0x80000000.
+/// The caller should ensure the input is less than 0x80000000.
 pub fn uq0_32_to_output_positive(value: u32, zero_point: u16) -> u16 {
     (value >> 20) as u16 + zero_point
+}
+
+/// Converts a Q0.32 value of range [0..0.5) to 12-bit negative output.
+/// The function does not check boundary intentionally for performance.
+/// The caller should ensure the input is less than 0x80000000.
+pub fn uq0_32_to_output_negative(value: u32, zero_point: u16) -> u16 {
+    zero_point - (value >> 20) as u16
+}
+
+pub fn choose_out_converter(polarity: &OutputPolarity) -> &'static dyn Fn(u32, u16) -> u16 {
+    match polarity {
+        OutputPolarity::Positive => &uq0_32_to_output_positive,
+        OutputPolarity::Negative => &uq0_32_to_output_negative,
+    }
 }

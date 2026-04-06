@@ -2,7 +2,7 @@ use defmt;
 
 use super::config::EgConfig;
 
-use crate::input_reader::InputReaderInfo;
+use crate::{envelope_generator::utils::uq0_32_to_output_positive, input_reader::InputReaderInfo};
 
 pub const DEFAULT_VOICE_IDS: [u16; 2] = [0x101, 0x102];
 pub const DEFAULT_ENGINE_TYPE: EngineType = EngineType::ParaDecays;
@@ -24,6 +24,20 @@ pub struct VoiceParams {
 
     pub physical_gate_enabled: bool,
     pub operation_mode: Mode,
+}
+
+impl VoiceParams {
+    pub fn default() -> Self {
+        Self {
+            voice_index: 0,
+            note: 60, // middle C
+            velocity: 0,
+            out_zero_point: DEFAULT_OUT_ZERO_POINT,
+            value_to_output: &uq0_32_to_output_positive,
+            physical_gate_enabled: false,
+            operation_mode: Mode::Normal,
+        }
+    }
 }
 
 /// Request for the envelope generator
@@ -152,12 +166,3 @@ pub trait Engine {
 
 /// The zero point should be at the center of value range if the circuit is perfect.
 pub const DEFAULT_OUT_ZERO_POINT: u16 = 0x800;
-
-/*
-/// Converts a Q0.32 value of range [0..0.5) to 12-bit negative output.
-/// The function does not check boundary intentionally for performance.
-/// The call should ensure the input is less than 0x80000000.
-pub fn uq0_32_to_output_negative(value: u32, zero_point: u16) -> u16 {
-    zero_point - (value >> 20) as u16
-}
-*/
