@@ -27,7 +27,7 @@ use ssd1306_lite::{Angle, FontSize, Ssd1306Lite, TextBox};
 
 use crate::{
     control_panel::{display::menu_mode::MenuMode, menu::ENGINE_TYPE_MENU_ITEMS},
-    envelope_generator::EngineType,
+    envelope_generator::{EngineType, OutputPolarity},
     input_reader::{CvInfo, PotInfo, PotKind},
     patch_controller::{LedColor, PatchControllerRequest, get_patch_controller_request_sender},
 };
@@ -112,8 +112,17 @@ pub enum Request {
         pot_info: PotInfo,
     },
     ShowPolarity {
-        polarity_1: i8,
-        polarity_2: i8,
+        polarity_1: OutputPolarity,
+        polarity_2: OutputPolarity,
+    },
+    SetPolarityChangeTargets {
+        targets: u8,
+    },
+    UpdatePolarities {
+        targets: u8,
+        polarity_1: OutputPolarity,
+        polarity_2: OutputPolarity,
+        is_draw: bool,
     },
     DisplayText {
         text: String<32>,
@@ -141,43 +150,47 @@ pub enum Request {
 impl Request {
     fn mode(&self) -> Mode {
         match self {
-            Request::SwitchMode { .. }
-            | Request::Clear { .. }
-            | Request::Flush
-            | Request::DrawLine { .. }
-            | Request::DrawCircle { .. }
-            | Request::DrawRectangle { .. }
-            | Request::DrawTriangle { .. }
-            | Request::DrawArc { .. }
-            | Request::DisplayText { .. } => Mode::Any,
-            Request::GoToOpHome { .. }
-            | Request::UpdatePot { .. }
-            | Request::ShowPolarity { .. } => Mode::InOperation,
-            Request::DisplayEngineTypeMenuItem { .. } => Mode::EngineTypeMenu,
-            Request::DisplayAdminMenuItem { .. } => Mode::AdminMenu,
-            Request::UpdatePotForDiag { .. } => Mode::PotsDiag,
-            Request::UpdateCvValues { .. } => Mode::CvDiag,
+            Self::SwitchMode { .. }
+            | Self::Clear { .. }
+            | Self::Flush
+            | Self::DrawLine { .. }
+            | Self::DrawCircle { .. }
+            | Self::DrawRectangle { .. }
+            | Self::DrawTriangle { .. }
+            | Self::DrawArc { .. }
+            | Self::DisplayText { .. } => Mode::Any,
+            Self::GoToOpHome { .. }
+            | Self::UpdatePot { .. }
+            | Self::ShowPolarity { .. }
+            | Self::SetPolarityChangeTargets { .. }
+            | Self::UpdatePolarities { .. } => Mode::InOperation,
+            Self::DisplayEngineTypeMenuItem { .. } => Mode::EngineTypeMenu,
+            Self::DisplayAdminMenuItem { .. } => Mode::AdminMenu,
+            Self::UpdatePotForDiag { .. } => Mode::PotsDiag,
+            Self::UpdateCvValues { .. } => Mode::CvDiag,
         }
     }
 
     fn name(&self) -> &str {
         match self {
-            Request::SwitchMode { .. } => "SwitchMode",
-            Request::Clear { .. } => "Clear",
-            Request::Flush => "Flush",
-            Request::DrawLine { .. } => "DrawLine",
-            Request::DrawCircle { .. } => "DrawCircle",
-            Request::DrawRectangle { .. } => "DrawRectangle",
-            Request::DrawTriangle { .. } => "DrawTriangle",
-            Request::DrawArc { .. } => "DrawArc",
-            Request::DisplayText { .. } => "DisplayText",
-            Request::GoToOpHome { .. } => "GoToOpHome",
-            Request::UpdatePot { .. } => "UpdatePot",
-            Request::ShowPolarity { .. } => "ShowPolarity",
-            Request::DisplayEngineTypeMenuItem { .. } => "DisplayEngineTypeMenuItem",
-            Request::DisplayAdminMenuItem { .. } => "DisplayAdminMenuItem",
-            Request::UpdatePotForDiag { .. } => "UpdatePotForDiag",
-            Request::UpdateCvValues { .. } => "UpdateCvValues",
+            Self::SwitchMode { .. } => "SwitchMode",
+            Self::Clear { .. } => "Clear",
+            Self::Flush => "Flush",
+            Self::DrawLine { .. } => "DrawLine",
+            Self::DrawCircle { .. } => "DrawCircle",
+            Self::DrawRectangle { .. } => "DrawRectangle",
+            Self::DrawTriangle { .. } => "DrawTriangle",
+            Self::DrawArc { .. } => "DrawArc",
+            Self::DisplayText { .. } => "DisplayText",
+            Self::GoToOpHome { .. } => "GoToOpHome",
+            Self::UpdatePot { .. } => "UpdatePot",
+            Self::ShowPolarity { .. } => "ShowPolarity",
+            Self::SetPolarityChangeTargets { .. } => "SetPolarityChangeTargets",
+            Self::UpdatePolarities { .. } => "UpdatePolarities",
+            Self::DisplayEngineTypeMenuItem { .. } => "DisplayEngineTypeMenuItem",
+            Self::DisplayAdminMenuItem { .. } => "DisplayAdminMenuItem",
+            Self::UpdatePotForDiag { .. } => "UpdatePotForDiag",
+            Self::UpdateCvValues { .. } => "UpdateCvValues",
         }
     }
 }
@@ -715,6 +728,14 @@ impl Display {
         if flush {
             self.driver.flush().await;
         }
+    }
+
+    #[inline]
+    async fn clear_rectangle(&mut self, top_left: Point, size: Size, flush: bool) {
+        let erase = PrimitiveStyleBuilder::new()
+            .fill_color(BinaryColor::Off)
+            .build();
+        self.draw_rectangle(top_left, size, erase, flush).await;
     }
 
     async fn draw_triangle(

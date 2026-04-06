@@ -27,9 +27,9 @@ pub struct VoiceParams {
 }
 
 impl VoiceParams {
-    pub fn default() -> Self {
+    pub fn new(voice_index: usize) -> Self {
         Self {
-            voice_index: 0,
+            voice_index,
             note: 60, // middle C
             velocity: 0,
             out_zero_point: DEFAULT_OUT_ZERO_POINT,

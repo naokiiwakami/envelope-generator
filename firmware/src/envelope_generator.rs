@@ -36,12 +36,12 @@ use crate::{
         ADDR_EG_TYPE_1, ADDR_OUT_ZERO_POINT_1, ADDR_OUT_ZERO_POINT_2, ADDR_OUTPUT_POLARITY_1,
         ADDR_VOICE_ID_1,
     },
-    envelope_generator::{definitions::OutputPolarity, utils::choose_out_converter},
     input_reader::{InputReaderInfo, get_reader_info_receiver},
 };
 
 pub use self::definitions::{
     DEFAULT_OUT_ZERO_POINT, EgEvent, EgRequest, EngineType, GateEventType, GateId, Mode,
+    OutputPolarity,
 };
 use self::{
     adsr_engine::AdsrEngine,
@@ -51,6 +51,7 @@ use self::{
     linear_engine::LinearEngine,
     para_decays_engine::ParaDecaysEngine,
     two_decays_engine::TwoDecaysEngine,
+    utils::choose_out_converter,
 };
 
 // parameter tweaks
@@ -275,7 +276,7 @@ impl EgResources {
             config: EgConfig::new(),
             request_receiver: CHANNEL_REQUEST.receiver(),
             event_publisher: CHANNEL_EVENT.publisher().unwrap(),
-            voice_params: [VoiceParams::default(), VoiceParams::default()],
+            voice_params: [VoiceParams::new(0), VoiceParams::new(1)],
             ind_gate_1,
             ind_gate_2,
         }
@@ -327,11 +328,17 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
         let prop_request_receiver = analog3::get_prop_request_receiver();
         let mut input_reader_info_receiver = get_reader_info_receiver().await;
         debug!(
-            "Notifying the initial enigne type: {}",
+            "Notifying the initial engine type: {}",
             self.config.engine_type[0]
         );
         self.event_publisher
             .publish(EgEvent::EngineSwitched(self.config.engine_type[0].clone()))
+            .await;
+        self.event_publisher
+            .publish(EgEvent::PolarityChanged((
+                self.config.out_polarity[0].clone(),
+                self.config.out_polarity[1].clone(),
+            )))
             .await;
         loop {
             match select5(

@@ -20,9 +20,10 @@ use heapless::String;
 use ssd1306_lite::{FontSize, TextBox};
 
 use crate::{
+    control_panel::menu::POLARITY_CHANGE_TARGET_ITEMS,
     envelope_generator::{
         EG_CHANNEL_SIZE, EG_PUBS, EG_SUBS, EgEvent, EgRequest, EngineType, Mode as EgOperationMode,
-        get_eg_event_subscriber, get_eg_request_sender,
+        OutputPolarity, get_eg_event_subscriber, get_eg_request_sender,
     },
     input_reader::{InputReaderInfo, PotKind, get_reader_info_receiver},
 };
@@ -77,6 +78,10 @@ enum ControlPanelMode {
     EngineTypeSelected,
     AdminMenu,
     AdminActionSelected,
+    ChooseChangePolarityTarget,
+    ChangePolarityTargetSelected,
+    ChangePolarity,
+    PolarityChanged,
 }
 
 #[derive(Clone)]
@@ -91,7 +96,7 @@ enum OperationPage {
 #[derive(Clone)]
 enum Action {
     SelectEngineType,
-    SetUpPolatiry,
+    SetupPolarity,
 }
 
 struct ControlPanel {
@@ -116,7 +121,9 @@ struct ControlPanel {
     // EG states
     engine_type_index: usize,
     current_engine_type: EngineType,
-    polarity: (i8, i8),
+    polarity_1: OutputPolarity,
+    polarity_2: OutputPolarity,
+    polarity_change_targets: u8,
 
     // rotary encoder
     encoder: Qei<'static, TIM3>,
@@ -157,7 +164,9 @@ impl ControlPanel {
             extra_2: 0,
             engine_type_index: 0,
             current_engine_type: EngineType::Adsr,
-            polarity: (1, 1),
+            polarity_1: OutputPolarity::Positive,
+            polarity_2: OutputPolarity::Positive,
+            polarity_change_targets: 0,
             encoder,
             button: encoder_button,
             ind_red: encoder_ind_red,
@@ -200,7 +209,7 @@ impl ControlPanel {
     async fn handle_eg_event(&mut self, event: EgEvent) {
         match event {
             EgEvent::EngineSwitched(engine_type) => self.switch_engine_type(engine_type).await,
-            EgEvent::PolarityChanged((p1, p2)) => {} // self.change_polarity(p1, p2).await,
+            EgEvent::PolarityChanged((p1, p2)) => self.change_polarity(p1, p2).await,
         }
     }
 
@@ -259,12 +268,7 @@ impl ControlPanel {
             self.on_button_released().await;
         } else {
             // normal "button off" status, do regular task for the mode
-            match self.mode {
-                ControlPanelMode::Normal => self.update_normal().await,
-                ControlPanelMode::EngineTypeMenu => self.update_engine_type_menu().await,
-                ControlPanelMode::AdminMenu => self.update_admin_menu().await,
-                _ => {}
-            }
+            self.regular_update().await;
         }
     }
 
@@ -276,7 +280,7 @@ impl ControlPanel {
                 self.ind_green.set_high();
                 self.next_action = match self.page {
                     OperationPage::Home => Some(Action::SelectEngineType),
-                    OperationPage::OutputPolarity => Some(Action::SetUpPolatiry),
+                    OperationPage::OutputPolarity => Some(Action::SetupPolarity),
                 };
                 self.mode = ControlPanelMode::ActionSelected;
             }
@@ -285,6 +289,12 @@ impl ControlPanel {
             }
             ControlPanelMode::AdminMenu => {
                 self.mode = ControlPanelMode::AdminActionSelected;
+            }
+            ControlPanelMode::ChooseChangePolarityTarget => {
+                self.mode = ControlPanelMode::ChangePolarityTargetSelected;
+            }
+            ControlPanelMode::ChangePolarity => {
+                self.mode = ControlPanelMode::PolarityChanged;
             }
             _ => {}
         };
@@ -315,6 +325,10 @@ impl ControlPanel {
                 self.ind_green.set_low();
                 self.execute_admin_action().await;
             }
+            ControlPanelMode::ChangePolarityTargetSelected => {
+                self.into_change_polarity_mode().await
+            }
+            ControlPanelMode::PolarityChanged => self.conclude_polarity_change().await,
             _ => {
                 self.ind_red.set_low();
                 self.ind_green.set_low();
@@ -322,10 +336,23 @@ impl ControlPanel {
         }
     }
 
+    async fn regular_update(&mut self) {
+        match self.mode {
+            ControlPanelMode::Normal => self.update_normal().await,
+            ControlPanelMode::ChooseChangePolarityTarget => {
+                self.update_change_polarity_target().await
+            }
+            ControlPanelMode::ChangePolarity => self.update_change_polarity().await,
+            ControlPanelMode::EngineTypeMenu => self.update_engine_type_menu().await,
+            ControlPanelMode::AdminMenu => self.update_admin_menu().await,
+            _ => {}
+        }
+    }
+
     async fn execute_action(&mut self, action: Action) {
         match action {
             Action::SelectEngineType => self.into_engine_type_menu_mode().await,
-            Action::SetUpPolatiry => {}
+            Action::SetupPolarity => self.into_change_polarity_select_mode().await,
         }
     }
 
@@ -359,6 +386,8 @@ impl ControlPanel {
         }
     }
 
+    // Menu modes /////////////////////////////////////////////////////////
+
     /// Transit the mode to EngineTypeMenu.
     async fn into_engine_type_menu_mode(&mut self) {
         self.into_menu_mode(
@@ -367,8 +396,7 @@ impl ControlPanel {
             false,
             true,
             false,
-        )
-        .await;
+        );
         self.display_current_engine_type_menu().await;
     }
 
@@ -386,47 +414,136 @@ impl ControlPanel {
         self.display_request_sender.send(request).await;
     }
 
-    /// Requests EnvelopeGenerator to switch engine type.
-    async fn request_switching_engine(&mut self, engine_type: &EngineType) {
-        self.eg_request_sender
-            .send(EgRequest::SwitchEngine {
-                engine_type: engine_type.clone(),
-                send_notif: false,
+    // Change Polarity mode //////////////////////////////////////////////////
+
+    async fn into_change_polarity_select_mode(&mut self) {
+        debug!("into change_polarity_select_mode");
+        self.into_menu_mode(
+            ControlPanelMode::ChooseChangePolarityTarget,
+            0,
+            true,
+            true,
+            true,
+        );
+        let targets = POLARITY_CHANGE_TARGET_ITEMS[0].selection;
+        self.display_request_sender
+            .send(DisplayRequest::SetPolarityChangeTargets { targets })
+            .await;
+    }
+
+    async fn update_change_polarity_target(&mut self) {
+        self.update_menu_index(POLARITY_CHANGE_TARGET_ITEMS.len());
+        if Instant::now().ge(&self.toggle_time) {
+            if self.ind_red.is_set_low() {
+                self.ind_red.set_high();
+                self.ind_green.set_high();
+                let targets = POLARITY_CHANGE_TARGET_ITEMS[self.menu_item_index].selection;
+                self.display_request_sender
+                    .send(DisplayRequest::SetPolarityChangeTargets { targets })
+                    .await;
+            } else {
+                self.ind_red.set_low();
+                self.ind_green.set_low();
+                self.display_request_sender
+                    .send(DisplayRequest::SetPolarityChangeTargets { targets: 0 })
+                    .await;
+            }
+            self.toggle_time = self.toggle_time.saturating_add(Duration::from_millis(500));
+        }
+    }
+
+    async fn into_change_polarity_mode(&mut self) {
+        self.mode = ControlPanelMode::ChangePolarity;
+        self.polarity_change_targets = POLARITY_CHANGE_TARGET_ITEMS[self.menu_item_index].selection;
+        self.encoder_last_raw = self.encoder.count() as i16;
+        self.display_request_sender
+            .send(DisplayRequest::SetPolarityChangeTargets {
+                targets: self.polarity_change_targets,
             })
             .await;
     }
 
-    /// Requests EnvelopeGenerator to switch operation mode.
-    async fn request_toggle_eg_mode(&mut self, mode: EgOperationMode) {
-        self.eg_request_sender
-            .send(EgRequest::ToggleMode { mode })
-            .await;
-    }
+    async fn update_change_polarity(&mut self) {
+        if Instant::now().ge(&self.toggle_time) {
+            let targets = self.polarity_change_targets;
+            if self.ind_red.is_set_low() {
+                self.ind_red.set_high();
+                self.ind_green.set_high();
 
-    async fn switch_engine_type(&mut self, next_engine_type: EngineType) {
-        self.engine_type_index = (next_engine_type.clone() as u8) as usize;
-        self.current_engine_type = next_engine_type;
-        self.page_index = 0;
-        self.page = OperationPage::Home;
-        self.encoder_last_raw = self.encoder.count() as i16;
-        self.go_to_op_home().await;
-    }
+                let mut polarity_1 = self.polarity_1;
+                let mut polarity_2 = self.polarity_2;
+                let voice_1 = (targets & 0x1) != 0;
+                let voice_2 = (targets & 0x2) != 0;
+                if voice_1 {
+                    polarity_1 = self.get_next_polarity(polarity_1);
+                }
+                if voice_2 {
+                    polarity_2 = self.get_next_polarity(polarity_2);
+                }
 
-    async fn change_polarity(&mut self, polarity_1: i8, polarity_2: i8) {
-        self.polarity = (polarity_1, polarity_2);
-        if matches!(self.mode, ControlPanelMode::Normal)
-            && matches!(self.page, OperationPage::OutputPolarity)
-        {
-            self.show_polarity().await;
+                let targets = POLARITY_CHANGE_TARGET_ITEMS[self.menu_item_index].selection;
+                self.display_request_sender
+                    .send(DisplayRequest::UpdatePolarities {
+                        targets,
+                        polarity_1,
+                        polarity_2,
+                        is_draw: true,
+                    })
+                    .await;
+            } else {
+                self.ind_red.set_low();
+                self.ind_green.set_low();
+                self.display_request_sender
+                    .send(DisplayRequest::UpdatePolarities {
+                        targets,
+                        polarity_1: OutputPolarity::Positive,
+                        polarity_2: OutputPolarity::Positive,
+                        is_draw: false,
+                    })
+                    .await;
+            }
+            self.toggle_time = self.toggle_time.saturating_add(Duration::from_millis(500));
         }
+    }
+
+    async fn conclude_polarity_change(&mut self) {
+        self.ind_red.set_low();
+        self.ind_green.set_low();
+        let targets = self.polarity_change_targets;
+        let voice_1 = (targets & 0x1) != 0;
+        let voice_2 = (targets & 0x2) != 0;
+        if voice_1 {
+            self.polarity_1 = self.get_next_polarity(self.polarity_1);
+        }
+        if voice_2 {
+            self.polarity_2 = self.get_next_polarity(self.polarity_2);
+        }
+        self.eg_request_sender
+            .send(EgRequest::ChangeOutputPolarities {
+                polarity_1: self.polarity_1,
+                polarity_2: self.polarity_2,
+                send_notif: false,
+            })
+            .await;
+        self.show_polarity().await;
+        self.mode = ControlPanelMode::Normal;
+    }
+
+    fn get_next_polarity(&self, current_polarity: OutputPolarity) -> OutputPolarity {
+        let raw = self.encoder.count() as i16;
+        let delta = (raw - self.encoder_last_raw) / 4;
+        let mut new_value: i8 = (current_polarity as u8 as i8 + (delta % 2) as i8) % 2;
+        if new_value < 0 {
+            new_value += 2;
+        }
+        OutputPolarity::try_from(new_value as u8).unwrap()
     }
 
     // Admin mode ////////////////////////////////////////////////////////////
 
     /// Transit the mode to AdminMenu.
     async fn into_admin_menu_mode(&mut self) {
-        self.into_menu_mode(ControlPanelMode::AdminMenu, 0, true, false, true)
-            .await;
+        self.into_menu_mode(ControlPanelMode::AdminMenu, 0, true, false, true);
         self.display_current_admin_menu().await;
     }
 
@@ -477,7 +594,7 @@ impl ControlPanel {
     }
 
     /// Switch to a menu mode.
-    async fn into_menu_mode(
+    fn into_menu_mode(
         &mut self,
         mode: ControlPanelMode,
         index: usize,
@@ -535,6 +652,42 @@ impl ControlPanel {
         );
         self.encoder_last_raw = raw;
         return true;
+    }
+
+    /// Requests EnvelopeGenerator to switch engine type.
+    async fn request_switching_engine(&mut self, engine_type: &EngineType) {
+        self.eg_request_sender
+            .send(EgRequest::SwitchEngine {
+                engine_type: engine_type.clone(),
+                send_notif: false,
+            })
+            .await;
+    }
+
+    /// Requests EnvelopeGenerator to switch operation mode.
+    async fn request_toggle_eg_mode(&mut self, mode: EgOperationMode) {
+        self.eg_request_sender
+            .send(EgRequest::ToggleMode { mode })
+            .await;
+    }
+
+    async fn switch_engine_type(&mut self, next_engine_type: EngineType) {
+        self.engine_type_index = (next_engine_type.clone() as u8) as usize;
+        self.current_engine_type = next_engine_type;
+        self.page_index = 0;
+        self.page = OperationPage::Home;
+        self.encoder_last_raw = self.encoder.count() as i16;
+        self.go_to_op_home().await;
+    }
+
+    async fn change_polarity(&mut self, polarity_1: OutputPolarity, polarity_2: OutputPolarity) {
+        self.polarity_1 = polarity_1;
+        self.polarity_2 = polarity_2;
+        if matches!(self.mode, ControlPanelMode::Normal)
+            && matches!(self.page, OperationPage::OutputPolarity)
+        {
+            self.show_polarity().await;
+        }
     }
 
     async fn blink_leds(&mut self) {
@@ -595,8 +748,8 @@ impl ControlPanel {
     async fn show_polarity(&mut self) {
         self.display_request_sender
             .send(DisplayRequest::ShowPolarity {
-                polarity_1: self.polarity.0,
-                polarity_2: self.polarity.1,
+                polarity_1: self.polarity_1,
+                polarity_2: self.polarity_2,
             })
             .await;
     }

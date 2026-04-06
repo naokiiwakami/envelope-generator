@@ -20,7 +20,7 @@ const _: () = {
 pub const ADDR_VOICE_ID_1: u16 = SAVED_CONFIG_BASE; // U16
 pub const ADDR_VOICE_ID_2: u16 = ADDR_VOICE_ID_1 + 2; // U16
 pub const ADDR_EG_TYPE_1: u16 = ADDR_VOICE_ID_2 + 2; // U8
-pub const ADDR_EG_TYPE_2: u16 = ADDR_VOICE_ID_2 + 1; // U8
+pub const ADDR_EG_TYPE_2: u16 = ADDR_EG_TYPE_1 + 1; // U8
 pub const ADDR_OUTPUT_POLARITY_1: u16 = ADDR_EG_TYPE_2 + 1; // U8
 pub const ADDR_OUTPUT_POLARITY_2: u16 = ADDR_OUTPUT_POLARITY_1 + 1; // U8
 
