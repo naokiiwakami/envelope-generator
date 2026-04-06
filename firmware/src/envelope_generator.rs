@@ -32,7 +32,11 @@ use heapless::String;
 use {defmt_rtt as _, panic_probe as _};
 
 use crate::{
-    addresses::{ADDR_EG_TYPE_1, ADDR_OUT_ZERO_POINT_1, ADDR_OUT_ZERO_POINT_2, ADDR_VOICE_ID_1},
+    addresses::{
+        ADDR_EG_TYPE_1, ADDR_OUT_ZERO_POINT_1, ADDR_OUT_ZERO_POINT_2, ADDR_OUTPUT_POLARITY_1,
+        ADDR_VOICE_ID_1,
+    },
+    envelope_generator::definitions::OutputPolarity,
     input_reader::{InputReaderInfo, get_reader_info_receiver},
 };
 
@@ -104,6 +108,7 @@ async fn retrieve_saved_config(eg_resources: &mut EgResources) {
     for voice_index in 0..2 {
         eg_resources.config.voice_id[voice_index] = load_voice_id(voice_index).await;
         eg_resources.config.engine_type[voice_index] = load_engine_type(voice_index).await;
+        eg_resources.config.out_polarity[voice_index] = load_out_polarity(voice_index).await;
     }
     eg_resources.voice_params_1.out_zero_point = load_out_zero_point(0).await;
     eg_resources.voice_params_2.out_zero_point = load_out_zero_point(1).await;
@@ -149,6 +154,28 @@ async fn save_engine_type(voice_index: usize, engine_type: &EngineType) {
     )
     .await
     .unwrap();
+}
+
+async fn load_out_polarity(voice_index: usize) -> OutputPolarity {
+    let address = ADDR_OUTPUT_POLARITY_1 + voice_index as u16;
+    let type_id = load_u8(address, &SIGNAL_STORAGE).await;
+    match OutputPolarity::try_from(type_id) {
+        Ok(polarity) => polarity,
+        Err(()) => {
+            let polarity = OutputPolarity::Positive;
+            storage::save(address, Value::U8(polarity.clone() as u8), &SIGNAL_STORAGE)
+                .await
+                .unwrap();
+            polarity
+        }
+    }
+}
+
+async fn save_out_polarity(voice_index: usize, polarity: &OutputPolarity) {
+    let address = ADDR_OUTPUT_POLARITY_1 + voice_index as u16;
+    storage::save(address, Value::U8(polarity.clone() as u8), &SIGNAL_STORAGE)
+        .await
+        .unwrap();
 }
 
 async fn load_out_zero_point(voice_index: usize) -> u16 {
@@ -390,6 +417,22 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
                         .await;
                 }
                 true
+            }
+            EgRequest::ChangeOutputPolarities {
+                polarity_1,
+                polarity_2,
+                send_notif,
+            } => {
+                debug!("switching polarities");
+                self.config.out_polarity[0] = polarity_1.clone();
+                self.config.out_polarity[1] = polarity_2.clone();
+
+                if send_notif {
+                    self.event_publisher
+                        .publish(EgEvent::PolarityChanged((polarity_1, polarity_2)))
+                        .await;
+                }
+                false
             }
             EgRequest::ToggleMode { mode } => {
                 debug!(

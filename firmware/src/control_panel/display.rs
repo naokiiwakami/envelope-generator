@@ -217,6 +217,9 @@ impl Display {
 
     pub async fn run(&mut self) {
         self.splash_screen().await;
+        // Analog3 halts until someone gives a go. The control panel is more ideal
+        // one to conduct the entire app behavior, but it's simpler to implement with
+        // nudging here.
         analog3::start_operation().await;
         loop {
             match self.mode {
@@ -808,7 +811,7 @@ impl<'a> InitialBlinker<'a> {
         }
     }
 
-    /// Checks whether any action is required.
+    /// Checks whether it's time to do any blinking action.
     /// The user should check properties `turn_on` and `index` to determine what to do.
     /// If `turn_on` is true, the user should turn on an indicator LED for the `index`.
     pub fn check(&mut self) -> bool {

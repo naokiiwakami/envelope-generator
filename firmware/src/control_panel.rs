@@ -200,7 +200,7 @@ impl ControlPanel {
     async fn handle_eg_event(&mut self, event: EgEvent) {
         match event {
             EgEvent::EngineSwitched(engine_type) => self.switch_engine_type(engine_type).await,
-            EgEvent::PolarityChanged((p1, p2)) => self.change_polarity(p1, p2).await,
+            EgEvent::PolarityChanged((p1, p2)) => {} // self.change_polarity(p1, p2).await,
         }
     }
 

@@ -35,6 +35,12 @@ pub enum EgRequest {
         engine_type: EngineType,
         send_notif: bool,
     },
+    /// Requests to change output polarities
+    ChangeOutputPolarities {
+        polarity_1: OutputPolarity,
+        polarity_2: OutputPolarity,
+        send_notif: bool,
+    },
     /// Requests to toggle the operation mode.
     /// The EnvelopeGenerator switches operation mode if the requested mode is different
     /// from the current one, otherwise switches to the Normal mode.
@@ -78,10 +84,10 @@ impl TryFrom<u8> for EngineType {
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
-            0 => Ok(EngineType::ParaDecays),
-            1 => Ok(EngineType::Addsr),
-            2 => Ok(EngineType::Adsr),
-            3 => Ok(EngineType::Linear),
+            0 => Ok(Self::ParaDecays),
+            1 => Ok(Self::Addsr),
+            2 => Ok(Self::Adsr),
+            3 => Ok(Self::Linear),
             _ => Err(()),
         }
     }
@@ -103,11 +109,30 @@ pub enum GateEventType {
     GateOff,
 }
 
+#[derive(Clone, Copy)]
+#[repr(u8)]
+pub enum OutputPolarity {
+    Positive = 0,
+    Negative = 1,
+}
+
+impl TryFrom<u8> for OutputPolarity {
+    type Error = ();
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Positive),
+            1 => Ok(Self::Negative),
+            _ => Err(()),
+        }
+    }
+}
+
 /// Event occurred in the EnvelopeGenerator
 #[derive(Clone)]
 pub enum EgEvent {
     EngineSwitched(EngineType),
-    PolarityChanged((i8, i8)), // polarity_1, polarity_2
+    PolarityChanged((OutputPolarity, OutputPolarity)), // polarity_1, polarity_2
 }
 
 pub trait Engine {
