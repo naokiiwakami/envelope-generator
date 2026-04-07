@@ -34,7 +34,6 @@ impl<'a> Diagnoser<'a> {
         self.control_panel
             .display_text("Diagnosing...", text_box.clone(), FontSize::Medium, true)
             .await;
-        let orig_engine_type = self.control_panel.state.engine_type.load();
         self.control_panel
             .request_toggle_eg_mode(EgOperationMode::Diagnose)
             .await;
@@ -49,7 +48,7 @@ impl<'a> Diagnoser<'a> {
             .request_toggle_eg_mode(EgOperationMode::Normal)
             .await;
         self.control_panel
-            .switch_engine_type(orig_engine_type)
+            .switch_engine_type(self.control_panel.eg_config.engine_type(0))
             .await;
         self.control_panel.clear_screen(true, false).await;
         self.control_panel

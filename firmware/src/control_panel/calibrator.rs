@@ -45,12 +45,11 @@ impl<'a> Calibrator<'a> {
     }
 
     pub async fn execute(&mut self) {
-        let orig_engine_type = self.control_panel.state.engine_type.load();
         self.prepare().await;
 
         self.calibrate_cv().await;
         self.calibrate_output().await;
-        self.wrap_up(orig_engine_type).await;
+        self.wrap_up().await;
     }
 
     async fn prepare(&mut self) {
@@ -372,7 +371,7 @@ impl<'a> Calibrator<'a> {
         Timer::after_millis(2000).await;
     }
 
-    async fn wrap_up(&mut self, orig_engine_type: EngineType) {
+    async fn wrap_up(&mut self) {
         self.control_panel.clear_screen(true, false).await;
         self.control_panel
             .display_text(
@@ -384,7 +383,7 @@ impl<'a> Calibrator<'a> {
             .await;
         Timer::after_millis(2000).await;
         self.control_panel
-            .switch_engine_type(orig_engine_type)
+            .switch_engine_type(self.control_panel.eg_config.engine_type(0))
             .await;
     }
 

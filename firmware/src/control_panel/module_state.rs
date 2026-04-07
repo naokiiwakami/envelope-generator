@@ -13,7 +13,7 @@ pub struct ModuleState {
     pub extra_1: AtomicU16,
     pub extra_2: AtomicU16,
     */
-    pub engine_type: AtomicEnum<EngineType>,
+    // pub engine_type: AtomicEnum<EngineType>,
     pub polarity_1: AtomicEnum<OutputPolarity>,
     pub polarity_2: AtomicEnum<OutputPolarity>,
 }
@@ -29,7 +29,7 @@ impl ModuleState {
             extra_1: AtomicU16::new(0),
             extra_2: AtomicU16::new(0),
             */
-            engine_type: AtomicEnum::new(EngineType::Adsr as u8),
+            // engine_type: AtomicEnum::new(EngineType::Adsr as u8),
             polarity_1: AtomicEnum::new(OutputPolarity::Positive as u8),
             polarity_2: AtomicEnum::new(OutputPolarity::Positive as u8),
         }

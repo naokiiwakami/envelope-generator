@@ -122,7 +122,7 @@ impl<'a> InOperationMode<'a> {
     }
 
     pub async fn show_home_page(&mut self) {
-        let engine_type = STATE.engine_type.load();
+        let engine_type = self.eg_config.engine_type(0);
         let attack = self.eg_config.attack(0);
         let decay = self.eg_config.decay(0);
         let sustain = self.eg_config.sustain(0);

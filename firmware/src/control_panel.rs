@@ -124,6 +124,7 @@ struct ControlPanel {
     reader_info_receiver: watch::Receiver<'static, ThreadModeRawMutex, InputReaderInfo, 2>,
 
     // EG state
+    eg_config: ConfigReader,
     state: &'static ModuleState,
     engine_type_index: usize,
     polarity_change_targets: u8,
@@ -159,6 +160,7 @@ impl ControlPanel {
             eg_request_sender: get_eg_request_sender(),
             eg_event_subscriber: get_eg_event_subscriber(),
             reader_info_receiver: get_reader_info_receiver().await,
+            eg_config: ConfigReader::new(),
             state: &STATE,
             engine_type_index: 0,
             polarity_change_targets: 0,
@@ -283,7 +285,7 @@ impl ControlPanel {
                 match &ENGINE_TYPE_MENU_ITEMS[self.menu_item_index].selection {
                     Some(engine_type) => {
                         self.request_switching_engine(*engine_type).await;
-                        self.switch_engine_type(*engine_type).await;
+                        self.clear_screen(false, true).await;
                     }
                     None => {} // do not switch the engine type
                 }
@@ -328,7 +330,7 @@ impl ControlPanel {
 
     // Normal mode //////////////////////////////////////////////////////////
     async fn update_normal(&mut self) {
-        let engine_index = self.state.engine_type.load().index();
+        let engine_index = self.eg_config.engine_type(0).index();
         if engine_index >= ALL_PAGES.len() {
             return; // shouldn't happen but being defensive here
         }
@@ -340,7 +342,7 @@ impl ControlPanel {
         self.encoder_last_raw = raw;
 
         // switch page
-        let pages = ALL_PAGES[self.state.engine_type.load().index()];
+        let pages = ALL_PAGES[self.eg_config.engine_type(0).index()];
         if pages.len() <= 1 {
             return; // switching page never happens
         }
@@ -634,7 +636,7 @@ impl ControlPanel {
         self.eg_request_sender
             .send(EgRequest::SwitchEngine {
                 engine_type: engine_type,
-                send_notif: false,
+                send_notif: true,
             })
             .await;
     }
@@ -648,7 +650,6 @@ impl ControlPanel {
 
     async fn switch_engine_type(&mut self, next_engine_type: EngineType) {
         self.engine_type_index = (next_engine_type as u8) as usize;
-        self.state.engine_type.store(next_engine_type);
         self.page_index = 0;
         self.page = OperationPage::Home;
         self.encoder_last_raw = self.encoder.count() as i16;
