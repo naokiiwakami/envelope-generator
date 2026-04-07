@@ -109,11 +109,13 @@ async fn retrieve_saved_config(eg_resources: &mut EgResources) {
         eg_resources
             .config
             .set_voice_id(index, load_voice_id(index).await);
-        eg_resources.config.engine_type[index] = load_engine_type(index).await;
+        eg_resources
+            .config
+            .set_engine_type(index, load_engine_type(index).await);
         eg_resources.voice_params[index].out_zero_point = load_out_zero_point(index).await;
         let polarity = load_out_polarity(index).await;
         eg_resources.voice_params[index].value_to_output = choose_output_converter(&polarity);
-        eg_resources.config.out_polarity[index] = polarity;
+        eg_resources.config.set_out_polarity(index, polarity);
     }
 }
 
@@ -228,7 +230,7 @@ async fn run_envelope_generator(
 
     loop {
         match eg_resources.voice_params[0].operation_mode {
-            Mode::Normal => match eg_resources.config.engine_type[0] {
+            Mode::Normal => match eg_resources.config.get_engine_type(0) {
                 EngineType::ParaDecays => {
                     let mut eg = EnvelopeGenerator::<ParaDecaysEngine>::new(&mut eg_resources);
                     eg.run().await;
@@ -323,15 +325,15 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
         let mut input_reader_info_receiver = get_reader_info_receiver().await;
         debug!(
             "Notifying the initial engine type: {}",
-            self.config.engine_type[0]
+            self.config.get_engine_type(0)
         );
         self.event_publisher
-            .publish(EgEvent::EngineSwitched(self.config.engine_type[0]))
+            .publish(EgEvent::EngineSwitched(self.config.get_engine_type(0)))
             .await;
         self.event_publisher
             .publish(EgEvent::PolarityChanged((
-                self.config.out_polarity[0],
-                self.config.out_polarity[1],
+                self.config.get_out_polarity(0),
+                self.config.get_out_polarity(1),
             )))
             .await;
         loop {
@@ -389,8 +391,8 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
                 send_notif,
             } => {
                 debug!("switching engine to {}", engine_type.name());
-                self.config.engine_type[0] = engine_type;
-                self.config.engine_type[1] = engine_type;
+                self.config.set_engine_type(0, engine_type);
+                self.config.set_engine_type(1, engine_type);
                 save_engine_type(0, &engine_type).await;
                 save_engine_type(1, &engine_type).await;
                 if send_notif {
@@ -406,8 +408,8 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
                 send_notif,
             } => {
                 debug!("switching polarities");
-                self.config.out_polarity[0] = polarity_1;
-                self.config.out_polarity[1] = polarity_2;
+                self.config.set_out_polarity(0, polarity_1);
+                self.config.set_out_polarity(1, polarity_2);
                 save_out_polarity(0, polarity_1).await;
                 save_out_polarity(1, polarity_2).await;
                 self.voice_1.params.value_to_output = choose_output_converter(&polarity_1);

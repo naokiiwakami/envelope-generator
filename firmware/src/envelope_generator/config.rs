@@ -10,7 +10,7 @@ use crate::{
 
 use super::{
     EngineType,
-    definitions::{DEFAULT_ENGINE_TYPE, DEFAULT_VOICE_IDS},
+    definitions::{DEFAULT_ENGINE_TYPE},
 };
 
 static mut CONFIG_DATA: ConfigData = ConfigData::new();
@@ -399,32 +399,49 @@ impl EgConfig {
         }
         let prop = &Self::PROPS[index];
         let prop_id = prop.clone() as u8;
-        let value = unsafe {
-            match prop {
-                EgProperty::NumVoices => Value::U8(2),
-                EgProperty::VoiceId => Value::VectorU16(Self::make_vec16(&CONFIG_DATA.voice_id)),
-                EgProperty::EnvelopeGenerationType => {
-                    let type_1 = CONFIG_DATA.engine_type[0] as u8;
-                    let type_2 = CONFIG_DATA.engine_type[1] as u8;
-                    Value::VectorU8(Self::make_vec8(&[type_1, type_2]))
-                }
-                EgProperty::AttackTime => Value::VectorU16(Self::make_vec16(&CONFIG_DATA.attack)),
-                EgProperty::DecayTime => Value::VectorU16(Self::make_vec16(&CONFIG_DATA.decay)),
-                EgProperty::SustainLevel => {
-                    Value::VectorU16(Self::make_vec16(&CONFIG_DATA.sustain))
-                }
-                EgProperty::ReleaseTime => Value::VectorU16(Self::make_vec16(&CONFIG_DATA.release)),
-                EgProperty::Extra1 => Value::VectorU16(Self::make_vec16(&CONFIG_DATA.extra_1)),
-                EgProperty::Extra2 => Value::VectorU16(Self::make_vec16(&CONFIG_DATA.extra_2)),
-                EgProperty::CvADestination => Value::U8(CONFIG_DATA.cv_a_destination as u8),
-                EgProperty::CvADepth => Value::U16(CONFIG_DATA.cv_a_depth),
-                EgProperty::CvBDestination => Value::U8(CONFIG_DATA.cv_b_destination as u8),
-                EgProperty::CvBDepth => Value::U16(CONFIG_DATA.cv_b_depth),
-                EgProperty::OutputPolarity => {
-                    let polarity_1 = CONFIG_DATA.out_polarity[0] as u8;
-                    let polarity_2 = CONFIG_DATA.out_polarity[1] as u8;
-                    Value::VectorU8(Self::make_vec8(&[polarity_1, polarity_2]))
-                }
+        let value = match prop {
+            EgProperty::NumVoices => Value::U8(2),
+            EgProperty::VoiceId => Value::VectorU16(Self::make_vec16(&[
+                self.get_voice_id(0),
+                self.get_voice_id(1),
+            ])),
+            EgProperty::EnvelopeGenerationType => {
+                let type_1 = self.get_engine_type(0) as u8;
+                let type_2 = self.get_engine_type(1) as u8;
+                Value::VectorU8(Self::make_vec8(&[type_1, type_2]))
+            }
+            EgProperty::AttackTime => Value::VectorU16(Self::make_vec16(&[
+                self.get_attack(0),
+                self.get_attack(1),
+            ])),
+            EgProperty::DecayTime => Value::VectorU16(Self::make_vec16(&[
+                self.get_decay(0),
+                self.get_decay(1),
+            ])),
+            EgProperty::SustainLevel => Value::VectorU16(Self::make_vec16(&[
+                self.get_sustain(0),
+                self.get_sustain(1),
+            ])),
+            EgProperty::ReleaseTime => Value::VectorU16(Self::make_vec16(&[
+                self.get_release(0),
+                self.get_release(1),
+            ])),
+            EgProperty::Extra1 => Value::VectorU16(Self::make_vec16(&[
+                self.get_extra_1(0),
+                self.get_extra_1(1),
+            ])),
+            EgProperty::Extra2 => Value::VectorU16(Self::make_vec16(&[
+                self.get_extra_2(0),
+                self.get_extra_2(1),
+            ])),
+            EgProperty::CvADestination => Value::U8(self.get_cv_a_destination() as u8),
+            EgProperty::CvADepth => Value::U16(self.get_cv_a_depth()),
+            EgProperty::CvBDestination => Value::U8(self.get_cv_b_destination() as u8),
+            EgProperty::CvBDepth => Value::U16(self.get_cv_b_depth()),
+            EgProperty::OutputPolarity => {
+                let polarity_1 = self.get_out_polarity(0) as u8;
+                let polarity_2 = self.get_out_polarity(1) as u8;
+                Value::VectorU8(Self::make_vec8(&[polarity_1, polarity_2]))
             }
         };
         Some(Property::new(prop_id, value))
@@ -433,28 +450,33 @@ impl EgConfig {
     /// Translates data from the input reader into the config values.
     pub fn translate(&mut self, pot_info: &PotInfo) {
         let pot_value = pot_info.value;
-        unsafe {
-            let destination_params: Option<&mut [u16; 2]> = match pot_info.kind {
-                PotKind::Attack => Some(&mut CONFIG_DATA.attack),
-                PotKind::Decay => Some(&mut CONFIG_DATA.decay),
-                PotKind::Sustain => Some(&mut CONFIG_DATA.sustain),
-                PotKind::Release => Some(&mut CONFIG_DATA.release),
-                PotKind::Extra1 => Some(&mut CONFIG_DATA.extra_1),
-                PotKind::Extra2 => Some(&mut CONFIG_DATA.extra_2),
-                PotKind::CvADepth => {
-                    CONFIG_DATA.cv_a_depth = pot_value;
-                    None
-                }
-                PotKind::CvBDepth => {
-                    CONFIG_DATA.cv_b_depth = pot_value;
-                    None
-                }
-            };
-            destination_params.and_then(|params| {
-                params[0] = pot_value;
-                params[1] = pot_value;
-                Some(())
-            });
+        match pot_info.kind {
+            PotKind::Attack => {
+                self.set_attack(0, pot_value);
+                self.set_attack(1, pot_value);
+            }
+            PotKind::Decay => {
+                self.set_decay(0, pot_value);
+                self.set_decay(1, pot_value);
+            }
+            PotKind::Sustain => {
+                self.set_sustain(0, pot_value);
+                self.set_sustain(1, pot_value);
+            }
+            PotKind::Release => {
+                self.set_release(0, pot_value);
+                self.set_release(1, pot_value);
+            }
+            PotKind::Extra1 => {
+                self.set_extra_1(0, pot_value);
+                self.set_extra_1(1, pot_value);
+            }
+            PotKind::Extra2 => {
+                self.set_extra_2(0, pot_value);
+                self.set_extra_2(1, pot_value);
+            }
+            PotKind::CvADepth => self.set_cv_a_depth(pot_value),
+            PotKind::CvBDepth => self.set_cv_b_depth(pot_value),
         }
     }
 }

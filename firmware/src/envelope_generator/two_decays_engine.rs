@@ -99,22 +99,22 @@ impl Engine for TwoDecaysEngine {
     fn update_params(&mut self, voice_index: usize, config: &EgConfig, input: &InputReaderInfo) {
         match input.pot_info.kind {
             PotKind::Attack => {
-                self.attack_ratio = calculate_charging_ratio(config.attack[voice_index]);
+                self.attack_ratio = calculate_charging_ratio(config.get_attack(voice_index));
             }
             PotKind::Decay => {
-                self.decay_ratio = calculate_discharging_ratio(config.decay[voice_index]);
+                self.decay_ratio = calculate_discharging_ratio(config.get_decay(voice_index));
             }
             PotKind::Sustain => {
-                self.sustain_level = calculate_sustain_level(config.sustain[voice_index]);
+                self.sustain_level = calculate_sustain_level(config.get_sustain(voice_index));
             }
             PotKind::Release => {
-                self.release_ratio = calculate_discharging_ratio(config.release[voice_index]);
+                self.release_ratio = calculate_discharging_ratio(config.get_release(voice_index));
             }
             PotKind::Extra1 => {
-                self.initial_decay_ratio = calculate_discharging_ratio(config.extra1[voice_index]);
+                self.initial_decay_ratio = calculate_discharging_ratio(config.get_extra_1(voice_index));
             }
             PotKind::Extra2 => {
-                let level = config.extra2[voice_index] as u32;
+                let level = config.get_extra_2(voice_index) as u32;
                 self.decay_switch_level = ((level >> 1) + 32768) * level;
             }
             _ => {} // TODO interpret CV1_DEPTH and CV2_DEPTH
