@@ -4,7 +4,10 @@ use analog3::{
 };
 use heapless::Vec;
 
-use crate::input_reader::{PotInfo, PotKind};
+use crate::{
+    envelope_generator::definitions::OutputPolarity,
+    input_reader::{PotInfo, PotKind},
+};
 
 use super::{
     EngineType,
@@ -26,14 +29,16 @@ pub struct EgConfig {
     pub extra2: [u16; 2],
     pub cv_a_depth: u16,
     pub cv_b_depth: u16,
+    pub out_polarity: [OutputPolarity; 2],
 }
 
+// TODO: Move this to definitions.rs
 #[derive(Clone)]
 #[repr(u8)]
 enum EgProperty {
     NumVoices = 3,
     VoiceId = 4,
-    EnvelopeGeneratorType = 5,
+    EnvelopeGenerationType = 5,
     AttackTime = 6,
     DecayTime = 7,
     SustainLevel = 8,
@@ -42,13 +47,14 @@ enum EgProperty {
     Extra2 = 11,
     CvADepth = 12,
     CvBDepth = 13,
+    OutputPolarity = 14,
 }
 
 impl EgConfig {
-    const PROPS: [EgProperty; 11] = [
+    const PROPS: [EgProperty; 12] = [
         EgProperty::NumVoices,
         EgProperty::VoiceId,
-        EgProperty::EnvelopeGeneratorType,
+        EgProperty::EnvelopeGenerationType,
         EgProperty::AttackTime,
         EgProperty::DecayTime,
         EgProperty::SustainLevel,
@@ -57,6 +63,7 @@ impl EgConfig {
         EgProperty::Extra2,
         EgProperty::CvADepth,
         EgProperty::CvBDepth,
+        EgProperty::OutputPolarity,
     ];
     pub fn new() -> Self {
         Self {
@@ -74,6 +81,7 @@ impl EgConfig {
             extra2: [0; 2],
             cv_a_depth: 0,
             cv_b_depth: 0,
+            out_polarity: [OutputPolarity::Positive; 2],
         }
     }
 
@@ -126,10 +134,10 @@ impl EgConfig {
         let value = match prop {
             EgProperty::NumVoices => Value::U8(2),
             EgProperty::VoiceId => Value::VectorU16(Self::make_vec16(&self.voice_id)),
-            EgProperty::EnvelopeGeneratorType => {
-                let type1 = self.engine_type[0].clone() as u8;
-                let type2 = self.engine_type[1].clone() as u8;
-                Value::VectorU8(Self::make_vec8(&[type1, type2]))
+            EgProperty::EnvelopeGenerationType => {
+                let type_1 = self.engine_type[0].clone() as u8;
+                let type_2 = self.engine_type[1].clone() as u8;
+                Value::VectorU8(Self::make_vec8(&[type_1, type_2]))
             }
             EgProperty::AttackTime => Value::VectorU16(Self::make_vec16(&self.attack)),
             EgProperty::DecayTime => Value::VectorU16(Self::make_vec16(&self.decay)),
@@ -139,6 +147,11 @@ impl EgConfig {
             EgProperty::Extra2 => Value::VectorU16(Self::make_vec16(&self.extra2)),
             EgProperty::CvADepth => Value::U16(self.cv_a_depth),
             EgProperty::CvBDepth => Value::U16(self.cv_b_depth),
+            EgProperty::OutputPolarity => {
+                let polarity_1 = self.out_polarity[0].clone() as u8;
+                let polarity_2 = self.out_polarity[1].clone() as u8;
+                Value::VectorU8(Self::make_vec8(&[polarity_1, polarity_2]))
+            }
         };
         Some(Property::new(prop_id, value))
     }

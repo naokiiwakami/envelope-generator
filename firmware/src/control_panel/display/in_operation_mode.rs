@@ -1,12 +1,13 @@
 use defmt::debug;
 use embedded_graphics::{
     pixelcolor::BinaryColor,
-    primitives::{PrimitiveStyle, PrimitiveStyleBuilder},
+    prelude::{Point, Size},
+    primitives::{PrimitiveStyle, PrimitiveStyleBuilder, StrokeAlignment},
 };
 use ssd1306_lite::{FontSize, TextBox};
 
 use crate::{
-    envelope_generator::EngineType,
+    envelope_generator::{EngineType, OutputPolarity},
     input_reader::{PotInfo, PotKind},
 };
 
@@ -110,6 +111,18 @@ impl<'a> InOperationMode<'a> {
                     polarity_1,
                     polarity_2,
                 } => self.show_polarity(polarity_1, polarity_2).await,
+                Request::SetPolarityChangeTargets { targets } => {
+                    self.set_polarity_change_targets(targets).await
+                }
+                Request::UpdatePolarities {
+                    targets,
+                    polarity_1,
+                    polarity_2,
+                    is_draw,
+                } => {
+                    self.update_polarities(targets, polarity_1, polarity_2, is_draw)
+                        .await
+                }
                 _ => {
                     self.display
                         .switch_mode(request.mode(), Some(request))
@@ -439,7 +452,12 @@ impl<'a> InOperationMode<'a> {
 
     // Polarity management ///////////////////////////////////////////////////////////////////////
 
-    async fn show_polarity(&mut self, polarity_1: i8, polarity_2: i8) {
+    const POL_LEFT_EDGE: i32 = 97;
+    const POL_TOP_1: i32 = 5;
+    const POL_TOP_2: i32 = 37;
+    const POL_DIAMETER: u32 = 21;
+
+    async fn show_polarity(&mut self, polarity_1: OutputPolarity, polarity_2: OutputPolarity) {
         self.display.clear(false, false).await;
         self.display
             .driver
@@ -450,37 +468,128 @@ impl<'a> InOperationMode<'a> {
             )
             .await;
 
+        self.draw_polarity_jack(
+            (Self::POL_LEFT_EDGE, Self::POL_TOP_1),
+            Self::POL_DIAMETER,
+            polarity_1,
+        )
+        .await;
+        self.draw_polarity_jack(
+            (Self::POL_LEFT_EDGE, Self::POL_TOP_2),
+            Self::POL_DIAMETER,
+            polarity_2,
+        )
+        .await;
+
+        self.display.driver.flush().await;
+    }
+
+    async fn set_polarity_change_targets(&mut self, targets: u8) {
+        let voice_1 = targets & 0x1 != 0;
+        let voice_2 = targets & 0x2 != 0;
+        self.display
+            .clear_rectangle(Point::new(125, 0), Size::new(3, 64), false)
+            .await;
+        let stroke = PrimitiveStyleBuilder::new()
+            .stroke_alignment(StrokeAlignment::Center)
+            .stroke_color(BinaryColor::On)
+            .stroke_width(3)
+            .build();
+        if voice_1 {
+            self.display
+                .driver
+                .draw_line((126, 5), (126, 26), stroke)
+                .await;
+        }
+        if voice_2 {
+            self.display
+                .driver
+                .draw_line((126, 37), (126, 58), stroke)
+                .await;
+        }
+        self.display.driver.flush().await;
+    }
+
+    async fn update_polarities(
+        &mut self,
+        targets: u8,
+        polarity_1: OutputPolarity,
+        polarity_2: OutputPolarity,
+        is_draw: bool,
+    ) {
+        let voice_1 = targets & 0x1 != 0;
+        let voice_2 = targets & 0x2 != 0;
+
+        if voice_1 {
+            self.display
+                .clear_rectangle(
+                    Point::new(Self::POL_LEFT_EDGE, Self::POL_TOP_1),
+                    Size::new(Self::POL_DIAMETER, Self::POL_DIAMETER),
+                    false,
+                )
+                .await;
+            if is_draw {
+                self.draw_polarity_jack(
+                    (Self::POL_LEFT_EDGE, Self::POL_TOP_1),
+                    Self::POL_DIAMETER,
+                    polarity_1,
+                )
+                .await;
+            }
+        }
+        if voice_2 {
+            self.display
+                .clear_rectangle(
+                    Point::new(Self::POL_LEFT_EDGE, Self::POL_TOP_2),
+                    Size::new(Self::POL_DIAMETER, Self::POL_DIAMETER),
+                    false,
+                )
+                .await;
+            if is_draw {
+                self.draw_polarity_jack(
+                    (Self::POL_LEFT_EDGE, Self::POL_TOP_2),
+                    Self::POL_DIAMETER,
+                    polarity_2,
+                )
+                .await;
+            }
+        }
+        self.display.driver.flush().await;
+    }
+
+    async fn draw_polarity_jack(
+        &mut self,
+        top_left: (i32, i32),
+        diameter: u32,
+        polarity: OutputPolarity,
+    ) {
+        let h_line_left = top_left.0 + 3;
+        let h_line_right = top_left.0 + diameter as i32 - 4;
+        let h_line_y = top_left.1 + (diameter / 2) as i32;
+
+        let v_line_x = top_left.0 + (diameter / 2) as i32;
+        let v_line_top = top_left.1 + 3;
+        let v_line_bottom = top_left.1 + diameter as i32 - 4;
+
         // out 1
         let stroke = PrimitiveStyleBuilder::new()
             .stroke_width(1)
             .stroke_color(BinaryColor::On)
             .build();
-        self.display.driver.draw_circle((100, 5), 21, stroke).await;
         self.display
             .driver
-            .draw_line((103, 15), (117, 15), stroke)
+            .draw_circle(top_left, Self::POL_DIAMETER, stroke)
             .await;
-        if polarity_1 > 0 {
-            self.display
-                .driver
-                .draw_line((110, 8), (110, 22), stroke)
-                .await;
-        }
-
-        // out 2
-        self.display.driver.draw_circle((100, 37), 21, stroke).await;
         self.display
             .driver
-            .draw_line((103, 47), (117, 47), stroke)
+            .draw_line((h_line_left, h_line_y), (h_line_right, h_line_y), stroke)
             .await;
-        if polarity_2 > 0 {
+        if matches!(polarity, OutputPolarity::Positive) {
             self.display
                 .driver
-                .draw_line((110, 40), (110, 54), stroke)
+                .draw_line((v_line_x, v_line_top), (v_line_x, v_line_bottom), stroke)
                 .await;
         }
-
-        self.display.driver.flush().await;
     }
 
     // Utils /////////////////////////////////////////////////////////////////////////////////////

@@ -1,4 +1,7 @@
-use crate::utils::{mul_uq0_32, mul_uq8_24};
+use crate::{
+    envelope_generator::definitions::OutputPolarity,
+    utils::{mul_uq0_32, mul_uq8_24},
+};
 
 // Note scale calculator ////////////////////////////////////////////////////
 
@@ -50,7 +53,29 @@ pub fn note_to_scale(note: u8, depth: u32) -> u32 {
 
 /// Converts a UQ0.32 value of range [0..0.5) to 12-bit positive output.
 /// The function does not check boundary intentionally for performance.
-/// The call should ensure the input is less than 0x80000000.
-pub fn uq0_32_to_output_positive(value: u32, zero_point: u16) -> u16 {
+/// The caller should ensure the input is less than 0x80000000.
+pub fn uq0_32_to_12bit_positive(value: u32, zero_point: u16) -> u16 {
     (value >> 20) as u16 + zero_point
+}
+
+/// Converts a Q0.32 value of range [0..0.5) to 12-bit negative output.
+/// The function does not check boundary intentionally for performance.
+/// The caller should ensure the input is less than 0x80000000.
+pub fn uq0_32_to_12bit_negative(value: u32, zero_point: u16) -> u16 {
+    zero_point - (value >> 20) as u16
+}
+
+/// Chooses the output converter that transforms a Q0.32 value of range [0..0.5) to 12-bit
+/// value to be used for DAC.  The DAC should be able to output both polarities - output value
+/// 0x800 with given u16 zero_point should give the 0V DAC output.
+///
+/// If the parameter `polarity` is positive, the returned function maps the input value ranging
+///  0 to 0.5 to 0 to positive maximum output while the returned function for negative polarity maps
+/// 0 to 0.5 input to 0 to negative maximum output.  We may want to provide both-polarities function
+/// in the future, but it's not supported yet.
+pub fn choose_output_converter(polarity: &OutputPolarity) -> &'static dyn Fn(u32, u16) -> u16 {
+    match polarity {
+        OutputPolarity::Positive => &uq0_32_to_12bit_positive,
+        OutputPolarity::Negative => &uq0_32_to_12bit_negative,
+    }
 }

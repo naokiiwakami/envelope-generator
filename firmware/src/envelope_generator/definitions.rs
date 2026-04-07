@@ -2,7 +2,7 @@ use defmt;
 
 use super::config::EgConfig;
 
-use crate::input_reader::InputReaderInfo;
+use crate::{envelope_generator::utils::uq0_32_to_12bit_positive, input_reader::InputReaderInfo};
 
 pub const DEFAULT_VOICE_IDS: [u16; 2] = [0x101, 0x102];
 pub const DEFAULT_ENGINE_TYPE: EngineType = EngineType::ParaDecays;
@@ -26,6 +26,20 @@ pub struct VoiceParams {
     pub operation_mode: Mode,
 }
 
+impl VoiceParams {
+    pub fn new(voice_index: usize) -> Self {
+        Self {
+            voice_index,
+            note: 60, // middle C
+            velocity: 0,
+            out_zero_point: DEFAULT_OUT_ZERO_POINT,
+            value_to_output: &uq0_32_to_12bit_positive,
+            physical_gate_enabled: false,
+            operation_mode: Mode::Normal,
+        }
+    }
+}
+
 /// Request for the envelope generator
 pub enum EgRequest {
     /// Notifies the EnvelopeGenerator a physical gate event.
@@ -33,6 +47,12 @@ pub enum EgRequest {
     /// Requests to switch the engine type.
     SwitchEngine {
         engine_type: EngineType,
+        send_notif: bool,
+    },
+    /// Requests to change output polarities
+    ChangeOutputPolarities {
+        polarity_1: OutputPolarity,
+        polarity_2: OutputPolarity,
         send_notif: bool,
     },
     /// Requests to toggle the operation mode.
@@ -78,10 +98,10 @@ impl TryFrom<u8> for EngineType {
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
-            0 => Ok(EngineType::ParaDecays),
-            1 => Ok(EngineType::Addsr),
-            2 => Ok(EngineType::Adsr),
-            3 => Ok(EngineType::Linear),
+            0 => Ok(Self::ParaDecays),
+            1 => Ok(Self::Addsr),
+            2 => Ok(Self::Adsr),
+            3 => Ok(Self::Linear),
             _ => Err(()),
         }
     }
@@ -103,11 +123,30 @@ pub enum GateEventType {
     GateOff,
 }
 
+#[derive(Clone, Copy)]
+#[repr(u8)]
+pub enum OutputPolarity {
+    Positive = 0,
+    Negative = 1,
+}
+
+impl TryFrom<u8> for OutputPolarity {
+    type Error = ();
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Positive),
+            1 => Ok(Self::Negative),
+            _ => Err(()),
+        }
+    }
+}
+
 /// Event occurred in the EnvelopeGenerator
 #[derive(Clone)]
 pub enum EgEvent {
     EngineSwitched(EngineType),
-    PolarityChanged((i8, i8)), // polarity_1, polarity_2
+    PolarityChanged((OutputPolarity, OutputPolarity)), // polarity_1, polarity_2
 }
 
 pub trait Engine {
@@ -127,12 +166,3 @@ pub trait Engine {
 
 /// The zero point should be at the center of value range if the circuit is perfect.
 pub const DEFAULT_OUT_ZERO_POINT: u16 = 0x800;
-
-/*
-/// Converts a Q0.32 value of range [0..0.5) to 12-bit negative output.
-/// The function does not check boundary intentionally for performance.
-/// The call should ensure the input is less than 0x80000000.
-pub fn uq0_32_to_output_negative(value: u32, zero_point: u16) -> u16 {
-    zero_point - (value >> 20) as u16
-}
-*/

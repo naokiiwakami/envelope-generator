@@ -32,12 +32,16 @@ use heapless::String;
 use {defmt_rtt as _, panic_probe as _};
 
 use crate::{
-    addresses::{ADDR_EG_TYPE_1, ADDR_OUT_ZERO_POINT_1, ADDR_OUT_ZERO_POINT_2, ADDR_VOICE_ID_1},
+    addresses::{
+        ADDR_EG_TYPE_1, ADDR_OUT_ZERO_POINT_1, ADDR_OUT_ZERO_POINT_2, ADDR_OUTPUT_POLARITY_1,
+        ADDR_VOICE_ID_1,
+    },
     input_reader::{InputReaderInfo, get_reader_info_receiver},
 };
 
 pub use self::definitions::{
     DEFAULT_OUT_ZERO_POINT, EgEvent, EgRequest, EngineType, GateEventType, GateId, Mode,
+    OutputPolarity,
 };
 use self::{
     adsr_engine::AdsrEngine,
@@ -47,7 +51,7 @@ use self::{
     linear_engine::LinearEngine,
     para_decays_engine::ParaDecaysEngine,
     two_decays_engine::TwoDecaysEngine,
-    utils::uq0_32_to_output_positive,
+    utils::choose_output_converter,
 };
 
 // parameter tweaks
@@ -101,12 +105,14 @@ pub async fn start(
 }
 
 async fn retrieve_saved_config(eg_resources: &mut EgResources) {
-    for voice_index in 0..2 {
-        eg_resources.config.voice_id[voice_index] = load_voice_id(voice_index).await;
-        eg_resources.config.engine_type[voice_index] = load_engine_type(voice_index).await;
+    for index in 0..2 {
+        eg_resources.config.voice_id[index] = load_voice_id(index).await;
+        eg_resources.config.engine_type[index] = load_engine_type(index).await;
+        eg_resources.voice_params[index].out_zero_point = load_out_zero_point(index).await;
+        let polarity = load_out_polarity(index).await;
+        eg_resources.voice_params[index].value_to_output = choose_output_converter(&polarity);
+        eg_resources.config.out_polarity[index] = polarity;
     }
-    eg_resources.voice_params_1.out_zero_point = load_out_zero_point(0).await;
-    eg_resources.voice_params_2.out_zero_point = load_out_zero_point(1).await;
 }
 
 async fn load_voice_id(voice_index: usize) -> u16 {
@@ -149,6 +155,28 @@ async fn save_engine_type(voice_index: usize, engine_type: &EngineType) {
     )
     .await
     .unwrap();
+}
+
+async fn load_out_polarity(voice_index: usize) -> OutputPolarity {
+    let address = ADDR_OUTPUT_POLARITY_1 + voice_index as u16;
+    let type_id = load_u8(address, &SIGNAL_STORAGE).await;
+    match OutputPolarity::try_from(type_id) {
+        Ok(polarity) => polarity,
+        Err(()) => {
+            let polarity = OutputPolarity::Positive;
+            storage::save(address, Value::U8(polarity.clone() as u8), &SIGNAL_STORAGE)
+                .await
+                .unwrap();
+            polarity
+        }
+    }
+}
+
+async fn save_out_polarity(voice_index: usize, polarity: &OutputPolarity) {
+    let address = ADDR_OUTPUT_POLARITY_1 + voice_index as u16;
+    storage::save(address, Value::U8(polarity.clone() as u8), &SIGNAL_STORAGE)
+        .await
+        .unwrap();
 }
 
 async fn load_out_zero_point(voice_index: usize) -> u16 {
@@ -205,7 +233,7 @@ async fn run_envelope_generator(
     dac2.enable();
 
     loop {
-        match eg_resources.voice_params_1.operation_mode {
+        match eg_resources.voice_params[0].operation_mode {
             Mode::Normal => match eg_resources.config.engine_type[0] {
                 EngineType::ParaDecays => {
                     let mut eg = EnvelopeGenerator::<ParaDecaysEngine>::new(&mut eg_resources);
@@ -237,38 +265,18 @@ struct EgResources {
     request_receiver: channel::Receiver<'static, ThreadModeRawMutex, EgRequest, EG_CHANNEL_SIZE>,
     event_publisher:
         pubsub::Publisher<'static, ThreadModeRawMutex, EgEvent, EG_CHANNEL_SIZE, EG_SUBS, EG_PUBS>,
-    voice_params_1: VoiceParams,
-    voice_params_2: VoiceParams,
+    voice_params: [VoiceParams; 2],
     ind_gate_1: Output<'static>,
     ind_gate_2: Output<'static>,
 }
 
 impl EgResources {
     pub fn new(ind_gate_1: Output<'static>, ind_gate_2: Output<'static>) -> Self {
-        let voice_params_1 = VoiceParams {
-            voice_index: 0,
-            note: 60, // middle C
-            velocity: 0,
-            out_zero_point: DEFAULT_OUT_ZERO_POINT,
-            value_to_output: &uq0_32_to_output_positive,
-            physical_gate_enabled: false,
-            operation_mode: Mode::Normal,
-        };
-        let voice_params_2 = VoiceParams {
-            voice_index: 1,
-            note: 60, // middle C
-            velocity: 0,
-            out_zero_point: DEFAULT_OUT_ZERO_POINT,
-            value_to_output: &uq0_32_to_output_positive,
-            physical_gate_enabled: false,
-            operation_mode: Mode::Normal,
-        };
         Self {
             config: EgConfig::new(),
             request_receiver: CHANNEL_REQUEST.receiver(),
             event_publisher: CHANNEL_EVENT.publisher().unwrap(),
-            voice_params_1,
-            voice_params_2,
+            voice_params: [VoiceParams::new(0), VoiceParams::new(1)],
             ind_gate_1,
             ind_gate_2,
         }
@@ -293,15 +301,16 @@ struct EnvelopeGenerator<'a, EngineT: Engine> {
 
 impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
     pub fn new(resources: &'a mut EgResources) -> Self {
+        let (voice_params_0, voice_params_1) = resources.voice_params.split_at_mut(1);
         let voice_1 = EgVoice::new(
             0,
-            &mut resources.voice_params_1,
+            &mut voice_params_0[0],
             &mut resources.ind_gate_1,
             &resources.config,
         );
         let voice_2 = EgVoice::new(
             1,
-            &mut resources.voice_params_2,
+            &mut voice_params_1[0],
             &mut resources.ind_gate_2,
             &resources.config,
         );
@@ -319,11 +328,17 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
         let prop_request_receiver = analog3::get_prop_request_receiver();
         let mut input_reader_info_receiver = get_reader_info_receiver().await;
         debug!(
-            "Notifying the initial enigne type: {}",
+            "Notifying the initial engine type: {}",
             self.config.engine_type[0]
         );
         self.event_publisher
             .publish(EgEvent::EngineSwitched(self.config.engine_type[0].clone()))
+            .await;
+        self.event_publisher
+            .publish(EgEvent::PolarityChanged((
+                self.config.out_polarity[0].clone(),
+                self.config.out_polarity[1].clone(),
+            )))
             .await;
         loop {
             match select5(
@@ -390,6 +405,25 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
                         .await;
                 }
                 true
+            }
+            EgRequest::ChangeOutputPolarities {
+                polarity_1,
+                polarity_2,
+                send_notif,
+            } => {
+                debug!("switching polarities");
+                self.config.out_polarity[0] = polarity_1.clone();
+                self.config.out_polarity[1] = polarity_2.clone();
+                save_out_polarity(0, &polarity_1).await;
+                save_out_polarity(1, &polarity_2).await;
+                self.voice_1.params.value_to_output = choose_output_converter(&polarity_1);
+                self.voice_2.params.value_to_output = choose_output_converter(&polarity_2);
+                if send_notif {
+                    self.event_publisher
+                        .publish(EgEvent::PolarityChanged((polarity_1, polarity_2)))
+                        .await;
+                }
+                false
             }
             EgRequest::ToggleMode { mode } => {
                 debug!(
