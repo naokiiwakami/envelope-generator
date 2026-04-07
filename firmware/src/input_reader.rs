@@ -260,7 +260,7 @@ impl InputReader {
 
         (
             PotInfo {
-                kind: kind.clone(),
+                kind: *kind,
                 value: pot_value,
             },
             CvInfo { cv_a, cv_b },

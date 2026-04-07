@@ -156,8 +156,7 @@ impl<'a> InOperationMode<'a> {
         _extra_2: u16,
     ) {
         self.display.clear(false, false).await;
-        let name =
-            ENGINE_TYPE_MENU_ITEMS[(self.display.current_engine_type.clone() as u8) as usize].name;
+        let name = ENGINE_TYPE_MENU_ITEMS[(self.display.current_engine_type as u8) as usize].name;
         let text_box = TextBox::center().build();
         self.display
             .driver

@@ -475,7 +475,7 @@ impl Display {
         erase: &PrimitiveStyle<BinaryColor>,
         positions: &[(Point, Point); 8],
     ) {
-        let index = pot_info.kind.clone() as usize;
+        let index = pot_info.kind as usize;
         if index >= positions.len() {
             error!("update_pot_value: Index out of bounds; index={}", index);
             return;
