@@ -10,8 +10,9 @@ use ssd1306_lite::{FontSize, TextBox};
 
 use crate::{
     control_panel::STATE,
+    definitions::PotKind,
     envelope_generator::{EngineType, OutputPolarity},
-    input_reader::{PotInfo, PotKind},
+    input_reader::PotInfo,
 };
 
 use super::{Display, ENGINE_TYPE_MENU_ITEMS, Mode, Request};

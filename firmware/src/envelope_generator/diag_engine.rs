@@ -1,4 +1,4 @@
-use crate::input_reader::{InputReaderInfo, PotKind};
+use crate::{definitions::PotKind, input_reader::InputReaderInfo};
 
 use super::config::EgConfig;
 use super::definitions::{Engine, VoiceParams};

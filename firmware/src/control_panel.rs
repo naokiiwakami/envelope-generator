@@ -24,11 +24,12 @@ use ssd1306_lite::{FontSize, TextBox};
 
 use crate::{
     control_panel::{menu::POLARITY_CHANGE_TARGET_ITEMS, module_state::ModuleState},
+    definitions::PotKind,
     envelope_generator::{
         EG_CHANNEL_SIZE, EG_PUBS, EG_SUBS, EgEvent, EgRequest, EngineType, Mode as EgOperationMode,
         OutputPolarity, get_eg_event_subscriber, get_eg_request_sender,
     },
-    input_reader::{InputReaderInfo, PotKind, get_reader_info_receiver},
+    input_reader::{InputReaderInfo, get_reader_info_receiver},
 };
 
 use self::{

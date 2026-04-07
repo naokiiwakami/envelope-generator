@@ -2,6 +2,19 @@ use core::convert::TryFrom;
 use core::marker::PhantomData;
 use core::sync::atomic::{AtomicU8, Ordering};
 
+#[derive(Clone, Copy, PartialEq, Debug, defmt::Format)]
+#[repr(usize)]
+pub enum PotKind {
+    Attack = 0,
+    Decay = 1,
+    Sustain = 2,
+    Release = 3,
+    Extra1 = 4,
+    Extra2 = 5,
+    CvADepth = 6,
+    CvBDepth = 7,
+}
+
 pub trait AtomicEnumRepr: Copy + TryFrom<u8> {
     fn to_u8(self) -> u8;
 }

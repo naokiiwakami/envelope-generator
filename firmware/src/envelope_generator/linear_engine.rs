@@ -2,11 +2,12 @@
 use defmt;
 
 use crate::{
+    definitions::PotKind,
     envelope_generator::utils::{
         calculate_linear_charging_ratio, calculate_linear_discharging_ratio,
         calculate_sustain_level,
     },
-    input_reader::{InputReaderInfo, PotKind},
+    input_reader::InputReaderInfo,
     utils::mul_uq0_32,
 };
 

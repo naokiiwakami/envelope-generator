@@ -182,8 +182,9 @@ pub trait Engine {
     fn update(&mut self, params: &VoiceParams) -> u16;
 }
 
+/*
 // This looks similar to PotKind for now, but we may add more destinations in the future.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 #[repr(u8)]
 pub enum CvDestination {
     Attack,
@@ -193,3 +194,4 @@ pub enum CvDestination {
     Extra1,
     Extra2,
 }
+    */
