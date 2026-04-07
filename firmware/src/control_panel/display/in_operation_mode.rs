@@ -1,3 +1,5 @@
+use core::sync::atomic::Ordering;
+
 use defmt::debug;
 use embedded_graphics::{
     pixelcolor::BinaryColor,
@@ -7,6 +9,7 @@ use embedded_graphics::{
 use ssd1306_lite::{FontSize, TextBox};
 
 use crate::{
+    control_panel::STATE,
     envelope_generator::{EngineType, OutputPolarity},
     input_reader::{PotInfo, PotKind},
 };
@@ -86,26 +89,7 @@ impl<'a> InOperationMode<'a> {
                 | Request::DrawTriangle { .. }
                 | Request::DrawArc { .. }
                 | Request::DisplayText { .. } => self.display.handle_generic_request(request).await,
-                Request::GoToOpHome {
-                    engine_type,
-                    attack,
-                    decay,
-                    sustain,
-                    release,
-                    extra_1,
-                    extra_2,
-                } => {
-                    self.show_home_page(
-                        engine_type,
-                        attack,
-                        decay,
-                        sustain,
-                        release,
-                        extra_1,
-                        extra_2,
-                    )
-                    .await
-                }
+                Request::GoToOpHome => self.show_home_page().await,
                 Request::UpdatePot { pot_info } => self.update_pot(pot_info).await,
                 Request::ShowPolarity {
                     polarity_1,
@@ -133,17 +117,17 @@ impl<'a> InOperationMode<'a> {
         // debug!("[InOperation]: out to {}", self.display.mode);
     }
 
-    pub async fn show_home_page(
-        &mut self,
-        engine_type: EngineType,
-        attack: u16,
-        decay: u16,
-        sustain: u16,
-        release: u16,
-        extra_1: u16,
-        extra_2: u16,
-    ) {
+    pub async fn show_home_page(&mut self) {
+        let engine_type = STATE.engine_type.load();
+        let attack = STATE.attack.load(Ordering::Relaxed);
+        let decay = STATE.decay.load(Ordering::Relaxed);
+        let sustain = STATE.sustain.load(Ordering::Relaxed);
+        let release = STATE.release.load(Ordering::Relaxed);
+        let extra_1 = STATE.extra_1.load(Ordering::Relaxed);
+        let extra_2 = STATE.extra_2.load(Ordering::Relaxed);
+
         debug!("engine type to {}", engine_type);
+
         self.display.current_engine_type = engine_type;
         match self.display.current_engine_type {
             EngineType::Adsr => {
@@ -357,6 +341,7 @@ impl<'a> InOperationMode<'a> {
 
                 self.decay = next_decay;
 
+                self.draw_line((LEFT, BOTTOM), (self.attack, TOP)).await;
                 self.draw_line((self.attack, TOP), (self.decay, self.sustain))
                     .await;
                 self.draw_line((self.decay, self.sustain), (self.release, self.sustain))
@@ -601,7 +586,7 @@ impl<'a> InOperationMode<'a> {
 
     #[inline]
     fn decay_pos(&self, decay: u16) -> i32 {
-        ((35 * (distort(decay) as i32 + 1)) >> 16) + self.attack + 1
+        ((35 * (distort(decay) as i32 + 1)) >> 16) + self.attack
     }
 
     #[inline]
@@ -672,5 +657,5 @@ impl<'a> InOperationMode<'a> {
 #[inline]
 fn distort(input: u16) -> u16 {
     let reverse = (!input) as u32;
-    !(((reverse * reverse) >> 16) as u16)
+    !(((((reverse * reverse) >> 16) * reverse) >> 16) as u16)
 }

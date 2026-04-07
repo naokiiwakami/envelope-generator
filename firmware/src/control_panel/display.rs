@@ -28,7 +28,7 @@ use ssd1306_lite::{Angle, FontSize, Ssd1306Lite, TextBox};
 use crate::{
     control_panel::{display::menu_mode::MenuMode, menu::ENGINE_TYPE_MENU_ITEMS},
     envelope_generator::{EngineType, OutputPolarity},
-    input_reader::{CvInfo, PotInfo, PotKind},
+    input_reader::{CvInfo, PotInfo},
     patch_controller::{LedColor, PatchControllerRequest, get_patch_controller_request_sender},
 };
 
@@ -99,15 +99,7 @@ pub enum Request {
         flush: bool,
     },
     // Fundamental requests
-    GoToOpHome {
-        engine_type: EngineType,
-        attack: u16,
-        decay: u16,
-        sustain: u16,
-        release: u16,
-        extra_1: u16,
-        extra_2: u16,
-    },
+    GoToOpHome,
     UpdatePot {
         pot_info: PotInfo,
     },
@@ -251,59 +243,19 @@ impl Display {
         let blank = PrimitiveStyleBuilder::new()
             .fill_color(BinaryColor::Off)
             .build();
-        let mut attack = 0u16;
-        let mut decay = 0u16;
-        let mut sustain = 0u16;
-        let mut release = 0u16;
-        let mut extra_1 = 0u16;
-        let mut extra_2 = 0u16;
-        let mut last_mode = Mode::Fundamental;
-        let mut engine_type = EngineType::ParaDecays;
         let rng = make_local_rng();
         let mut patch_controller_blinker = InitialBlinker::new(&rng);
         let pc_request_sender = get_patch_controller_request_sender();
         let mut a3_blinker = InitialBlinker::new(&rng);
         let a3_request_sender = analog3::get_indicator_request_sender();
-        for threshold in (0..32).rev() {
-            if let Ok(request) = self.request_receiver.try_receive() {
-                last_mode = request.mode();
-                match request {
-                    Request::GoToOpHome {
-                        engine_type: e,
-                        attack: a,
-                        decay: d,
-                        sustain: s,
-                        release: r,
-                        extra_1: e1,
-                        extra_2: e2,
-                    } => {
-                        engine_type = e;
-                        attack = a;
-                        decay = d;
-                        sustain = s;
-                        release = r;
-                        extra_1 = e1;
-                        extra_2 = e2;
-                    }
-                    Request::UpdatePot { pot_info } => {
-                        match pot_info.kind {
-                            PotKind::Attack => attack = pot_info.value,
-                            PotKind::Decay => decay = pot_info.value,
-                            PotKind::Sustain => sustain = pot_info.value,
-                            PotKind::Release => release = pot_info.value,
-                            PotKind::Extra1 => extra_1 = pot_info.value,
-                            PotKind::Extra2 => extra_2 = pot_info.value,
-                            _ => {}
-                        };
-                    }
-                    _ => {}
-                }
-            }
+        for threshold in (0..16).rev() {
+            // silently ignore what received while showing the splash screen
+            let _ = self.request_receiver.try_receive();
             for y in 0..64 {
                 for x in 0..32 {
                     let mut random = rng.random_u64();
                     for seg in 0..8 {
-                        if random & 0x3f < threshold {
+                        if random & 0x1f < threshold {
                             self.driver.set_pixel(x * 8 + seg, y);
                         } else {
                             self.driver.unset_pixel(x * 8 + seg, y);
@@ -347,19 +299,7 @@ impl Display {
             self.driver.flush().await;
         }
         Timer::after_millis(300).await;
-        if matches!(last_mode, Mode::InOperation) {
-            self.mode = Mode::InOperation;
-            debug!("attacK: {:#x}, extra_2: {:#x}", attack, extra_2);
-            self.pending_request = Some(Request::GoToOpHome {
-                engine_type,
-                attack,
-                decay,
-                sustain,
-                release,
-                extra_1,
-                extra_2,
-            });
-        }
+        self.pending_request = Some(Request::GoToOpHome);
     }
 
     async fn handle_generic_request(&mut self, request: Request) {
