@@ -230,7 +230,7 @@ async fn run_envelope_generator(
 
     loop {
         match eg_resources.voice_params[0].operation_mode {
-            Mode::Normal => match eg_resources.config.get_engine_type(0) {
+            Mode::Normal => match eg_resources.config.engine_type(0) {
                 EngineType::ParaDecays => {
                     let mut eg = EnvelopeGenerator::<ParaDecaysEngine>::new(&mut eg_resources);
                     eg.run().await;
@@ -325,15 +325,15 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
         let mut input_reader_info_receiver = get_reader_info_receiver().await;
         debug!(
             "Notifying the initial engine type: {}",
-            self.config.get_engine_type(0)
+            self.config.engine_type(0)
         );
         self.event_publisher
-            .publish(EgEvent::EngineSwitched(self.config.get_engine_type(0)))
+            .publish(EgEvent::EngineSwitched(self.config.engine_type(0)))
             .await;
         self.event_publisher
             .publish(EgEvent::PolarityChanged((
-                self.config.get_out_polarity(0),
-                self.config.get_out_polarity(1),
+                self.config.out_polarity(0),
+                self.config.out_polarity(1),
             )))
             .await;
         loop {
@@ -362,9 +362,9 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
 
     async fn handle_a3_message(&mut self, message: &A3Datagram) {
         if let A3DatagramId::Standard(id) = message.id {
-            if id == self.config.get_voice_id(0) {
+            if id == self.config.voice_id(0) {
                 self.voice_1.handle_a3_message(message).await;
-            } else if id == self.config.get_voice_id(1) {
+            } else if id == self.config.voice_id(1) {
                 self.voice_2.handle_a3_message(message).await;
             }
         }

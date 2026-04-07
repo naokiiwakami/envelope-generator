@@ -84,20 +84,20 @@ impl Engine for LinearEngine {
     fn update_params(&mut self, voice_index: usize, config: &EgConfig, input: &InputReaderInfo) {
         match input.pot_info.kind {
             PotKind::Attack => {
-                self.attack_ratio = calculate_linear_charging_ratio(config.get_attack(voice_index));
+                self.attack_ratio = calculate_linear_charging_ratio(config.attack(voice_index));
             }
             PotKind::Decay => {
-                self.decay_ratio = calculate_linear_discharging_ratio(config.get_decay(voice_index));
+                self.decay_ratio = calculate_linear_discharging_ratio(config.decay(voice_index));
             }
             PotKind::Sustain => {
-                self.sustain_level = calculate_sustain_level(config.get_sustain(voice_index));
+                self.sustain_level = calculate_sustain_level(config.sustain(voice_index));
             }
             PotKind::Release => {
                 self.release_ratio =
-                    calculate_linear_discharging_ratio(config.get_release(voice_index));
+                    calculate_linear_discharging_ratio(config.release(voice_index));
             }
             PotKind::Extra2 => {
-                self.note_scale_depth = (config.get_extra_2(voice_index) as u32) << 16;
+                self.note_scale_depth = (config.extra_2(voice_index) as u32) << 16;
             }
             _ => {}
         }

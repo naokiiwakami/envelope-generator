@@ -8,10 +8,7 @@ use crate::{
     definitions::PotKind, envelope_generator::definitions::OutputPolarity, input_reader::PotInfo,
 };
 
-use super::{
-    EngineType,
-    definitions::{DEFAULT_ENGINE_TYPE},
-};
+use super::{EngineType, definitions::DEFAULT_ENGINE_TYPE};
 
 static mut CONFIG_DATA: ConfigData = ConfigData::new();
 
@@ -198,7 +195,7 @@ impl EgConfig {
     }
 
     #[inline(always)]
-    pub fn get_voice_id(&self, voice_index: usize) -> u16 {
+    pub fn voice_id(&self, voice_index: usize) -> u16 {
         get_voice_id(voice_index)
     }
 
@@ -210,7 +207,7 @@ impl EgConfig {
     }
 
     #[inline(always)]
-    pub fn get_engine_type(&self, voice_index: usize) -> EngineType {
+    pub fn engine_type(&self, voice_index: usize) -> EngineType {
         get_engine_type(voice_index)
     }
 
@@ -222,7 +219,7 @@ impl EgConfig {
     }
 
     #[inline(always)]
-    pub fn get_attack(&self, voice_index: usize) -> u16 {
+    pub fn attack(&self, voice_index: usize) -> u16 {
         get_attack(voice_index)
     }
 
@@ -234,7 +231,7 @@ impl EgConfig {
     }
 
     #[inline(always)]
-    pub fn get_decay(&self, voice_index: usize) -> u16 {
+    pub fn decay(&self, voice_index: usize) -> u16 {
         get_decay(voice_index)
     }
 
@@ -246,7 +243,7 @@ impl EgConfig {
     }
 
     #[inline(always)]
-    pub fn get_sustain(&self, voice_index: usize) -> u16 {
+    pub fn sustain(&self, voice_index: usize) -> u16 {
         get_sustain(voice_index)
     }
 
@@ -258,7 +255,7 @@ impl EgConfig {
     }
 
     #[inline(always)]
-    pub fn get_release(&self, voice_index: usize) -> u16 {
+    pub fn release(&self, voice_index: usize) -> u16 {
         get_release(voice_index)
     }
 
@@ -270,7 +267,7 @@ impl EgConfig {
     }
 
     #[inline(always)]
-    pub fn get_extra_1(&self, voice_index: usize) -> u16 {
+    pub fn extra_1(&self, voice_index: usize) -> u16 {
         get_extra_1(voice_index)
     }
 
@@ -282,7 +279,7 @@ impl EgConfig {
     }
 
     #[inline(always)]
-    pub fn get_extra_2(&self, voice_index: usize) -> u16 {
+    pub fn extra_2(&self, voice_index: usize) -> u16 {
         get_extra_2(voice_index)
     }
 
@@ -294,7 +291,7 @@ impl EgConfig {
     }
 
     #[inline(always)]
-    pub fn get_cv_a_destination(&self) -> PotKind {
+    pub fn cv_a_destination(&self) -> PotKind {
         get_cv_a_destination()
     }
 
@@ -306,7 +303,7 @@ impl EgConfig {
     }
 
     #[inline(always)]
-    pub fn get_cv_a_depth(&self) -> u16 {
+    pub fn cv_a_depth(&self) -> u16 {
         get_cv_a_depth()
     }
 
@@ -318,7 +315,7 @@ impl EgConfig {
     }
 
     #[inline(always)]
-    pub fn get_cv_b_destination(&self) -> PotKind {
+    pub fn cv_b_destination(&self) -> PotKind {
         get_cv_b_destination()
     }
 
@@ -330,7 +327,7 @@ impl EgConfig {
     }
 
     #[inline(always)]
-    pub fn get_cv_b_depth(&self) -> u16 {
+    pub fn cv_b_depth(&self) -> u16 {
         get_cv_b_depth()
     }
 
@@ -342,7 +339,7 @@ impl EgConfig {
     }
 
     #[inline(always)]
-    pub fn get_out_polarity(&self, voice_index: usize) -> OutputPolarity {
+    pub fn out_polarity(&self, voice_index: usize) -> OutputPolarity {
         get_out_polarity(voice_index)
     }
 
@@ -401,46 +398,39 @@ impl EgConfig {
         let prop_id = prop.clone() as u8;
         let value = match prop {
             EgProperty::NumVoices => Value::U8(2),
-            EgProperty::VoiceId => Value::VectorU16(Self::make_vec16(&[
-                self.get_voice_id(0),
-                self.get_voice_id(1),
-            ])),
+            EgProperty::VoiceId => {
+                Value::VectorU16(Self::make_vec16(&[self.voice_id(0), self.voice_id(1)]))
+            }
             EgProperty::EnvelopeGenerationType => {
-                let type_1 = self.get_engine_type(0) as u8;
-                let type_2 = self.get_engine_type(1) as u8;
+                let type_1 = self.engine_type(0) as u8;
+                let type_2 = self.engine_type(1) as u8;
                 Value::VectorU8(Self::make_vec8(&[type_1, type_2]))
             }
-            EgProperty::AttackTime => Value::VectorU16(Self::make_vec16(&[
-                self.get_attack(0),
-                self.get_attack(1),
-            ])),
-            EgProperty::DecayTime => Value::VectorU16(Self::make_vec16(&[
-                self.get_decay(0),
-                self.get_decay(1),
-            ])),
-            EgProperty::SustainLevel => Value::VectorU16(Self::make_vec16(&[
-                self.get_sustain(0),
-                self.get_sustain(1),
-            ])),
-            EgProperty::ReleaseTime => Value::VectorU16(Self::make_vec16(&[
-                self.get_release(0),
-                self.get_release(1),
-            ])),
-            EgProperty::Extra1 => Value::VectorU16(Self::make_vec16(&[
-                self.get_extra_1(0),
-                self.get_extra_1(1),
-            ])),
-            EgProperty::Extra2 => Value::VectorU16(Self::make_vec16(&[
-                self.get_extra_2(0),
-                self.get_extra_2(1),
-            ])),
-            EgProperty::CvADestination => Value::U8(self.get_cv_a_destination() as u8),
-            EgProperty::CvADepth => Value::U16(self.get_cv_a_depth()),
-            EgProperty::CvBDestination => Value::U8(self.get_cv_b_destination() as u8),
-            EgProperty::CvBDepth => Value::U16(self.get_cv_b_depth()),
+            EgProperty::AttackTime => {
+                Value::VectorU16(Self::make_vec16(&[self.attack(0), self.attack(1)]))
+            }
+            EgProperty::DecayTime => {
+                Value::VectorU16(Self::make_vec16(&[self.decay(0), self.decay(1)]))
+            }
+            EgProperty::SustainLevel => {
+                Value::VectorU16(Self::make_vec16(&[self.sustain(0), self.sustain(1)]))
+            }
+            EgProperty::ReleaseTime => {
+                Value::VectorU16(Self::make_vec16(&[self.release(0), self.release(1)]))
+            }
+            EgProperty::Extra1 => {
+                Value::VectorU16(Self::make_vec16(&[self.extra_1(0), self.extra_1(1)]))
+            }
+            EgProperty::Extra2 => {
+                Value::VectorU16(Self::make_vec16(&[self.extra_2(0), self.extra_2(1)]))
+            }
+            EgProperty::CvADestination => Value::U8(self.cv_a_destination() as u8),
+            EgProperty::CvADepth => Value::U16(self.cv_a_depth()),
+            EgProperty::CvBDestination => Value::U8(self.cv_b_destination() as u8),
+            EgProperty::CvBDepth => Value::U16(self.cv_b_depth()),
             EgProperty::OutputPolarity => {
-                let polarity_1 = self.get_out_polarity(0) as u8;
-                let polarity_2 = self.get_out_polarity(1) as u8;
+                let polarity_1 = self.out_polarity(0) as u8;
+                let polarity_2 = self.out_polarity(1) as u8;
                 Value::VectorU8(Self::make_vec8(&[polarity_1, polarity_2]))
             }
         };
