@@ -298,6 +298,20 @@ impl Display {
                 .await;
             self.driver.flush().await;
         }
+        pc_request_sender
+            .send(PatchControllerRequest::OperateIndicator {
+                led_color: LedColor::Red,
+                is_high: false,
+            })
+            .await;
+        pc_request_sender
+            .send(PatchControllerRequest::OperateIndicator {
+                led_color: LedColor::Green,
+                is_high: false,
+            })
+            .await;
+        a3_request_sender.send(IndicatorRequest::ResetRedLed).await;
+        a3_request_sender.send(IndicatorRequest::ResetBlueLed).await;
         Timer::after_millis(300).await;
         self.pending_request = Some(Request::GoToOpHome);
     }

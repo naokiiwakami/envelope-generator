@@ -87,6 +87,7 @@ impl Engine for AdsrEngine {
         self.update_params(index, config, &InputReaderInfo::new(PotKind::Extra2));
         self.update_params(index, config, &InputReaderInfo::new(PotKind::CvADepth));
         self.update_params(index, config, &InputReaderInfo::new(PotKind::CvBDepth));
+        self.note_scale_depth = (config.note_scaling_depth(index) as u32) << 16;
         self.current_value = 0;
         self.target_value = 0;
         self.phase = EnginePhase::Released;
@@ -110,7 +111,9 @@ impl Engine for AdsrEngine {
                 // TBD
             }
             PotKind::Extra2 => {
-                self.note_scale_depth = (config.extra_2(voice_index) as u32) << 16;
+                let value = config.extra_2(voice_index);
+                config.set_note_scaling_depth(voice_index, value);
+                self.note_scale_depth = (value as u32) << 16;
             }
             PotKind::CvADepth => {
                 self.cv_a_depth = (config.cv_a_depth() as u32) << 16;

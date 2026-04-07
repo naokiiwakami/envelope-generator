@@ -91,6 +91,7 @@ impl Engine for TwoDecaysEngine {
         self.update_params(voice_index, config, &InputReaderInfo::new(PotKind::Release));
         self.update_params(voice_index, config, &InputReaderInfo::new(PotKind::Extra1));
         self.update_params(voice_index, config, &InputReaderInfo::new(PotKind::Extra2));
+        self.note_scale_depth = (config.note_scaling_depth(voice_index) as u32) << 16;
         self.current_value = 0;
         self.target_value = 0;
         self.phase = EnginePhase::Released;

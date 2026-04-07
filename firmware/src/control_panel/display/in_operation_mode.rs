@@ -185,7 +185,7 @@ impl<'a> InOperationMode<'a> {
         sustain: u16,
         release: u16,
         _extra_1: u16,
-        extra_2: u16,
+        _extra_2: u16,
     ) {
         self.display.clear(false, false).await;
 
@@ -202,7 +202,8 @@ impl<'a> InOperationMode<'a> {
         self.draw_curve((self.release, self.sustain), (RIGHT, BOTTOM))
             .await;
 
-        self.draw_note_scaling_bar(extra_2).await;
+        self.draw_note_scaling_bar(self.eg_config.note_scaling_depth(0))
+            .await;
 
         self.display.driver.flush().await;
     }
@@ -274,7 +275,8 @@ impl<'a> InOperationMode<'a> {
                     .await;
             }
             PotKind::Extra2 => {
-                self.draw_note_scaling_bar(pot_info.value).await;
+                self.draw_note_scaling_bar(self.eg_config.note_scaling_depth(0))
+                    .await;
             }
             _ => {}
         }
@@ -307,7 +309,8 @@ impl<'a> InOperationMode<'a> {
         self.draw_line((self.release, self.sustain), (RIGHT, BOTTOM))
             .await;
 
-        self.draw_note_scaling_bar(extra_2).await;
+        self.draw_note_scaling_bar(self.eg_config.note_scaling_depth(0))
+            .await;
 
         self.display.driver.flush().await;
     }
@@ -391,7 +394,8 @@ impl<'a> InOperationMode<'a> {
                     .await;
             }
             PotKind::Extra2 => {
-                self.draw_note_scaling_bar(pot_info.value).await;
+                self.draw_note_scaling_bar(self.eg_config.note_scaling_depth(0))
+                    .await;
             }
             _ => {}
         }

@@ -77,6 +77,7 @@ impl Engine for LinearEngine {
         self.update_params(voice_index, config, &InputReaderInfo::new(PotKind::Release));
         self.update_params(voice_index, config, &InputReaderInfo::new(PotKind::Extra1));
         self.update_params(voice_index, config, &InputReaderInfo::new(PotKind::Extra2));
+        self.note_scale_depth = (config.note_scaling_depth(voice_index) as u32) << 16;
         self.current_value = 0;
         self.phase = EnginePhase::Initial;
     }
@@ -97,7 +98,9 @@ impl Engine for LinearEngine {
                     calculate_linear_discharging_ratio(config.release(voice_index));
             }
             PotKind::Extra2 => {
-                self.note_scale_depth = (config.extra_2(voice_index) as u32) << 16;
+                let value = config.extra_2(voice_index);
+                config.set_note_scaling_depth(voice_index, value);
+                self.note_scale_depth = (value as u32) << 16;
             }
             _ => {}
         }

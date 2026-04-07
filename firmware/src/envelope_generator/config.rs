@@ -29,6 +29,8 @@ struct ConfigData {
     pub cv_b_destination: PotKind,
     pub cv_b_depth: u16,
     pub out_polarity: [OutputPolarity; 2],
+
+    pub note_scaling_depth: [u16; 2],
 }
 
 impl ConfigData {
@@ -48,6 +50,8 @@ impl ConfigData {
             cv_b_destination: PotKind::Sustain,
             cv_b_depth: 0,
             out_polarity: [OutputPolarity::Positive; 2],
+
+            note_scaling_depth: [0x4000; 2], // 0.25
         }
     }
 }
@@ -117,6 +121,11 @@ fn get_cv_b_depth() -> u16 {
 #[inline(always)]
 fn get_out_polarity(voice_index: usize) -> OutputPolarity {
     unsafe { CONFIG_DATA.out_polarity[voice_index] }
+}
+
+#[inline(always)]
+fn get_note_scaling_depth(voice_index: usize) -> u16 {
+    unsafe { CONFIG_DATA.note_scaling_depth[voice_index] }
 }
 
 #[derive(Clone)]
@@ -326,6 +335,18 @@ impl EgConfig {
     }
 
     #[inline(always)]
+    pub fn note_scaling_depth(&self, voice_index: usize) -> u16 {
+        get_note_scaling_depth(voice_index)
+    }
+
+    #[inline(always)]
+    pub fn set_note_scaling_depth(&self, voice_index: usize, value: u16) {
+        unsafe {
+            CONFIG_DATA.note_scaling_depth[voice_index] = value;
+        }
+    }
+
+    #[inline(always)]
     pub fn set_count(&mut self, value: u32) {
         self.value = value;
     }
@@ -516,5 +537,10 @@ impl ConfigReader {
     #[inline(always)]
     pub fn out_polarity(&self, voice_index: usize) -> OutputPolarity {
         get_out_polarity(voice_index)
+    }
+
+    #[inline(always)]
+    pub fn note_scaling_depth(&self, voice_index: usize) -> u16 {
+        get_note_scaling_depth(voice_index)
     }
 }
