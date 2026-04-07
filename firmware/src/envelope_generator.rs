@@ -51,7 +51,7 @@ use self::{
     linear_engine::LinearEngine,
     para_decays_engine::ParaDecaysEngine,
     two_decays_engine::TwoDecaysEngine,
-    utils::choose_out_converter,
+    utils::choose_output_converter,
 };
 
 // parameter tweaks
@@ -105,13 +105,13 @@ pub async fn start(
 }
 
 async fn retrieve_saved_config(eg_resources: &mut EgResources) {
-    for voice_index in 0..2 {
-        eg_resources.config.voice_id[voice_index] = load_voice_id(voice_index).await;
-        eg_resources.config.engine_type[voice_index] = load_engine_type(voice_index).await;
-        eg_resources.voice_params[voice_index].out_zero_point = load_out_zero_point(0).await;
-        let polarity = load_out_polarity(voice_index).await;
-        eg_resources.voice_params[voice_index].value_to_output = choose_out_converter(&polarity);
-        eg_resources.config.out_polarity[voice_index] = polarity;
+    for index in 0..2 {
+        eg_resources.config.voice_id[index] = load_voice_id(index).await;
+        eg_resources.config.engine_type[index] = load_engine_type(index).await;
+        eg_resources.voice_params[index].out_zero_point = load_out_zero_point(index).await;
+        let polarity = load_out_polarity(index).await;
+        eg_resources.voice_params[index].value_to_output = choose_output_converter(&polarity);
+        eg_resources.config.out_polarity[index] = polarity;
     }
 }
 
@@ -416,8 +416,8 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
                 self.config.out_polarity[1] = polarity_2.clone();
                 save_out_polarity(0, &polarity_1).await;
                 save_out_polarity(1, &polarity_2).await;
-                self.voice_1.params.value_to_output = choose_out_converter(&polarity_1);
-                self.voice_2.params.value_to_output = choose_out_converter(&polarity_2);
+                self.voice_1.params.value_to_output = choose_output_converter(&polarity_1);
+                self.voice_2.params.value_to_output = choose_output_converter(&polarity_2);
                 if send_notif {
                     self.event_publisher
                         .publish(EgEvent::PolarityChanged((polarity_1, polarity_2)))

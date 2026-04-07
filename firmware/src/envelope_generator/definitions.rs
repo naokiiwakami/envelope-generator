@@ -2,7 +2,7 @@ use defmt;
 
 use super::config::EgConfig;
 
-use crate::{envelope_generator::utils::uq0_32_to_output_positive, input_reader::InputReaderInfo};
+use crate::{envelope_generator::utils::uq0_32_to_12bit_positive, input_reader::InputReaderInfo};
 
 pub const DEFAULT_VOICE_IDS: [u16; 2] = [0x101, 0x102];
 pub const DEFAULT_ENGINE_TYPE: EngineType = EngineType::ParaDecays;
@@ -33,7 +33,7 @@ impl VoiceParams {
             note: 60, // middle C
             velocity: 0,
             out_zero_point: DEFAULT_OUT_ZERO_POINT,
-            value_to_output: &uq0_32_to_output_positive,
+            value_to_output: &uq0_32_to_12bit_positive,
             physical_gate_enabled: false,
             operation_mode: Mode::Normal,
         }
