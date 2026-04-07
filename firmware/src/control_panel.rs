@@ -354,7 +354,13 @@ impl ControlPanel {
         self.page = pages[self.page_index];
         match self.page {
             OperationPage::Home => self.go_to_op_home().await,
-            OperationPage::OutputPolarity => self.show_polarity().await,
+            OperationPage::OutputPolarity => {
+                self.show_polarity(
+                    self.eg_config.out_polarity(0),
+                    self.eg_config.out_polarity(1),
+                )
+                .await
+            }
             OperationPage::NoteScaling => self.show_note_scaling().await,
         }
     }
@@ -443,8 +449,8 @@ impl ControlPanel {
                 self.ind_red.set_high();
                 self.ind_green.set_high();
 
-                let mut polarity_1 = self.state.polarity_1.load();
-                let mut polarity_2 = self.state.polarity_2.load();
+                let mut polarity_1 = self.eg_config.out_polarity(0);
+                let mut polarity_2 = self.eg_config.out_polarity(1);
                 let voice_1 = (targets & 0x1) != 0;
                 let voice_2 = (targets & 0x2) != 0;
                 if voice_1 {
@@ -485,24 +491,22 @@ impl ControlPanel {
         let targets = self.polarity_change_targets;
         let voice_1 = (targets & 0x1) != 0;
         let voice_2 = (targets & 0x2) != 0;
+        let mut polarity_1 = self.eg_config.out_polarity(0);
         if voice_1 {
-            self.state
-                .polarity_1
-                .store(self.get_next_polarity(self.state.polarity_1.load()));
+            polarity_1 = self.get_next_polarity(polarity_1);
         }
+        let mut polarity_2 = self.eg_config.out_polarity(1);
         if voice_2 {
-            self.state
-                .polarity_2
-                .store(self.get_next_polarity(self.state.polarity_2.load()));
+            polarity_2 = self.get_next_polarity(polarity_2);
         }
         self.eg_request_sender
             .send(EgRequest::ChangeOutputPolarities {
-                polarity_1: self.state.polarity_1.load(),
-                polarity_2: self.state.polarity_2.load(),
+                polarity_1,
+                polarity_2,
                 send_notif: false,
             })
             .await;
-        self.show_polarity().await;
+        self.show_polarity(polarity_1, polarity_2).await;
         self.mode = ControlPanelMode::Normal;
     }
 
@@ -657,12 +661,12 @@ impl ControlPanel {
     }
 
     async fn change_polarity(&mut self, polarity_1: OutputPolarity, polarity_2: OutputPolarity) {
-        self.state.polarity_1.store(polarity_1);
-        self.state.polarity_2.store(polarity_2);
+        // self.state.polarity_1.store(polarity_1);
+        // self.state.polarity_2.store(polarity_2);
         if matches!(self.mode, ControlPanelMode::Normal)
             && matches!(self.page, OperationPage::OutputPolarity)
         {
-            self.show_polarity().await;
+            self.show_polarity(polarity_1, polarity_2).await;
         }
     }
 
@@ -713,22 +717,24 @@ impl ControlPanel {
             .await;
     }
 
-    async fn show_polarity(&mut self) {
+    async fn show_polarity(&mut self, polarity_1: OutputPolarity, polarity_2: OutputPolarity) {
         self.display_request_sender
             .send(DisplayRequest::ShowPolarity {
-                polarity_1: self.state.polarity_1.load(),
-                polarity_2: self.state.polarity_2.load(),
+                polarity_1,
+                polarity_2,
             })
             .await;
     }
 
     async fn show_note_scaling(&mut self) {
-        self.display_request_sender
-            .send(DisplayRequest::ShowPolarity {
-                polarity_1: self.state.polarity_1.load(),
-                polarity_2: self.state.polarity_2.load(),
-            })
-            .await;
+        self.clear_screen(false, false).await;
+        self.display_text(
+            "note scaling",
+            TextBox::center().build(),
+            FontSize::Large,
+            true,
+        )
+        .await;
     }
 }
 
