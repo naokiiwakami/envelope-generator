@@ -32,15 +32,6 @@ impl<E: AtomicEnumRepr> AtomicEnum<E> {
         }
     }
 
-    /*
-    pub fn new(value: E) -> Self {
-        Self {
-            inner: AtomicU8::new(value.to_u8()),
-            _marker: PhantomData,
-        }
-    }
-    */
-
     pub fn load(&self) -> E {
         let raw = self.inner.load(Ordering::Relaxed);
         E::try_from(raw).ok().unwrap()

@@ -29,8 +29,12 @@ pub fn calculate_discharging_ratio(decay: u16) -> u32 {
 /// The input is a Q0.16 value ranging between 0 and 1.0
 /// The output is a Q0.32 level also ranging between 0 and 1.0.
 #[inline(always)]
-pub fn calculate_sustain_level(sustain: u16) -> u32 {
-    let sustain_param = sustain as u32;
+pub fn calculate_sustain_level(sustain: u16, do_mod: bool, mod_amount: i16) -> u32 {
+    let mut sustain_param = sustain as u32;
+    if do_mod {
+        let temp = sustain_param as i32 + mod_amount as i32 * 2;
+        sustain_param = temp.max(0).min(u16::MAX as i32) as u32;
+    }
     ((sustain_param >> 1) + 32768) * sustain_param
 }
 

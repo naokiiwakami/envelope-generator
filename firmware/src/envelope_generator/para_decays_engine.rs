@@ -105,7 +105,7 @@ impl Engine for ParaDecaysEngine {
                 self.decay_ratio = calculate_discharging_ratio(config.decay[voice_index]);
             }
             PotKind::Sustain => {
-                self.sustain_level = calculate_sustain_level(config.sustain[voice_index]);
+                self.sustain_level = calculate_sustain_level(config.sustain[voice_index], false, 0);
             }
             PotKind::Release => {
                 self.release_ratio = calculate_discharging_ratio(config.release[voice_index]);

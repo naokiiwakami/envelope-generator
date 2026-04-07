@@ -7,7 +7,7 @@ use crate::{
         calculate_charging_ratio, calculate_discharging_ratio, calculate_sustain_level,
     },
     input_reader::InputReaderInfo,
-    utils::mul_uq0_32,
+    utils::{mul_i16_uq0_16, mul_uq0_32},
 };
 
 use super::{
@@ -93,7 +93,15 @@ impl Engine for AdsrEngine {
     }
 
     fn update_params(&mut self, voice_index: usize, config: &EgConfig, input: &InputReaderInfo) {
-        match input.pot_info.kind {
+        let pot_kind = input.pot_info.kind;
+        let (do_mod, mod_amount) = if config.cv_a_destination == pot_kind {
+            (true, mul_i16_uq0_16(input.cv_info.cv_a, config.cv_a_depth))
+        } else if config.cv_b_destination == pot_kind {
+            (true, mul_i16_uq0_16(input.cv_info.cv_b, config.cv_b_depth))
+        } else {
+            (false, 0)
+        };
+        match pot_kind {
             PotKind::Attack => {
                 self.attack_ratio = calculate_charging_ratio(config.attack[voice_index]);
             }
@@ -101,7 +109,8 @@ impl Engine for AdsrEngine {
                 self.decay_ratio = calculate_discharging_ratio(config.decay[voice_index]);
             }
             PotKind::Sustain => {
-                self.sustain_level = calculate_sustain_level(config.sustain[voice_index]);
+                self.sustain_level =
+                    calculate_sustain_level(config.sustain[voice_index], do_mod, mod_amount);
             }
             PotKind::Release => {
                 self.release_ratio = calculate_discharging_ratio(config.release[voice_index]);
