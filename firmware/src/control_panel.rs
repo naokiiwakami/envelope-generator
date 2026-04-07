@@ -26,8 +26,8 @@ use crate::{
     control_panel::{menu::POLARITY_CHANGE_TARGET_ITEMS, module_state::ModuleState},
     definitions::PotKind,
     envelope_generator::{
-        EG_CHANNEL_SIZE, EG_PUBS, EG_SUBS, EgEvent, EgRequest, EngineType, Mode as EgOperationMode,
-        OutputPolarity, get_eg_event_subscriber, get_eg_request_sender,
+        ConfigReader, EG_CHANNEL_SIZE, EG_PUBS, EG_SUBS, EgEvent, EgRequest, EngineType,
+        Mode as EgOperationMode, OutputPolarity, get_eg_event_subscriber, get_eg_request_sender,
     },
     input_reader::{InputReaderInfo, get_reader_info_receiver},
 };
@@ -209,34 +209,7 @@ impl ControlPanel {
     }
 
     async fn handle_reader_info(&mut self, info: InputReaderInfo) {
-        let value = info.pot_info.value;
-        let mut updated = true;
-        match info.pot_info.kind {
-            PotKind::Attack => {
-                self.state.attack.store(value, Ordering::Relaxed);
-            }
-            PotKind::Decay => {
-                self.state.decay.store(value, Ordering::Relaxed);
-            }
-            PotKind::Sustain => {
-                self.state.sustain.store(value, Ordering::Relaxed);
-            }
-            PotKind::Release => {
-                self.state.release.store(value, Ordering::Relaxed);
-            }
-            PotKind::Extra1 => {
-                self.state.extra_1.store(value, Ordering::Relaxed);
-            }
-            PotKind::Extra2 => {
-                self.state.extra_2.store(value, Ordering::Relaxed);
-            }
-            _ => {
-                updated = false;
-            }
-        }
-        if updated
-            && matches!(self.mode, ControlPanelMode::Normal)
-            && matches!(self.page, OperationPage::Home)
+        if matches!(self.mode, ControlPanelMode::Normal) && matches!(self.page, OperationPage::Home)
         {
             self.display_request_sender
                 .send(DisplayRequest::UpdatePot {

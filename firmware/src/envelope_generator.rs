@@ -39,10 +39,6 @@ use crate::{
     input_reader::{InputReaderInfo, get_reader_info_receiver},
 };
 
-pub use self::definitions::{
-    DEFAULT_OUT_ZERO_POINT, EgEvent, EgRequest, EngineType, GateEventType, GateId, Mode,
-    OutputPolarity,
-};
 use self::{
     adsr_engine::AdsrEngine,
     config::EgConfig,
@@ -52,6 +48,13 @@ use self::{
     para_decays_engine::ParaDecaysEngine,
     two_decays_engine::TwoDecaysEngine,
     utils::choose_output_converter,
+};
+pub use self::{
+    config::ConfigReader,
+    definitions::{
+        DEFAULT_OUT_ZERO_POINT, EgEvent, EgRequest, EngineType, GateEventType, GateId, Mode,
+        OutputPolarity,
+    },
 };
 
 // parameter tweaks

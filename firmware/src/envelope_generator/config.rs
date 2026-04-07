@@ -5,7 +5,9 @@ use analog3::{
 use heapless::Vec;
 
 use crate::{
-    definitions::PotKind, envelope_generator::definitions::OutputPolarity, input_reader::PotInfo,
+    definitions::PotKind,
+    envelope_generator::definitions::{DEFAULT_VOICE_IDS, OutputPolarity},
+    input_reader::PotInfo,
 };
 
 use super::{EngineType, definitions::DEFAULT_ENGINE_TYPE};
@@ -27,6 +29,27 @@ struct ConfigData {
     pub cv_b_destination: PotKind,
     pub cv_b_depth: u16,
     pub out_polarity: [OutputPolarity; 2],
+}
+
+impl ConfigData {
+    pub const fn new() -> Self {
+        Self {
+            voice_id: [DEFAULT_VOICE_IDS[0], DEFAULT_VOICE_IDS[1]],
+
+            engine_type: [DEFAULT_ENGINE_TYPE, DEFAULT_ENGINE_TYPE],
+            attack: [0; 2],
+            decay: [0; 2],
+            sustain: [0; 2],
+            release: [0; 2],
+            extra_1: [0; 2],
+            extra_2: [0; 2],
+            cv_a_destination: PotKind::Decay,
+            cv_a_depth: 0,
+            cv_b_destination: PotKind::Sustain,
+            cv_b_depth: 0,
+            out_polarity: [OutputPolarity::Positive; 2],
+        }
+    }
 }
 
 // Getters to the ConfigData members ////////////////////
@@ -83,58 +106,17 @@ fn get_cv_a_depth() -> u16 {
 
 #[inline(always)]
 fn get_cv_b_destination() -> PotKind {
-    unsafe { CONFIG_DATA.cv_a_destination }
+    unsafe { CONFIG_DATA.cv_b_destination }
 }
 
 #[inline(always)]
 fn get_cv_b_depth() -> u16 {
-    unsafe { CONFIG_DATA.cv_a_depth }
+    unsafe { CONFIG_DATA.cv_b_depth }
 }
 
 #[inline(always)]
 fn get_out_polarity(voice_index: usize) -> OutputPolarity {
     unsafe { CONFIG_DATA.out_polarity[voice_index] }
-}
-
-impl ConfigData {
-    pub const fn new() -> Self {
-        Self {
-            voice_id: [0x101, 0x102],
-
-            engine_type: [DEFAULT_ENGINE_TYPE, DEFAULT_ENGINE_TYPE],
-            attack: [0; 2],
-            decay: [0; 2],
-            sustain: [0; 2],
-            release: [0; 2],
-            extra_1: [0; 2],
-            extra_2: [0; 2],
-            cv_a_destination: PotKind::Decay,
-            cv_a_depth: 0,
-            cv_b_destination: PotKind::Sustain,
-            cv_b_depth: 0,
-            out_polarity: [OutputPolarity::Positive; 2],
-        }
-    }
-}
-
-pub struct EgConfig {
-    // TODO: Eliminate these
-    pub prop_id: u8,
-    pub value: u32,
-    // voice_id: [u16; 2],
-
-    // pub engine_type: [EngineType; 2],
-    // pub attack: [u16; 2],
-    // pub decay: [u16; 2],
-    // pub sustain: [u16; 2],
-    // pub release: [u16; 2],
-    // pub extra1: [u16; 2],
-    // pub extra2: [u16; 2],
-    // pub cv_a_destination: PotKind,
-    // pub cv_a_depth: u16,
-    // pub cv_b_destination: PotKind,
-    // pub cv_b_depth: u16,
-    // pub out_polarity: [OutputPolarity; 2],
 }
 
 #[derive(Clone)]
@@ -156,6 +138,12 @@ enum EgProperty {
     OutputPolarity = 16,
 }
 
+pub struct EgConfig {
+    // TODO: Eliminate these
+    pub prop_id: u8,
+    pub value: u32,
+}
+
 impl EgConfig {
     const PROPS: [EgProperty; 14] = [
         EgProperty::NumVoices,
@@ -173,24 +161,11 @@ impl EgConfig {
         EgProperty::CvBDepth,
         EgProperty::OutputPolarity,
     ];
+
     pub fn new() -> Self {
         Self {
             prop_id: A3_PROP_ID_NAME + 1,
             value: 0x1337c0de,
-            // voice_id: DEFAULT_VOICE_IDS.clone(),
-
-            // engine_type: [DEFAULT_ENGINE_TYPE, DEFAULT_ENGINE_TYPE],
-            // attack: [0; 2],
-            // decay: [0; 2],
-            // sustain: [0; 2],
-            // release: [0; 2],
-            // extra1: [0; 2],
-            // extra2: [0; 2],
-            // cv_a_destination: PotKind::Decay,
-            // cv_a_depth: 0,
-            // cv_b_destination: PotKind::Sustain,
-            // cv_b_depth: 0,
-            // out_polarity: [OutputPolarity::Positive; 2],
         }
     }
 
@@ -468,5 +443,78 @@ impl EgConfig {
             PotKind::CvADepth => self.set_cv_a_depth(pot_value),
             PotKind::CvBDepth => self.set_cv_b_depth(pot_value),
         }
+    }
+}
+
+pub struct ConfigReader;
+
+impl ConfigReader {
+    pub fn new() -> Self {
+        Self {}
+    }
+
+    #[inline(always)]
+    pub fn voice_id(&self, voice_index: usize) -> u16 {
+        get_voice_id(voice_index)
+    }
+
+    #[inline(always)]
+    pub fn engine_type(&self, voice_index: usize) -> EngineType {
+        get_engine_type(voice_index)
+    }
+
+    #[inline(always)]
+    pub fn attack(&self, voice_index: usize) -> u16 {
+        get_attack(voice_index)
+    }
+
+    #[inline(always)]
+    pub fn decay(&self, voice_index: usize) -> u16 {
+        get_decay(voice_index)
+    }
+
+    #[inline(always)]
+    pub fn sustain(&self, voice_index: usize) -> u16 {
+        get_sustain(voice_index)
+    }
+
+    #[inline(always)]
+    pub fn release(&self, voice_index: usize) -> u16 {
+        get_release(voice_index)
+    }
+
+    #[inline(always)]
+    pub fn extra_1(&self, voice_index: usize) -> u16 {
+        get_extra_1(voice_index)
+    }
+
+    #[inline(always)]
+    pub fn extra_2(&self, voice_index: usize) -> u16 {
+        get_extra_2(voice_index)
+    }
+
+    #[inline(always)]
+    pub fn cv_a_destination(&self) -> PotKind {
+        get_cv_a_destination()
+    }
+
+    #[inline(always)]
+    pub fn cv_a_depth(&self) -> u16 {
+        get_cv_a_depth()
+    }
+
+    #[inline(always)]
+    pub fn cv_b_destination(&self) -> PotKind {
+        get_cv_b_destination()
+    }
+
+    #[inline(always)]
+    pub fn cv_b_depth(&self) -> u16 {
+        get_cv_b_depth()
+    }
+
+    #[inline(always)]
+    pub fn out_polarity(&self, voice_index: usize) -> OutputPolarity {
+        get_out_polarity(voice_index)
     }
 }
