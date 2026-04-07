@@ -34,7 +34,7 @@ impl<'a> Diagnoser<'a> {
         self.control_panel
             .display_text("Diagnosing...", text_box.clone(), FontSize::Medium, true)
             .await;
-        let orig_engine_type = self.control_panel.current_engine_type.clone();
+        let orig_engine_type = self.control_panel.state.engine_type.load();
         self.control_panel
             .request_toggle_eg_mode(EgOperationMode::Diagnose)
             .await;

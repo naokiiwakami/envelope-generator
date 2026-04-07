@@ -45,7 +45,7 @@ impl<'a> Calibrator<'a> {
     }
 
     pub async fn execute(&mut self) {
-        let orig_engine_type = self.control_panel.current_engine_type.clone();
+        let orig_engine_type = self.control_panel.state.engine_type.load();
         self.prepare().await;
 
         self.calibrate_cv().await;

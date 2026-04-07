@@ -2,7 +2,10 @@ use defmt;
 
 use super::config::EgConfig;
 
-use crate::{envelope_generator::utils::uq0_32_to_12bit_positive, input_reader::InputReaderInfo};
+use crate::{
+    definitions::AtomicEnumRepr, envelope_generator::utils::uq0_32_to_12bit_positive,
+    input_reader::InputReaderInfo,
+};
 
 pub const DEFAULT_VOICE_IDS: [u16; 2] = [0x101, 0x102];
 pub const DEFAULT_ENGINE_TYPE: EngineType = EngineType::ParaDecays;
@@ -68,7 +71,7 @@ pub enum EgRequest {
 }
 
 /// EG engine types
-#[derive(Clone, PartialEq, Debug, defmt::Format)]
+#[derive(Clone, Copy, PartialEq, Debug, defmt::Format)]
 #[repr(u8)]
 pub enum EngineType {
     ParaDecays = 0,
@@ -88,8 +91,8 @@ impl EngineType {
     }
 
     #[inline]
-    pub fn index(&self) -> usize {
-        (self.clone() as u8) as usize
+    pub fn index(self) -> usize {
+        (self as u8) as usize
     }
 }
 
@@ -104,6 +107,12 @@ impl TryFrom<u8> for EngineType {
             3 => Ok(Self::Linear),
             _ => Err(()),
         }
+    }
+}
+
+impl AtomicEnumRepr for EngineType {
+    fn to_u8(self) -> u8 {
+        self as u8
     }
 }
 
@@ -139,6 +148,12 @@ impl TryFrom<u8> for OutputPolarity {
             1 => Ok(Self::Negative),
             _ => Err(()),
         }
+    }
+}
+
+impl AtomicEnumRepr for OutputPolarity {
+    fn to_u8(self) -> u8 {
+        self as u8
     }
 }
 

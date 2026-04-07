@@ -3,10 +3,11 @@
 
 mod addresses;
 mod control_panel;
+mod definitions;
 mod envelope_generator;
 mod input_reader;
 mod patch_controller;
-pub mod utils;
+mod utils;
 
 use analog3::{Analog3Config, definitions::*, rng, storage};
 use core::future::pending;
