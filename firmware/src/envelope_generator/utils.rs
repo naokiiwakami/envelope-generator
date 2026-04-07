@@ -3,6 +3,59 @@ use crate::{
     utils::{mul_uq0_32, mul_uq8_24},
 };
 
+/// Calculates the ratio for exponential charger.
+/// The input is a Q0.16 value ranging between 0 and 1.0
+/// The output ia a Q0.32 growth ratio calculated for 40 kHz sampling
+#[inline(always)]
+pub fn calculate_charging_ratio(attack: u16) -> u32 {
+    let attack_param = attack as u64;
+    // approximately 1 + 1.5e-9 * attack_param^3
+    let attack_time: u64 = 1 + ((7 * attack_param * attack_param * attack_param) >> 32);
+    0xffffffff / attack_time as u32
+}
+
+/// Calculates the ratio for exponential discharger.
+/// The input is a Q0.16 value ranging between 0 and 1.0
+/// The output ia a Q0.32 decay/release ratio calculated for 40 kHz sampling
+#[inline(always)]
+pub fn calculate_discharging_ratio(decay: u16) -> u32 {
+    let decay_param = decay as u64;
+    // approximately 7 + 2.5e-9 * decay_param^3
+    let decay_time = 7 + ((11 * decay_param * decay_param * decay_param) >> 32);
+    0xffffffff / decay_time as u32
+}
+
+/// Calculates sustain level.
+/// The input is a Q0.16 value ranging between 0 and 1.0
+/// The output is a Q0.32 level also ranging between 0 and 1.0.
+#[inline(always)]
+pub fn calculate_sustain_level(sustain: u16) -> u32 {
+    let sustain_param = sustain as u32;
+    ((sustain_param >> 1) + 32768) * sustain_param
+}
+
+/// Calculates the ratio for linear charger.
+/// The input is a Q0.16 value ranging between 0 and 1.0
+/// The output ia a Q0.32 growth ratio calculated for 40 kHz sampling
+#[inline(always)]
+pub fn calculate_linear_charging_ratio(attack: u16) -> u32 {
+    let attack_param = attack as u64;
+    // approximately 2 + 8.5e-9 * attack_param^3
+    let time_constant: u64 = 2 + ((9 * attack_param * attack_param * attack_param) >> 30);
+    0xffffffff / time_constant as u32
+}
+
+/// Calculates the ratio for linear discharger.
+/// The input is a Q0.16 value ranging between 0 and 1.0
+/// The output ia a Q0.32 decay/release ratio calculated for 40 kHz sampling
+#[inline(always)]
+pub fn calculate_linear_discharging_ratio(decay: u16) -> u32 {
+    let decay_param = decay as u64;
+    // approximately 2 + 1.7e-8 * attack_param^3
+    let time_constant: u64 = 2 + ((9 * decay_param * decay_param * decay_param) >> 29);
+    0xffffffff / time_constant as u32
+}
+
 // Note scale calculator ////////////////////////////////////////////////////
 
 // Q8.24 constants to calculate quadratic curve for note tracking

@@ -2,6 +2,10 @@
 use defmt;
 
 use crate::{
+    envelope_generator::utils::{
+        calculate_linear_charging_ratio, calculate_linear_discharging_ratio,
+        calculate_sustain_level,
+    },
     input_reader::{InputReaderInfo, PotKind},
     utils::mul_uq0_32,
 };
@@ -79,28 +83,17 @@ impl Engine for LinearEngine {
     fn update_params(&mut self, voice_index: usize, config: &EgConfig, input: &InputReaderInfo) {
         match input.pot_info.kind {
             PotKind::Attack => {
-                let attack_param = config.attack[voice_index] as u64;
-                // approximately 2 + 8.5e-9 * attack_param^3
-                let time_constant: u64 =
-                    2 + ((9 * attack_param * attack_param * attack_param) >> 30);
-                self.attack_ratio = 0xffffffff / time_constant as u32;
+                self.attack_ratio = calculate_linear_charging_ratio(config.attack[voice_index]);
             }
             PotKind::Decay => {
-                let decay_param = config.decay[voice_index] as u64;
-                // approximately 2 + 1.7e-8 * attack_param^3
-                let time_constant: u64 = 2 + ((9 * decay_param * decay_param * decay_param) >> 29);
-                self.decay_ratio = 0xffffffff / time_constant as u32;
+                self.decay_ratio = calculate_linear_discharging_ratio(config.decay[voice_index]);
             }
             PotKind::Sustain => {
-                let sustain_param = config.sustain[voice_index] as u32;
-                self.sustain_level = ((sustain_param >> 1) + 32768) * sustain_param;
+                self.sustain_level = calculate_sustain_level(config.sustain[voice_index]);
             }
             PotKind::Release => {
-                let release_param = config.release[voice_index] as u64;
-                // approximately 2 + 1.7e-8 * attack_param^3
-                let time_constant: u64 =
-                    2 + ((9 * release_param * release_param * release_param) >> 29);
-                self.release_ratio = 0xffffffff / time_constant as u32;
+                self.release_ratio =
+                    calculate_linear_discharging_ratio(config.release[voice_index]);
             }
             PotKind::Extra2 => {
                 self.note_scale_depth = (config.extra2[voice_index] as u32) << 16;

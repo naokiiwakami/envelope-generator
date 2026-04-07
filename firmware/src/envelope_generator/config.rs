@@ -5,7 +5,7 @@ use analog3::{
 use heapless::Vec;
 
 use crate::{
-    envelope_generator::definitions::OutputPolarity,
+    envelope_generator::definitions::{CvDestination, OutputPolarity},
     input_reader::{PotInfo, PotKind},
 };
 
@@ -27,12 +27,13 @@ pub struct EgConfig {
     pub release: [u16; 2],
     pub extra1: [u16; 2],
     pub extra2: [u16; 2],
+    pub cv_a_destination: CvDestination,
     pub cv_a_depth: u16,
+    pub cv_b_destination: CvDestination,
     pub cv_b_depth: u16,
     pub out_polarity: [OutputPolarity; 2],
 }
 
-// TODO: Move this to definitions.rs
 #[derive(Clone)]
 #[repr(u8)]
 enum EgProperty {
@@ -45,13 +46,15 @@ enum EgProperty {
     ReleaseTime = 9,
     Extra1 = 10,
     Extra2 = 11,
-    CvADepth = 12,
-    CvBDepth = 13,
-    OutputPolarity = 14,
+    CvADestination = 12,
+    CvADepth = 13,
+    CvBDestination = 14,
+    CvBDepth = 15,
+    OutputPolarity = 16,
 }
 
 impl EgConfig {
-    const PROPS: [EgProperty; 12] = [
+    const PROPS: [EgProperty; 14] = [
         EgProperty::NumVoices,
         EgProperty::VoiceId,
         EgProperty::EnvelopeGenerationType,
@@ -61,7 +64,9 @@ impl EgConfig {
         EgProperty::ReleaseTime,
         EgProperty::Extra1,
         EgProperty::Extra2,
+        EgProperty::CvADestination,
         EgProperty::CvADepth,
+        EgProperty::CvBDestination,
         EgProperty::CvBDepth,
         EgProperty::OutputPolarity,
     ];
@@ -79,7 +84,9 @@ impl EgConfig {
             release: [0; 2],
             extra1: [0; 2],
             extra2: [0; 2],
+            cv_a_destination: CvDestination::Decay,
             cv_a_depth: 0,
+            cv_b_destination: CvDestination::Sustain,
             cv_b_depth: 0,
             out_polarity: [OutputPolarity::Positive; 2],
         }
@@ -145,7 +152,9 @@ impl EgConfig {
             EgProperty::ReleaseTime => Value::VectorU16(Self::make_vec16(&self.release)),
             EgProperty::Extra1 => Value::VectorU16(Self::make_vec16(&self.extra1)),
             EgProperty::Extra2 => Value::VectorU16(Self::make_vec16(&self.extra2)),
+            EgProperty::CvADestination => Value::U8(self.cv_a_destination as u8),
             EgProperty::CvADepth => Value::U16(self.cv_a_depth),
+            EgProperty::CvBDestination => Value::U8(self.cv_b_destination as u8),
             EgProperty::CvBDepth => Value::U16(self.cv_b_depth),
             EgProperty::OutputPolarity => {
                 let polarity_1 = self.out_polarity[0].clone() as u8;

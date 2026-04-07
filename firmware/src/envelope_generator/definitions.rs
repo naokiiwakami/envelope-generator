@@ -10,6 +10,9 @@ use crate::{
 pub const DEFAULT_VOICE_IDS: [u16; 2] = [0x101, 0x102];
 pub const DEFAULT_ENGINE_TYPE: EngineType = EngineType::ParaDecays;
 
+/// The zero point should be at the center of value range if the circuit is perfect.
+pub const DEFAULT_OUT_ZERO_POINT: u16 = 0x800;
+
 /// Envelope Generator operation modes
 #[derive(Clone, PartialEq, Debug, defmt::Format)]
 pub enum Mode {
@@ -179,5 +182,14 @@ pub trait Engine {
     fn update(&mut self, params: &VoiceParams) -> u16;
 }
 
-/// The zero point should be at the center of value range if the circuit is perfect.
-pub const DEFAULT_OUT_ZERO_POINT: u16 = 0x800;
+// This looks similar to PotKind for now, but we may add more destinations in the future.
+#[derive(Clone, Copy)]
+#[repr(u8)]
+pub enum CvDestination {
+    Attack,
+    Decay,
+    Sustain,
+    Release,
+    Extra1,
+    Extra2,
+}

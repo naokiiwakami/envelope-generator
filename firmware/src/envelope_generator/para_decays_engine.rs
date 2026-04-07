@@ -2,6 +2,9 @@
 use defmt;
 
 use crate::{
+    envelope_generator::utils::{
+        calculate_charging_ratio, calculate_discharging_ratio, calculate_sustain_level,
+    },
     input_reader::{InputReaderInfo, PotKind},
     utils::mul_uq0_32,
 };
@@ -95,32 +98,19 @@ impl Engine for ParaDecaysEngine {
     fn update_params(&mut self, voice_index: usize, config: &EgConfig, input: &InputReaderInfo) {
         match input.pot_info.kind {
             PotKind::Attack => {
-                let attack_param = config.attack[voice_index] as u64;
-                // approximately 1 + 1.5e-9 * attack_param^3
-                let attack_time: u64 = 1 + ((7 * attack_param * attack_param * attack_param) >> 32);
-                self.attack_ratio = 0xffffffff / attack_time as u32;
+                self.attack_ratio = calculate_charging_ratio(config.attack[voice_index]);
             }
             PotKind::Decay => {
-                let decay_param = config.decay[voice_index] as u64;
-                // approximately 7 + 2.5e-9 * decay_param^3
-                let decay_time = 7 + ((11 * decay_param * decay_param * decay_param) >> 32);
-                self.decay_ratio = 0xffffffff / decay_time as u32;
+                self.decay_ratio = calculate_discharging_ratio(config.decay[voice_index]);
             }
             PotKind::Sustain => {
-                let sustain_param = config.sustain[voice_index] as u32;
-                self.sustain_level = ((sustain_param >> 1) + 32768) * sustain_param;
+                self.sustain_level = calculate_sustain_level(config.sustain[voice_index]);
             }
             PotKind::Release => {
-                let release_param = config.release[voice_index] as u64;
-                // approximately 7 + 2.5e-9 * decay_param^3
-                let release_time = 7 + ((11 * release_param * release_param * release_param) >> 32);
-                self.release_ratio = 0xffffffff / release_time as u32;
+                self.release_ratio = calculate_discharging_ratio(config.release[voice_index]);
             }
             PotKind::Extra1 => {
-                let decay_param = config.extra1[voice_index] as u64;
-                // approximately 7 + 2.5e-9 * decay_param^3
-                let decay_time = 7 + ((11 * decay_param * decay_param * decay_param) >> 32);
-                self.strum_decay_ratio = 0xffffffff / decay_time as u32;
+                self.strum_decay_ratio = calculate_discharging_ratio(config.extra1[voice_index]);
             }
             PotKind::Extra2 => {
                 self.balance = (config.extra2[voice_index] as u32) << 16;
