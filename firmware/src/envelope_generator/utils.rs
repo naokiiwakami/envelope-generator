@@ -41,8 +41,9 @@ pub fn calculate_sustain_level(sustain: u16, mod_amount: i16) -> u32 {
 /// The input is a Q0.16 value ranging between 0 and 1.0
 /// The output ia a Q0.32 growth ratio calculated for 40 kHz sampling
 #[inline(always)]
-pub fn calculate_linear_charging_ratio(attack: u16) -> u32 {
-    let attack_param = attack as u64;
+pub fn calculate_linear_charging_ratio(attack: u16, mod_amount: i16) -> u32 {
+    let modulated_param = attack as i32 + mod_amount as i32;
+    let attack_param = modulated_param.clamp(0, u16::MAX as i32) as u64;
     // approximately 2 + 8.5e-9 * attack_param^3
     let time_constant: u64 = 2 + ((9 * attack_param * attack_param * attack_param) >> 30);
     0xffffffff / time_constant as u32
@@ -52,8 +53,9 @@ pub fn calculate_linear_charging_ratio(attack: u16) -> u32 {
 /// The input is a Q0.16 value ranging between 0 and 1.0
 /// The output ia a Q0.32 decay/release ratio calculated for 40 kHz sampling
 #[inline(always)]
-pub fn calculate_linear_discharging_ratio(decay: u16) -> u32 {
-    let decay_param = decay as u64;
+pub fn calculate_linear_discharging_ratio(decay: u16, mod_amount: i16) -> u32 {
+    let modulated_param = decay as i32 + mod_amount as i32;
+    let decay_param = modulated_param.clamp(0, u16::MAX as i32) as u64;
     // approximately 2 + 1.7e-8 * attack_param^3
     let time_constant: u64 = 2 + ((9 * decay_param * decay_param * decay_param) >> 29);
     0xffffffff / time_constant as u32

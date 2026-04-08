@@ -1,5 +1,3 @@
-use core::sync::atomic::Ordering;
-
 use defmt::debug;
 use embedded_graphics::{
     pixelcolor::BinaryColor,
@@ -9,7 +7,6 @@ use embedded_graphics::{
 use ssd1306_lite::{FontSize, TextBox};
 
 use crate::{
-    control_panel::STATE,
     definitions::PotKind,
     envelope_generator::{ConfigReader, EngineType, OutputPolarity},
     input_reader::PotInfo,
@@ -292,7 +289,7 @@ impl<'a> InOperationMode<'a> {
         sustain: u16,
         release: u16,
         _extra_1: u16,
-        extra_2: u16,
+        _extra_2: u16,
     ) {
         self.display.clear(false, false).await;
 
