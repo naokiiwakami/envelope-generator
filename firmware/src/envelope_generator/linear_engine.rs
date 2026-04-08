@@ -77,6 +77,7 @@ impl Engine for LinearEngine {
         self.update_params(voice_index, config, &InputReaderInfo::new(PotKind::Release));
         self.update_params(voice_index, config, &InputReaderInfo::new(PotKind::Extra1));
         self.update_params(voice_index, config, &InputReaderInfo::new(PotKind::Extra2));
+        self.note_scale_depth = (config.note_scaling_depth(voice_index) as u32) << 16;
         self.current_value = 0;
         self.phase = EnginePhase::Initial;
     }
@@ -84,20 +85,22 @@ impl Engine for LinearEngine {
     fn update_params(&mut self, voice_index: usize, config: &EgConfig, input: &InputReaderInfo) {
         match input.pot_info.kind {
             PotKind::Attack => {
-                self.attack_ratio = calculate_linear_charging_ratio(config.attack[voice_index]);
+                self.attack_ratio = calculate_linear_charging_ratio(config.attack(voice_index));
             }
             PotKind::Decay => {
-                self.decay_ratio = calculate_linear_discharging_ratio(config.decay[voice_index]);
+                self.decay_ratio = calculate_linear_discharging_ratio(config.decay(voice_index));
             }
             PotKind::Sustain => {
-                self.sustain_level = calculate_sustain_level(config.sustain[voice_index], 0);
+                self.sustain_level = calculate_sustain_level(config.sustain(voice_index), 0);
             }
             PotKind::Release => {
                 self.release_ratio =
-                    calculate_linear_discharging_ratio(config.release[voice_index]);
+                    calculate_linear_discharging_ratio(config.release(voice_index));
             }
             PotKind::Extra2 => {
-                self.note_scale_depth = (config.extra2[voice_index] as u32) << 16;
+                let value = config.extra_2(voice_index);
+                config.set_note_scaling_depth(voice_index, value);
+                self.note_scale_depth = (value as u32) << 16;
             }
             _ => {}
         }

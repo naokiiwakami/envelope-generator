@@ -11,7 +11,7 @@ use ssd1306_lite::{FontSize, TextBox};
 use crate::{
     control_panel::STATE,
     definitions::PotKind,
-    envelope_generator::{EngineType, OutputPolarity},
+    envelope_generator::{ConfigReader, EngineType, OutputPolarity},
     input_reader::PotInfo,
 };
 
@@ -19,6 +19,8 @@ use super::{Display, ENGINE_TYPE_MENU_ITEMS, Mode, Request};
 
 pub struct InOperationMode<'a> {
     display: &'a mut Display,
+
+    eg_config: ConfigReader,
 
     attack: i32,
     decay: i32,
@@ -44,6 +46,7 @@ impl<'a> InOperationMode<'a> {
     pub fn new(display: &'a mut Display) -> Self {
         Self {
             display,
+            eg_config: ConfigReader::new(),
             attack: 0,
             decay: 0,
             sustain: 0,
@@ -119,13 +122,13 @@ impl<'a> InOperationMode<'a> {
     }
 
     pub async fn show_home_page(&mut self) {
-        let engine_type = STATE.engine_type.load();
-        let attack = STATE.attack.load(Ordering::Relaxed);
-        let decay = STATE.decay.load(Ordering::Relaxed);
-        let sustain = STATE.sustain.load(Ordering::Relaxed);
-        let release = STATE.release.load(Ordering::Relaxed);
-        let extra_1 = STATE.extra_1.load(Ordering::Relaxed);
-        let extra_2 = STATE.extra_2.load(Ordering::Relaxed);
+        let engine_type = self.eg_config.engine_type(0);
+        let attack = self.eg_config.attack(0);
+        let decay = self.eg_config.decay(0);
+        let sustain = self.eg_config.sustain(0);
+        let release = self.eg_config.release(0);
+        let extra_1 = self.eg_config.extra_1(0);
+        let extra_2 = self.eg_config.extra_2(0);
 
         debug!("engine type to {}", engine_type);
 
@@ -156,8 +159,7 @@ impl<'a> InOperationMode<'a> {
         _extra_2: u16,
     ) {
         self.display.clear(false, false).await;
-        let name =
-            ENGINE_TYPE_MENU_ITEMS[(self.display.current_engine_type.clone() as u8) as usize].name;
+        let name = ENGINE_TYPE_MENU_ITEMS[(self.display.current_engine_type as u8) as usize].name;
         let text_box = TextBox::center().build();
         self.display
             .driver
@@ -183,7 +185,7 @@ impl<'a> InOperationMode<'a> {
         sustain: u16,
         release: u16,
         _extra_1: u16,
-        extra_2: u16,
+        _extra_2: u16,
     ) {
         self.display.clear(false, false).await;
 
@@ -200,7 +202,8 @@ impl<'a> InOperationMode<'a> {
         self.draw_curve((self.release, self.sustain), (RIGHT, BOTTOM))
             .await;
 
-        self.draw_note_scaling_bar(extra_2).await;
+        self.draw_note_scaling_bar(self.eg_config.note_scaling_depth(0))
+            .await;
 
         self.display.driver.flush().await;
     }
@@ -272,7 +275,8 @@ impl<'a> InOperationMode<'a> {
                     .await;
             }
             PotKind::Extra2 => {
-                self.draw_note_scaling_bar(pot_info.value).await;
+                self.draw_note_scaling_bar(self.eg_config.note_scaling_depth(0))
+                    .await;
             }
             _ => {}
         }
@@ -305,7 +309,8 @@ impl<'a> InOperationMode<'a> {
         self.draw_line((self.release, self.sustain), (RIGHT, BOTTOM))
             .await;
 
-        self.draw_note_scaling_bar(extra_2).await;
+        self.draw_note_scaling_bar(self.eg_config.note_scaling_depth(0))
+            .await;
 
         self.display.driver.flush().await;
     }
@@ -389,7 +394,8 @@ impl<'a> InOperationMode<'a> {
                     .await;
             }
             PotKind::Extra2 => {
-                self.draw_note_scaling_bar(pot_info.value).await;
+                self.draw_note_scaling_bar(self.eg_config.note_scaling_depth(0))
+                    .await;
             }
             _ => {}
         }

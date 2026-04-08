@@ -14,7 +14,7 @@ pub const DEFAULT_ENGINE_TYPE: EngineType = EngineType::ParaDecays;
 pub const DEFAULT_OUT_ZERO_POINT: u16 = 0x800;
 
 /// Envelope Generator operation modes
-#[derive(Clone, PartialEq, Debug, defmt::Format)]
+#[derive(Clone, Copy, PartialEq, Debug, defmt::Format)]
 pub enum Mode {
     Normal,
     Diagnose,

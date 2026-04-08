@@ -39,10 +39,6 @@ use crate::{
     input_reader::{InputReaderInfo, get_reader_info_receiver},
 };
 
-pub use self::definitions::{
-    DEFAULT_OUT_ZERO_POINT, EgEvent, EgRequest, EngineType, GateEventType, GateId, Mode,
-    OutputPolarity,
-};
 use self::{
     adsr_engine::AdsrEngine,
     config::EgConfig,
@@ -52,6 +48,13 @@ use self::{
     para_decays_engine::ParaDecaysEngine,
     two_decays_engine::TwoDecaysEngine,
     utils::choose_output_converter,
+};
+pub use self::{
+    config::ConfigReader,
+    definitions::{
+        DEFAULT_OUT_ZERO_POINT, EgEvent, EgRequest, EngineType, GateEventType, GateId, Mode,
+        OutputPolarity,
+    },
 };
 
 // parameter tweaks
@@ -106,12 +109,16 @@ pub async fn start(
 
 async fn retrieve_saved_config(eg_resources: &mut EgResources) {
     for index in 0..2 {
-        eg_resources.config.voice_id[index] = load_voice_id(index).await;
-        eg_resources.config.engine_type[index] = load_engine_type(index).await;
+        eg_resources
+            .config
+            .set_voice_id(index, load_voice_id(index).await);
+        eg_resources
+            .config
+            .set_engine_type(index, load_engine_type(index).await);
         eg_resources.voice_params[index].out_zero_point = load_out_zero_point(index).await;
         let polarity = load_out_polarity(index).await;
         eg_resources.voice_params[index].value_to_output = choose_output_converter(&polarity);
-        eg_resources.config.out_polarity[index] = polarity;
+        eg_resources.config.set_out_polarity(index, polarity);
     }
 }
 
@@ -134,13 +141,9 @@ async fn load_engine_type(voice_index: usize) -> EngineType {
         Ok(engine_type) => engine_type,
         Err(()) => {
             let engine_type = DEFAULT_ENGINE_TYPE;
-            storage::save(
-                address,
-                Value::U8(engine_type.clone() as u8),
-                &SIGNAL_STORAGE,
-            )
-            .await
-            .unwrap();
+            storage::save(address, Value::U8(engine_type as u8), &SIGNAL_STORAGE)
+                .await
+                .unwrap();
             engine_type
         }
     }
@@ -148,13 +151,9 @@ async fn load_engine_type(voice_index: usize) -> EngineType {
 
 async fn save_engine_type(voice_index: usize, engine_type: &EngineType) {
     let address = ADDR_EG_TYPE_1 + voice_index as u16;
-    storage::save(
-        address,
-        Value::U8(engine_type.clone() as u8),
-        &SIGNAL_STORAGE,
-    )
-    .await
-    .unwrap();
+    storage::save(address, Value::U8(*engine_type as u8), &SIGNAL_STORAGE)
+        .await
+        .unwrap();
 }
 
 async fn load_out_polarity(voice_index: usize) -> OutputPolarity {
@@ -164,7 +163,7 @@ async fn load_out_polarity(voice_index: usize) -> OutputPolarity {
         Ok(polarity) => polarity,
         Err(()) => {
             let polarity = OutputPolarity::Positive;
-            storage::save(address, Value::U8(polarity.clone() as u8), &SIGNAL_STORAGE)
+            storage::save(address, Value::U8(polarity as u8), &SIGNAL_STORAGE)
                 .await
                 .unwrap();
             polarity
@@ -172,9 +171,9 @@ async fn load_out_polarity(voice_index: usize) -> OutputPolarity {
     }
 }
 
-async fn save_out_polarity(voice_index: usize, polarity: &OutputPolarity) {
+async fn save_out_polarity(voice_index: usize, polarity: OutputPolarity) {
     let address = ADDR_OUTPUT_POLARITY_1 + voice_index as u16;
-    storage::save(address, Value::U8(polarity.clone() as u8), &SIGNAL_STORAGE)
+    storage::save(address, Value::U8(polarity as u8), &SIGNAL_STORAGE)
         .await
         .unwrap();
 }
@@ -234,7 +233,7 @@ async fn run_envelope_generator(
 
     loop {
         match eg_resources.voice_params[0].operation_mode {
-            Mode::Normal => match eg_resources.config.engine_type[0] {
+            Mode::Normal => match eg_resources.config.engine_type(0) {
                 EngineType::ParaDecays => {
                     let mut eg = EnvelopeGenerator::<ParaDecaysEngine>::new(&mut eg_resources);
                     eg.run().await;
@@ -329,15 +328,15 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
         let mut input_reader_info_receiver = get_reader_info_receiver().await;
         debug!(
             "Notifying the initial engine type: {}",
-            self.config.engine_type[0]
+            self.config.engine_type(0)
         );
         self.event_publisher
-            .publish(EgEvent::EngineSwitched(self.config.engine_type[0].clone()))
+            .publish(EgEvent::EngineSwitched(self.config.engine_type(0)))
             .await;
         self.event_publisher
             .publish(EgEvent::PolarityChanged((
-                self.config.out_polarity[0].clone(),
-                self.config.out_polarity[1].clone(),
+                self.config.out_polarity(0),
+                self.config.out_polarity(1),
             )))
             .await;
         loop {
@@ -366,9 +365,9 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
 
     async fn handle_a3_message(&mut self, message: &A3Datagram) {
         if let A3DatagramId::Standard(id) = message.id {
-            if id == self.config.voice_id[0] {
+            if id == self.config.voice_id(0) {
                 self.voice_1.handle_a3_message(message).await;
-            } else if id == self.config.voice_id[1] {
+            } else if id == self.config.voice_id(1) {
                 self.voice_2.handle_a3_message(message).await;
             }
         }
@@ -395,8 +394,8 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
                 send_notif,
             } => {
                 debug!("switching engine to {}", engine_type.name());
-                self.config.engine_type[0] = engine_type.clone();
-                self.config.engine_type[1] = engine_type.clone();
+                self.config.set_engine_type(0, engine_type);
+                self.config.set_engine_type(1, engine_type);
                 save_engine_type(0, &engine_type).await;
                 save_engine_type(1, &engine_type).await;
                 if send_notif {
@@ -412,10 +411,10 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
                 send_notif,
             } => {
                 debug!("switching polarities");
-                self.config.out_polarity[0] = polarity_1.clone();
-                self.config.out_polarity[1] = polarity_2.clone();
-                save_out_polarity(0, &polarity_1).await;
-                save_out_polarity(1, &polarity_2).await;
+                self.config.set_out_polarity(0, polarity_1);
+                self.config.set_out_polarity(1, polarity_2);
+                save_out_polarity(0, polarity_1).await;
+                save_out_polarity(1, polarity_2).await;
                 self.voice_1.params.value_to_output = choose_output_converter(&polarity_1);
                 self.voice_2.params.value_to_output = choose_output_converter(&polarity_2);
                 if send_notif {
@@ -435,7 +434,7 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
                 } else {
                     mode
                 };
-                self.voice_1.params.operation_mode = next_mode.clone();
+                self.voice_1.params.operation_mode = next_mode;
                 self.voice_2.params.operation_mode = next_mode;
                 true
             }

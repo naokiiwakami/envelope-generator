@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 use core::sync::atomic::{AtomicU8, Ordering};
 
 #[derive(Clone, Copy, PartialEq, Debug, defmt::Format)]
-#[repr(usize)]
+#[repr(u8)]
 pub enum PotKind {
     Attack = 0,
     Decay = 1,

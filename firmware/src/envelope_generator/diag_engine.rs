@@ -24,12 +24,12 @@ impl Engine for DiagEngine {
         match input.pot_info.kind {
             PotKind::Attack => {
                 if voice_index == 0 {
-                    self.delta = (config.attack[voice_index] >> 12) as u32 + 1;
+                    self.delta = (config.attack(voice_index) >> 12) as u32 + 1;
                 }
             }
             PotKind::Release => {
                 if voice_index == 1 {
-                    self.delta = (config.release[voice_index] >> 5) as u32 + 1;
+                    self.delta = (config.release(voice_index) >> 5) as u32 + 1;
                 }
             }
             _ => {} // TODO interpret CV1_DEPTH and CV2_DEPTH

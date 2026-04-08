@@ -67,29 +67,29 @@ impl AdsrEngine {
     ) {
         match pot_kind {
             PotKind::Attack => {
-                self.attack_ratio = calculate_charging_ratio(config.attack[voice_index]);
+                self.attack_ratio = calculate_charging_ratio(config.attack(voice_index));
             }
             PotKind::Decay => {
-                self.decay_ratio = calculate_discharging_ratio(config.decay[voice_index]);
+                self.decay_ratio = calculate_discharging_ratio(config.decay(voice_index));
             }
             PotKind::Sustain => {
                 self.sustain_level =
-                    calculate_sustain_level(config.sustain[voice_index], mod_amount);
+                    calculate_sustain_level(config.sustain(voice_index), mod_amount);
             }
             PotKind::Release => {
-                self.release_ratio = calculate_discharging_ratio(config.release[voice_index]);
+                self.release_ratio = calculate_discharging_ratio(config.release(voice_index));
             }
             PotKind::Extra1 => {
                 // TBD
             }
             PotKind::Extra2 => {
-                self.note_scale_depth = (config.extra2[voice_index] as u32) << 16;
+                self.note_scale_depth = (config.extra_2(voice_index) as u32) << 16;
             }
             PotKind::CvADepth => {
-                self.cv_a_depth = (config.cv_a_depth as u32) << 16;
+                self.cv_a_depth = (config.cv_a_depth() as u32) << 16;
             }
             PotKind::CvBDepth => {
-                self.cv_b_depth = (config.cv_b_depth as u32) << 16;
+                self.cv_b_depth = (config.cv_b_depth() as u32) << 16;
             }
         }
     }
@@ -125,6 +125,7 @@ impl Engine for AdsrEngine {
         self.update_params(index, config, &InputReaderInfo::new(PotKind::Extra2));
         self.update_params(index, config, &InputReaderInfo::new(PotKind::CvADepth));
         self.update_params(index, config, &InputReaderInfo::new(PotKind::CvBDepth));
+        self.note_scale_depth = (config.note_scaling_depth(index) as u32) << 16;
         self.current_value = 0;
         self.target_value = 0;
         self.phase = EnginePhase::Released;
@@ -132,21 +133,21 @@ impl Engine for AdsrEngine {
 
     fn update_params(&mut self, voice_index: usize, config: &EgConfig, input: &InputReaderInfo) {
         let pot_kind = input.pot_info.kind;
-        let mod_a = mul_i16_uq0_16(input.cv_info.cv_a, config.cv_a_depth);
-        let mod_b = mul_i16_uq0_16(input.cv_info.cv_b, config.cv_b_depth);
-        let (mod_amount, mod_a_covered, mod_b_covered) = if config.cv_a_destination == pot_kind {
+        let mod_a = mul_i16_uq0_16(input.cv_info.cv_a, config.cv_a_depth());
+        let mod_b = mul_i16_uq0_16(input.cv_info.cv_b, config.cv_b_depth());
+        let (mod_amount, mod_a_covered, mod_b_covered) = if config.cv_a_destination() == pot_kind {
             (mod_a, true, false)
-        } else if config.cv_b_destination == pot_kind {
+        } else if config.cv_b_destination() == pot_kind {
             (mod_b, false, true)
         } else {
             (0, false, false)
         };
         self.update_params_for_pot(voice_index, config, &pot_kind, mod_amount);
         if !mod_a_covered {
-            self.update_params_for_pot(voice_index, config, &config.cv_a_destination, mod_a);
+            self.update_params_for_pot(voice_index, config, &config.cv_a_destination(), mod_a);
         }
         if !mod_b_covered {
-            self.update_params_for_pot(voice_index, config, &config.cv_b_destination, mod_b);
+            self.update_params_for_pot(voice_index, config, &config.cv_b_destination(), mod_b);
         }
     }
 
