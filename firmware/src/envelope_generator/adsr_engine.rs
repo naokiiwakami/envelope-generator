@@ -67,17 +67,20 @@ impl AdsrEngine {
     ) {
         match pot_kind {
             PotKind::Attack => {
-                self.attack_ratio = calculate_charging_ratio(config.attack(voice_index));
+                self.attack_ratio =
+                    calculate_charging_ratio(config.attack(voice_index), mod_amount);
             }
             PotKind::Decay => {
-                self.decay_ratio = calculate_discharging_ratio(config.decay(voice_index));
+                self.decay_ratio =
+                    calculate_discharging_ratio(config.decay(voice_index), mod_amount);
             }
             PotKind::Sustain => {
                 self.sustain_level =
                     calculate_sustain_level(config.sustain(voice_index), mod_amount);
             }
             PotKind::Release => {
-                self.release_ratio = calculate_discharging_ratio(config.release(voice_index));
+                self.release_ratio =
+                    calculate_discharging_ratio(config.release(voice_index), mod_amount);
             }
             PotKind::Extra1 => {
                 // TBD

@@ -100,19 +100,20 @@ impl Engine for TwoDecaysEngine {
     fn update_params(&mut self, voice_index: usize, config: &EgConfig, input: &InputReaderInfo) {
         match input.pot_info.kind {
             PotKind::Attack => {
-                self.attack_ratio = calculate_charging_ratio(config.attack(voice_index));
+                self.attack_ratio = calculate_charging_ratio(config.attack(voice_index), 0);
             }
             PotKind::Decay => {
-                self.decay_ratio = calculate_discharging_ratio(config.decay(voice_index));
+                self.decay_ratio = calculate_discharging_ratio(config.decay(voice_index), 0);
             }
             PotKind::Sustain => {
                 self.sustain_level = calculate_sustain_level(config.sustain(voice_index), 0);
             }
             PotKind::Release => {
-                self.release_ratio = calculate_discharging_ratio(config.release(voice_index));
+                self.release_ratio = calculate_discharging_ratio(config.release(voice_index), 0);
             }
             PotKind::Extra1 => {
-                self.initial_decay_ratio = calculate_discharging_ratio(config.extra_1(voice_index));
+                self.initial_decay_ratio =
+                    calculate_discharging_ratio(config.extra_1(voice_index), 0);
             }
             PotKind::Extra2 => {
                 let level = config.extra_2(voice_index) as u32;

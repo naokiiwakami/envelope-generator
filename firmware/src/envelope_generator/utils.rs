@@ -7,8 +7,9 @@ use crate::{
 /// The input is a Q0.16 value ranging between 0 and 1.0
 /// The output ia a Q0.32 growth ratio calculated for 40 kHz sampling
 #[inline(always)]
-pub fn calculate_charging_ratio(attack: u16) -> u32 {
-    let attack_param = attack as u64;
+pub fn calculate_charging_ratio(attack: u16, mod_amount: i16) -> u32 {
+    let modulated_param = attack as i32 + mod_amount as i32;
+    let attack_param = modulated_param.clamp(0, u16::MAX as i32) as u64;
     // approximately 1 + 1.5e-9 * attack_param^3
     let attack_time: u64 = 1 + ((7 * attack_param * attack_param * attack_param) >> 32);
     0xffffffff / attack_time as u32
@@ -18,8 +19,9 @@ pub fn calculate_charging_ratio(attack: u16) -> u32 {
 /// The input is a Q0.16 value ranging between 0 and 1.0
 /// The output ia a Q0.32 decay/release ratio calculated for 40 kHz sampling
 #[inline(always)]
-pub fn calculate_discharging_ratio(decay: u16) -> u32 {
-    let decay_param = decay as u64;
+pub fn calculate_discharging_ratio(decay: u16, mod_amount: i16) -> u32 {
+    let modulated_param = decay as i32 + mod_amount as i32;
+    let decay_param = modulated_param.clamp(0, u16::MAX as i32) as u64;
     // approximately 7 + 2.5e-9 * decay_param^3
     let decay_time = 7 + ((11 * decay_param * decay_param * decay_param) >> 32);
     0xffffffff / decay_time as u32
@@ -30,8 +32,8 @@ pub fn calculate_discharging_ratio(decay: u16) -> u32 {
 /// The output is a Q0.32 level also ranging between 0 and 1.0.
 #[inline(always)]
 pub fn calculate_sustain_level(sustain: u16, mod_amount: i16) -> u32 {
-    let temp = sustain as i32 + mod_amount as i32 * 2;
-    let sustain_param = temp.clamp(0, u16::MAX as i32) as u32;
+    let modulated_param = sustain as i32 + mod_amount as i32 * 2;
+    let sustain_param = modulated_param.clamp(0, u16::MAX as i32) as u32;
     ((sustain_param >> 1) + 32768) * sustain_param
 }
 
