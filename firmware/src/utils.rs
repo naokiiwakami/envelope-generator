@@ -20,6 +20,6 @@ pub fn mul_uq8_24(a: u32, b: u32) -> u32 {
 
 #[inline(always)]
 pub fn mul_i16_uq0_16(a: i16, b: u16) -> i16 {
-    let prod = ((a as i32) * (b as i32)).clamp(i16::MIN as i32, i16::MAX as i32);
+    let prod = (a as i32) * (b as i32);
     (prod >> 16) as i16
 }
