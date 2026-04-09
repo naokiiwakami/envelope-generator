@@ -7,22 +7,47 @@ use embedded_graphics::{
 use ssd1306_lite::{FontSize, TextBox};
 
 use crate::{
-    definitions::PotKind,
+    definitions::{CvKind, PotKind},
     envelope_generator::{ConfigReader, EngineType, OutputPolarity},
     input_reader::PotInfo,
 };
 
 use super::{Display, ENGINE_TYPE_MENU_ITEMS, Mode, Request};
 
+// CV assignment display constants
+const POS_ATTACK: (i32, i32) = (7, 18);
+const POS_DECAY: (i32, i32) = (43, 6);
+const POS_SUSTAIN: (i32, i32) = (84, 6);
+const POS_RELEASE: (i32, i32) = (121, 18);
+const POS_EXTRA_1: (i32, i32) = (43, 30);
+const POS_EXTRA_2: (i32, i32) = (84, 30);
+
+const POS_CV_A: (i32, i32) = (49, 54);
+const POS_CV_B: (i32, i32) = (78, 54);
+
+const CV_A_TO_ATTACK: [(i32, i32); 4] = [POS_CV_A, (26, 40), (16, 30), POS_ATTACK];
+const CV_A_TO_DECAY: [(i32, i32); 4] = [POS_CV_A, (58, 39), (55, 18), POS_DECAY];
+const CV_A_TO_SUSTAIN: [(i32, i32); 4] = [POS_CV_A, (59, 37), (68, 20), POS_SUSTAIN];
+const CV_A_TO_RELEASE: [(i32, i32); 5] = [POS_CV_A, (66, 45), (92, 43), (110, 33), POS_RELEASE];
+const CV_A_TO_EXTRA_1: [(i32, i32); 3] = [POS_CV_A, (40, 42), POS_EXTRA_1];
+const CV_A_TO_EXTRA_2: [(i32, i32); 3] = [POS_CV_A, (62, 41), POS_EXTRA_2];
+
+const CV_KNOB_DIAMETER: u32 = 13;
+const CV_JACK_DIAMETER: u32 = 9;
+
 pub struct InOperationMode<'a> {
     display: &'a mut Display,
 
     eg_config: ConfigReader,
 
+    // current displaying parameters
     attack: i32,
     decay: i32,
     sustain: i32,
     release: i32,
+
+    cv_a_destination: PotKind,
+    cv_b_destination: PotKind,
 
     // frequently used styles
     erase_area: PrimitiveStyle<BinaryColor>,
@@ -48,6 +73,8 @@ impl<'a> InOperationMode<'a> {
             decay: 0,
             sustain: 0,
             release: 0,
+            cv_a_destination: PotKind::Decay,
+            cv_b_destination: PotKind::Sustain,
             erase_area: PrimitiveStyleBuilder::new()
                 .stroke_width(1)
                 .stroke_color(BinaryColor::Off)
@@ -109,6 +136,13 @@ impl<'a> InOperationMode<'a> {
                         .await
                 }
                 Request::ShowCvAssignment => self.show_cv_assignment().await,
+                Request::UpdateCvAssignment {
+                    source,
+                    destination,
+                } => self.update_cv_assignment(source, destination).await,
+                Request::BlinkCvSource { source, turn_on } => {
+                    self.blink_cv_source(source, turn_on).await
+                }
                 _ => {
                     self.display
                         .switch_mode(request.mode(), Some(request))
@@ -598,67 +632,32 @@ impl<'a> InOperationMode<'a> {
         let cv_dest_a = self.eg_config.cv_a_destination();
         let cv_dest_b = self.eg_config.cv_b_destination();
 
-        let pos_attack = (7, 18);
-        let pos_decay = (43, 6);
-        let pos_sustain = (84, 6);
-        let pos_release = (121, 18);
-        let pos_extra_1 = (43, 30);
-        let pos_extra_2 = (84, 30);
-
-        self.draw_cv_pot(pos_attack, &cv_dest_a, PotKind::Attack)
+        self.draw_cv_pot(POS_ATTACK, &cv_dest_a, PotKind::Attack)
             .await;
-        self.draw_cv_pot(pos_decay, &cv_dest_a, PotKind::Decay)
+        self.draw_cv_pot(POS_DECAY, &cv_dest_a, PotKind::Decay)
             .await;
-        self.draw_cv_pot(pos_sustain, &cv_dest_b, PotKind::Sustain)
+        self.draw_cv_pot(POS_SUSTAIN, &cv_dest_b, PotKind::Sustain)
             .await;
-        self.draw_cv_pot(pos_release, &cv_dest_b, PotKind::Release)
+        self.draw_cv_pot(POS_RELEASE, &cv_dest_b, PotKind::Release)
             .await;
-        self.draw_cv_pot(pos_extra_1, &cv_dest_a, PotKind::Extra1)
+        self.draw_cv_pot(POS_EXTRA_1, &cv_dest_a, PotKind::Extra1)
             .await;
-        self.draw_cv_pot(pos_extra_2, &cv_dest_b, PotKind::Extra2)
+        self.draw_cv_pot(POS_EXTRA_2, &cv_dest_b, PotKind::Extra2)
             .await;
 
-        let jack_dia = 9;
-        let pos_cv_1 = (49, 54);
-        let pos_cv_2 = (78, 54);
-        self.draw_cv_node(pos_cv_1, jack_dia, true).await;
-        self.draw_cv_node(pos_cv_2, jack_dia, true).await;
-
-        let cv_a_to_attack = [pos_cv_1, (26, 40), (16, 30), pos_attack];
-        let cv_a_to_decay = [pos_cv_1, (58, 39), (55, 18), pos_decay];
-        let cv_a_to_sustain = [pos_cv_1, (59, 37), (68, 20), pos_sustain];
-        let cv_a_to_release = [pos_cv_1, (66, 45), (92, 43), (110, 33), pos_release];
-        let cv_a_to_extra_1 = [pos_cv_1, (40, 42), pos_extra_1];
-        let cv_a_to_extra_2 = [pos_cv_1, (62, 41), pos_extra_2];
+        self.draw_cv_node(POS_CV_A, CV_JACK_DIAMETER, true).await;
+        self.draw_cv_node(POS_CV_B, CV_JACK_DIAMETER, true).await;
 
         let mut mirror: [(i32, i32); 5] = [(0, 0); 5];
 
-        let points_or_none: Option<&[(i32, i32)]> = match cv_dest_a {
-            PotKind::Attack => Some(&cv_a_to_attack),
-            PotKind::Decay => Some(&cv_a_to_decay),
-            PotKind::Sustain => Some(&cv_a_to_sustain),
-            PotKind::Release => Some(&cv_a_to_release),
-            PotKind::Extra1 => Some(&cv_a_to_extra_1),
-            PotKind::Extra2 => Some(&cv_a_to_extra_2),
-            _ => None,
-        };
-        if let Some(points) = points_or_none {
+        if let Some(points) = path_from_a_to_dest(cv_dest_a) {
             self.display
                 .driver
                 .draw_spline(points, 18, BinaryColor::On)
                 .await;
         };
 
-        let points_or_none: Option<&[(i32, i32)]> = match cv_dest_b {
-            PotKind::Attack => Some(&cv_a_to_release),
-            PotKind::Decay => Some(&cv_a_to_sustain),
-            PotKind::Sustain => Some(&cv_a_to_decay),
-            PotKind::Release => Some(&cv_a_to_attack),
-            PotKind::Extra1 => Some(&cv_a_to_extra_2),
-            PotKind::Extra2 => Some(&cv_a_to_extra_1),
-            _ => None,
-        };
-        if let Some(points) = points_or_none {
+        if let Some(points) = path_from_b_to_dest(cv_dest_b) {
             self.flip(points, &mut mirror);
             self.display
                 .driver
@@ -669,6 +668,84 @@ impl<'a> InOperationMode<'a> {
         self.display.driver.flush().await;
     }
 
+    async fn update_cv_assignment(&mut self, source: CvKind, destination: PotKind) {
+        defmt::debug!("update_cv_assignment: {:?} {:?}", source, destination);
+        match source {
+            CvKind::A => {
+                if destination == self.cv_a_destination {
+                    return;
+                }
+                if let Some(points) = path_from_a_to_dest(self.cv_a_destination) {
+                    self.display
+                        .driver
+                        .draw_spline(points, 18, BinaryColor::Off)
+                        .await;
+                };
+                if let Some(position) = pot_pos(self.cv_a_destination) {
+                    self.draw_cv_node(*position, CV_KNOB_DIAMETER, false).await;
+                }
+                if let Some(position) = pot_pos(destination) {
+                    self.draw_cv_node(*position, CV_KNOB_DIAMETER, true).await;
+                }
+                if let Some(points) = path_from_a_to_dest(destination) {
+                    self.display
+                        .driver
+                        .draw_spline(points, 18, BinaryColor::On)
+                        .await;
+                }
+                self.draw_cv_node(POS_CV_A, CV_JACK_DIAMETER, true).await;
+                // the erased line may have crossed with the other one. redraw.
+                if let Some(points) = path_from_b_to_dest(self.cv_b_destination) {
+                    let mut mirror: [(i32, i32); 5] = [(0, 0); 5];
+                    self.flip(points, &mut mirror);
+                    self.display
+                        .driver
+                        .draw_spline(&mirror[0..points.len()], 18, BinaryColor::On)
+                        .await;
+                }
+                self.display.driver.flush().await;
+                self.cv_a_destination = destination;
+            }
+            CvKind::B => {
+                if destination == self.cv_b_destination {
+                    return;
+                }
+                if let Some(points) = path_from_b_to_dest(self.cv_b_destination) {
+                    self.display
+                        .driver
+                        .draw_spline(points, 18, BinaryColor::Off)
+                        .await;
+                };
+                if let Some(position) = pot_pos(self.cv_b_destination) {
+                    self.draw_cv_node(*position, CV_KNOB_DIAMETER, false).await;
+                }
+                if let Some(position) = pot_pos(destination) {
+                    self.draw_cv_node(*position, CV_KNOB_DIAMETER, true).await;
+                }
+                let mut mirror: [(i32, i32); 5] = [(0, 0); 5];
+                if let Some(points) = path_from_b_to_dest(destination) {
+                    self.flip(points, &mut mirror);
+                    self.display
+                        .driver
+                        .draw_spline(&mirror[0..points.len()], 18, BinaryColor::On)
+                        .await;
+                }
+                self.draw_cv_node(POS_CV_B, CV_JACK_DIAMETER, true).await;
+                // the erased line may have crossed with the other one. redraw.
+                if let Some(points) = path_from_a_to_dest(self.cv_a_destination) {
+                    self.display
+                        .driver
+                        .draw_spline(points, 18, BinaryColor::On)
+                        .await;
+                }
+                self.display.driver.flush().await;
+                self.cv_b_destination = destination;
+            }
+        }
+    }
+
+    async fn blink_cv_source(&mut self, source: CvKind, turn_on: bool) {}
+
     fn flip(&self, original: &[(i32, i32)], mirror: &mut [(i32, i32)]) {
         for i in 0..original.len() {
             mirror[i] = (127 - original[i].0, original[i].1);
@@ -676,14 +753,17 @@ impl<'a> InOperationMode<'a> {
     }
 
     async fn draw_cv_pot(&mut self, center: (i32, i32), cv_dest: &PotKind, pot_kind: PotKind) {
-        let knob_diameter = 13;
-        self.draw_cv_node(center, knob_diameter, *cv_dest == pot_kind)
+        self.draw_cv_node(center, CV_KNOB_DIAMETER, *cv_dest == pot_kind)
             .await;
     }
 
     async fn draw_cv_node(&mut self, center: (i32, i32), diameter: u32, in_use: bool) {
         let top_left_x = center.0 - diameter as i32 / 2;
         let top_left_y = center.1 - diameter as i32 / 2;
+        self.display
+            .driver
+            .draw_circle((top_left_x, top_left_y), diameter, self.erase_area)
+            .await;
         let styled = PrimitiveStyleBuilder::new()
             .stroke_alignment(StrokeAlignment::Inside)
             .stroke_width(1)
@@ -734,10 +814,12 @@ impl<'a> InOperationMode<'a> {
     }
 
     #[inline(always)]
-    async fn _erase_node(&mut self, top_left_x: i32, top_left_y: i32) {
+    async fn erase_node(&mut self, center: (i32, i32), diameter: u32) {
+        let top_left_x = center.0 - diameter as i32 / 2;
+        let top_left_y = center.1 - diameter as i32 / 2;
         self.display
             .driver
-            .draw_circle((top_left_x, top_left_y), _NODE_SIZE, self.erase_area)
+            .draw_circle((top_left_x, top_left_y), diameter, self.erase_area)
             .await;
     }
 
@@ -782,4 +864,40 @@ impl<'a> InOperationMode<'a> {
 fn distort(input: u16) -> u16 {
     let reverse = (!input) as u32;
     !(((((reverse * reverse) >> 16) * reverse) >> 16) as u16)
+}
+
+fn path_from_a_to_dest(destination: PotKind) -> Option<&'static [(i32, i32)]> {
+    match destination {
+        PotKind::Attack => Some(&CV_A_TO_ATTACK),
+        PotKind::Decay => Some(&CV_A_TO_DECAY),
+        PotKind::Sustain => Some(&CV_A_TO_SUSTAIN),
+        PotKind::Release => Some(&CV_A_TO_RELEASE),
+        PotKind::Extra1 => Some(&CV_A_TO_EXTRA_1),
+        PotKind::Extra2 => Some(&CV_A_TO_EXTRA_2),
+        _ => None,
+    }
+}
+
+fn pot_pos(pot: PotKind) -> Option<&'static (i32, i32)> {
+    match pot {
+        PotKind::Attack => Some(&POS_ATTACK),
+        PotKind::Decay => Some(&POS_DECAY),
+        PotKind::Sustain => Some(&POS_SUSTAIN),
+        PotKind::Release => Some(&POS_RELEASE),
+        PotKind::Extra1 => Some(&POS_EXTRA_1),
+        PotKind::Extra2 => Some(&POS_EXTRA_2),
+        _ => None,
+    }
+}
+
+fn path_from_b_to_dest(destination: PotKind) -> Option<&'static [(i32, i32)]> {
+    match destination {
+        PotKind::Attack => Some(&CV_A_TO_RELEASE),
+        PotKind::Decay => Some(&CV_A_TO_SUSTAIN),
+        PotKind::Sustain => Some(&CV_A_TO_DECAY),
+        PotKind::Release => Some(&CV_A_TO_ATTACK),
+        PotKind::Extra1 => Some(&CV_A_TO_EXTRA_2),
+        PotKind::Extra2 => Some(&CV_A_TO_EXTRA_1),
+        _ => None,
+    }
 }

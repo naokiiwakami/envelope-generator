@@ -41,3 +41,10 @@ impl<E: AtomicEnumRepr> AtomicEnum<E> {
         self.inner.store(value.to_u8(), Ordering::Relaxed);
     }
 }
+
+#[derive(Clone, Copy, PartialEq, Debug, defmt::Format)]
+#[repr(u8)]
+pub enum CvKind {
+    A,
+    B,
+}

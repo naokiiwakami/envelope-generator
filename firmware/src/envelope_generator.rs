@@ -36,6 +36,7 @@ use crate::{
         ADDR_EG_TYPE_1, ADDR_OUT_ZERO_POINT_1, ADDR_OUT_ZERO_POINT_2, ADDR_OUTPUT_POLARITY_1,
         ADDR_VOICE_ID_1,
     },
+    definitions::CvKind,
     input_reader::{InputReaderInfo, get_reader_info_receiver},
 };
 
@@ -421,6 +422,23 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
                     self.event_publisher
                         .publish(EgEvent::PolarityChanged((polarity_1, polarity_2)))
                         .await;
+                }
+                false
+            }
+            EgRequest::ChangeCvDestination {
+                source,
+                destination,
+            } => {
+                debug!("change cv destination");
+                match source {
+                    CvKind::A => {
+                        self.config.set_cv_a_destination(destination);
+                        // TODO save
+                    }
+                    CvKind::B => {
+                        self.config.set_cv_b_destination(destination);
+                        // TODO save
+                    }
                 }
                 false
             }

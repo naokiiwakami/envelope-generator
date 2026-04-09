@@ -3,7 +3,8 @@ use defmt;
 use super::config::EgConfig;
 
 use crate::{
-    definitions::AtomicEnumRepr, envelope_generator::utils::uq0_32_to_12bit_positive,
+    definitions::{AtomicEnumRepr, CvKind, PotKind},
+    envelope_generator::utils::uq0_32_to_12bit_positive,
     input_reader::InputReaderInfo,
 };
 
@@ -60,6 +61,11 @@ pub enum EgRequest {
         polarity_1: OutputPolarity,
         polarity_2: OutputPolarity,
         send_notif: bool,
+    },
+    /// Requests to change CV destination
+    ChangeCvDestination {
+        source: CvKind,
+        destination: PotKind,
     },
     /// Requests to toggle the operation mode.
     /// The EnvelopeGenerator switches operation mode if the requested mode is different

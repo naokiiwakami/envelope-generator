@@ -1,4 +1,5 @@
 mod calibrator;
+mod cv_assigner;
 mod diagnoser;
 mod display;
 mod menu;
@@ -31,6 +32,7 @@ use crate::{
 
 use self::{
     calibrator::Calibrator,
+    cv_assigner::CvAssigner,
     diagnoser::Diagnoser,
     display::{
         CHANNEL_LENGTH as DISPLAY_CHANNEL_LENGTH, Display, Mode as DisplayMode,
@@ -214,6 +216,10 @@ impl ControlPanel {
         }
     }
 
+    fn smash_counter(&mut self) {
+        self.encoder_last_raw = self.encoder.count() as i16;
+    }
+
     async fn handle_eg_event(&mut self, event: EgEvent) {
         match event {
             EgEvent::EngineSwitched(engine_type) => self.switch_engine_type(engine_type).await,
@@ -336,7 +342,7 @@ impl ControlPanel {
         match action {
             Action::SelectEngineType => self.into_engine_type_menu_mode().await,
             Action::SetupPolarity => self.into_change_polarity_select_mode().await,
-            Action::AssignCv => {}
+            Action::AssignCv => self.assign_cv().await,
             Action::SetNoteScaling => {}
         }
     }
@@ -448,7 +454,7 @@ impl ControlPanel {
     async fn into_change_polarity_mode(&mut self) {
         self.mode = ControlPanelMode::ChangePolarity;
         self.polarity_change_targets = POLARITY_CHANGE_TARGET_ITEMS[self.menu_item_index].selection;
-        self.encoder_last_raw = self.encoder.count() as i16;
+        self.smash_counter();
         self.display_request_sender
             .send(DisplayRequest::SetPolarityChangeTargets {
                 targets: self.polarity_change_targets,
@@ -534,6 +540,15 @@ impl ControlPanel {
         OutputPolarity::try_from(new_value as u8).unwrap()
     }
 
+    // CV Assignment mode /////////////////////////////////////////////////////
+
+    async fn assign_cv(&mut self) {
+        let mut cv_assigner = CvAssigner::new(self);
+        cv_assigner.execute().await;
+        self.show_cv_assignment().await;
+        self.mode = ControlPanelMode::Normal;
+    }
+
     // Admin mode ////////////////////////////////////////////////////////////
 
     /// Transit the mode to AdminMenu.
@@ -598,7 +613,7 @@ impl ControlPanel {
         blink: bool,
     ) {
         self.mode = mode;
-        self.encoder_last_raw = self.encoder.count() as i16;
+        self.smash_counter();
         self.ind_red
             .set_level(if red { Level::High } else { Level::Low });
         self.ind_green
@@ -670,7 +685,7 @@ impl ControlPanel {
         self.engine_type_index = (next_engine_type as u8) as usize;
         self.page_index = 0;
         self.page = OperationPage::Home;
-        self.encoder_last_raw = self.encoder.count() as i16;
+        self.smash_counter();
         self.go_to_op_home().await;
     }
 

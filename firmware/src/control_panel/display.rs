@@ -27,6 +27,7 @@ use ssd1306_lite::{Angle, FontSize, Ssd1306Lite, TextBox};
 
 use crate::{
     control_panel::{display::menu_mode::MenuMode, menu::ENGINE_TYPE_MENU_ITEMS},
+    definitions::{CvKind, PotKind},
     envelope_generator::{EngineType, OutputPolarity},
     input_reader::{CvInfo, PotInfo},
     patch_controller::{LedColor, PatchControllerRequest, get_patch_controller_request_sender},
@@ -103,6 +104,7 @@ pub enum Request {
     UpdatePot {
         pot_info: PotInfo,
     },
+    // output polarity management
     ShowPolarity {
         polarity_1: OutputPolarity,
         polarity_2: OutputPolarity,
@@ -116,7 +118,16 @@ pub enum Request {
         polarity_2: OutputPolarity,
         is_draw: bool,
     },
+    // CV assignment
     ShowCvAssignment,
+    UpdateCvAssignment {
+        source: CvKind,
+        destination: PotKind,
+    },
+    BlinkCvSource {
+        source: CvKind,
+        turn_on: bool,
+    },
     DisplayText {
         text: String<32>,
         text_box: TextBox,
@@ -157,7 +168,9 @@ impl Request {
             | Self::ShowPolarity { .. }
             | Self::SetPolarityChangeTargets { .. }
             | Self::UpdatePolarities { .. }
-            | Self::ShowCvAssignment => Mode::InOperation,
+            | Self::ShowCvAssignment
+            | Self::UpdateCvAssignment { .. }
+            | Self::BlinkCvSource { .. } => Mode::InOperation,
             Self::DisplayEngineTypeMenuItem { .. } => Mode::EngineTypeMenu,
             Self::DisplayAdminMenuItem { .. } => Mode::AdminMenu,
             Self::UpdatePotForDiag { .. } => Mode::PotsDiag,
@@ -182,6 +195,8 @@ impl Request {
             Self::SetPolarityChangeTargets { .. } => "SetPolarityChangeTargets",
             Self::UpdatePolarities { .. } => "UpdatePolarities",
             Self::ShowCvAssignment => "ShowCvAssignment",
+            Self::UpdateCvAssignment { .. } => "UpdateCvAssignment",
+            Self::BlinkCvSource { .. } => "BlinkCvSource",
             Self::DisplayEngineTypeMenuItem { .. } => "DisplayEngineTypeMenuItem",
             Self::DisplayAdminMenuItem { .. } => "DisplayAdminMenuItem",
             Self::UpdatePotForDiag { .. } => "UpdatePotForDiag",
