@@ -27,7 +27,7 @@ const POS_CV_B: (i32, i32) = (78, 54);
 
 const CV_A_TO_ATTACK: [(i32, i32); 4] = [POS_CV_A, (26, 40), (16, 30), POS_ATTACK];
 const CV_A_TO_DECAY: [(i32, i32); 4] = [POS_CV_A, (58, 39), (55, 18), POS_DECAY];
-const CV_A_TO_SUSTAIN: [(i32, i32); 4] = [POS_CV_A, (59, 37), (68, 20), POS_SUSTAIN];
+const CV_A_TO_SUSTAIN: [(i32, i32); 4] = [POS_CV_A, (59, 36), (70, 21), POS_SUSTAIN];
 const CV_A_TO_RELEASE: [(i32, i32); 5] = [POS_CV_A, (66, 45), (92, 43), (110, 33), POS_RELEASE];
 const CV_A_TO_EXTRA_1: [(i32, i32); 3] = [POS_CV_A, (40, 42), POS_EXTRA_1];
 const CV_A_TO_EXTRA_2: [(i32, i32); 3] = [POS_CV_A, (62, 41), POS_EXTRA_2];
