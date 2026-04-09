@@ -162,7 +162,7 @@ impl<'a> InOperationMode<'a> {
         let extra_1 = self.eg_config.extra_1(0);
         let extra_2 = self.eg_config.extra_2(0);
 
-        debug!("engine type to {}", engine_type);
+        debug!("showing {} home page", engine_type);
 
         self.display.current_engine_type = engine_type;
         match self.display.current_engine_type {
@@ -631,18 +631,21 @@ impl<'a> InOperationMode<'a> {
 
         let cv_dest_a = self.eg_config.cv_a_destination();
         let cv_dest_b = self.eg_config.cv_b_destination();
+        let mut flags = [false; 8];
+        flags[cv_dest_a as usize] = true;
+        flags[cv_dest_b as usize] = true;
 
-        self.draw_cv_pot(POS_ATTACK, &cv_dest_a, PotKind::Attack)
+        self.draw_cv_pot(POS_ATTACK, flags[PotKind::Attack as usize])
             .await;
-        self.draw_cv_pot(POS_DECAY, &cv_dest_a, PotKind::Decay)
+        self.draw_cv_pot(POS_DECAY, flags[PotKind::Decay as usize])
             .await;
-        self.draw_cv_pot(POS_SUSTAIN, &cv_dest_b, PotKind::Sustain)
+        self.draw_cv_pot(POS_SUSTAIN, flags[PotKind::Sustain as usize])
             .await;
-        self.draw_cv_pot(POS_RELEASE, &cv_dest_b, PotKind::Release)
+        self.draw_cv_pot(POS_RELEASE, flags[PotKind::Release as usize])
             .await;
-        self.draw_cv_pot(POS_EXTRA_1, &cv_dest_a, PotKind::Extra1)
+        self.draw_cv_pot(POS_EXTRA_1, flags[PotKind::Extra1 as usize])
             .await;
-        self.draw_cv_pot(POS_EXTRA_2, &cv_dest_b, PotKind::Extra2)
+        self.draw_cv_pot(POS_EXTRA_2, flags[PotKind::Extra2 as usize])
             .await;
 
         self.draw_cv_node(POS_CV_A, CV_JACK_DIAMETER, true).await;
@@ -710,10 +713,12 @@ impl<'a> InOperationMode<'a> {
                 if destination == self.cv_b_destination {
                     return;
                 }
+                let mut mirror: [(i32, i32); 5] = [(0, 0); 5];
                 if let Some(points) = path_from_b_to_dest(self.cv_b_destination) {
+                    self.flip(points, &mut mirror);
                     self.display
                         .driver
-                        .draw_spline(points, 18, BinaryColor::Off)
+                        .draw_spline(&mirror[0..points.len()], 18, BinaryColor::Off)
                         .await;
                 };
                 if let Some(position) = pot_pos(self.cv_b_destination) {
@@ -722,7 +727,6 @@ impl<'a> InOperationMode<'a> {
                 if let Some(position) = pot_pos(destination) {
                     self.draw_cv_node(*position, CV_KNOB_DIAMETER, true).await;
                 }
-                let mut mirror: [(i32, i32); 5] = [(0, 0); 5];
                 if let Some(points) = path_from_b_to_dest(destination) {
                     self.flip(points, &mut mirror);
                     self.display
@@ -752,9 +756,8 @@ impl<'a> InOperationMode<'a> {
         }
     }
 
-    async fn draw_cv_pot(&mut self, center: (i32, i32), cv_dest: &PotKind, pot_kind: PotKind) {
-        self.draw_cv_node(center, CV_KNOB_DIAMETER, *cv_dest == pot_kind)
-            .await;
+    async fn draw_cv_pot(&mut self, center: (i32, i32), in_use: bool) {
+        self.draw_cv_node(center, CV_KNOB_DIAMETER, in_use).await;
     }
 
     async fn draw_cv_node(&mut self, center: (i32, i32), diameter: u32, in_use: bool) {

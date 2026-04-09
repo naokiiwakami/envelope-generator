@@ -12,7 +12,6 @@ use super::{ControlPanel, DisplayRequest};
 
 pub struct CvAssigner<'a> {
     control_panel: &'a mut ControlPanel,
-    // TODO: we don't need to keep these as members
     current_cv_a_destination: PotKind,
     current_cv_b_destination: PotKind,
 }
@@ -70,13 +69,18 @@ impl<'a> CvAssigner<'a> {
             } else if self.control_panel.button_pressed_at.is_some() {
                 self.control_panel.button_pressed_at = None;
                 // handle button released
+                let new_destination = candidates[current_index];
                 self.control_panel
                     .eg_request_sender
                     .send(EgRequest::ChangeCvDestination {
                         source: cv_kind,
-                        destination: candidates[current_index],
+                        destination: new_destination,
                     })
                     .await;
+                match cv_kind {
+                    CvKind::A => self.current_cv_a_destination = new_destination,
+                    CvKind::B => self.current_cv_b_destination = new_destination,
+                };
                 return;
             } else {
                 let raw = self.control_panel.encoder.count() as i16;

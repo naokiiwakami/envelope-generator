@@ -6,7 +6,7 @@ mod menu;
 mod module_state;
 
 use analog3::rng::make_local_rng;
-use defmt::{debug, error};
+use defmt::{self, debug, error};
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_stm32::{
@@ -93,6 +93,7 @@ async fn run_control_panel(mut control_panel: ControlPanel) {
     control_panel.run().await;
 }
 
+#[derive(Debug, defmt::Format)]
 enum ControlPanelMode {
     Normal,
     ActionSelected,
@@ -546,6 +547,7 @@ impl ControlPanel {
         let mut cv_assigner = CvAssigner::new(self);
         cv_assigner.execute().await;
         self.show_cv_assignment().await;
+        self.smash_counter(); // reset the counter, otherwise the page may move
         self.mode = ControlPanelMode::Normal;
     }
 
