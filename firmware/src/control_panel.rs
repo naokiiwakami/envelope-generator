@@ -4,8 +4,6 @@ mod display;
 mod menu;
 mod module_state;
 
-use core::sync::atomic::Ordering;
-
 use analog3::rng::make_local_rng;
 use defmt::{debug, error};
 use embassy_executor::Spawner;
@@ -24,7 +22,6 @@ use ssd1306_lite::{FontSize, TextBox};
 
 use crate::{
     control_panel::{menu::POLARITY_CHANGE_TARGET_ITEMS, module_state::ModuleState},
-    definitions::PotKind,
     envelope_generator::{
         ConfigReader, EG_CHANNEL_SIZE, EG_PUBS, EG_SUBS, EgEvent, EgRequest, EngineType,
         Mode as EgOperationMode, OutputPolarity, get_eg_event_subscriber, get_eg_request_sender,
@@ -42,14 +39,27 @@ use self::{
     menu::{ADMIN_MENU_ITEMS, AdminAction, ENGINE_TYPE_MENU_ITEMS},
 };
 
-const PARA_DECAYS_PAGES: [OperationPage; 3] = [
+const PARA_DECAYS_PAGES: [OperationPage; 4] = [
     OperationPage::Home,
     OperationPage::OutputPolarity,
+    OperationPage::CvAssignment,
     OperationPage::NoteScaling,
 ];
-const ADDSR_PAGES: [OperationPage; 2] = [OperationPage::Home, OperationPage::OutputPolarity];
-const ADSR_PAGES: [OperationPage; 2] = [OperationPage::Home, OperationPage::OutputPolarity];
-const LINEAR_PAGES: [OperationPage; 2] = [OperationPage::Home, OperationPage::OutputPolarity];
+const ADDSR_PAGES: [OperationPage; 3] = [
+    OperationPage::Home,
+    OperationPage::OutputPolarity,
+    OperationPage::CvAssignment,
+];
+const ADSR_PAGES: [OperationPage; 3] = [
+    OperationPage::Home,
+    OperationPage::OutputPolarity,
+    OperationPage::CvAssignment,
+];
+const LINEAR_PAGES: [OperationPage; 3] = [
+    OperationPage::Home,
+    OperationPage::OutputPolarity,
+    OperationPage::CvAssignment,
+];
 
 const ALL_PAGES: [&[OperationPage]; 4] =
     [&PARA_DECAYS_PAGES, &ADDSR_PAGES, &ADSR_PAGES, &LINEAR_PAGES];
@@ -98,7 +108,7 @@ enum ControlPanelMode {
 enum OperationPage {
     Home,
     OutputPolarity,
-    // CvAssignment,
+    CvAssignment,
     // VelocitySensitivity,
     NoteScaling,
 }
@@ -107,6 +117,7 @@ enum OperationPage {
 enum Action {
     SelectEngineType,
     SetupPolarity,
+    AssignCv,
     SetNoteScaling,
 }
 
@@ -251,6 +262,7 @@ impl ControlPanel {
                 self.next_action = match self.page {
                     OperationPage::Home => Some(Action::SelectEngineType),
                     OperationPage::OutputPolarity => Some(Action::SetupPolarity),
+                    OperationPage::CvAssignment => Some(Action::AssignCv),
                     OperationPage::NoteScaling => Some(Action::SetNoteScaling),
                 };
                 self.mode = ControlPanelMode::ActionSelected;
@@ -324,6 +336,7 @@ impl ControlPanel {
         match action {
             Action::SelectEngineType => self.into_engine_type_menu_mode().await,
             Action::SetupPolarity => self.into_change_polarity_select_mode().await,
+            Action::AssignCv => {}
             Action::SetNoteScaling => {}
         }
     }
@@ -346,7 +359,7 @@ impl ControlPanel {
         if pages.len() <= 1 {
             return; // switching page never happens
         }
-        let mut index: i32 = (self.page_index as i32 + delta as i32) % pages.len() as i32;
+        let mut index: i32 = (self.page_index as i32 - delta as i32) % pages.len() as i32;
         while index < 0 {
             index += pages.len() as i32;
         }
@@ -361,6 +374,7 @@ impl ControlPanel {
                 )
                 .await
             }
+            OperationPage::CvAssignment => self.show_cv_assignment().await,
             OperationPage::NoteScaling => self.show_note_scaling().await,
         }
     }
@@ -723,6 +737,12 @@ impl ControlPanel {
                 polarity_1,
                 polarity_2,
             })
+            .await;
+    }
+
+    async fn show_cv_assignment(&mut self) {
+        self.display_request_sender
+            .send(DisplayRequest::ShowCvAssignment)
             .await;
     }
 

@@ -26,7 +26,7 @@ pub struct InOperationMode<'a> {
 
     // frequently used styles
     erase_area: PrimitiveStyle<BinaryColor>,
-    _fill_area: PrimitiveStyle<BinaryColor>,
+    fill_area: PrimitiveStyle<BinaryColor>,
     erase_stroke: PrimitiveStyle<BinaryColor>,
     stroke: PrimitiveStyle<BinaryColor>,
 }
@@ -53,7 +53,7 @@ impl<'a> InOperationMode<'a> {
                 .stroke_color(BinaryColor::Off)
                 .fill_color(BinaryColor::Off)
                 .build(),
-            _fill_area: PrimitiveStyleBuilder::new()
+            fill_area: PrimitiveStyleBuilder::new()
                 .stroke_width(0)
                 // .stroke_color(BinaryColor::On)
                 .fill_color(BinaryColor::On)
@@ -108,6 +108,7 @@ impl<'a> InOperationMode<'a> {
                     self.update_polarities(targets, polarity_1, polarity_2, is_draw)
                         .await
                 }
+                Request::ShowCvAssignment => self.show_cv_assignment().await,
                 _ => {
                     self.display
                         .switch_mode(request.mode(), Some(request))
@@ -581,6 +582,125 @@ impl<'a> InOperationMode<'a> {
         }
     }
 
+    // CV Assignment ///////////////////////////////////////////////////////////
+
+    async fn show_cv_assignment(&mut self) {
+        self.display.clear(false, false).await;
+        self.display
+            .driver
+            .draw_string(
+                "CV",
+                TextBox::simple(0, 50, BinaryColor::On),
+                FontSize::Medium,
+            )
+            .await;
+
+        let cv_dest_a = self.eg_config.cv_a_destination();
+        let cv_dest_b = self.eg_config.cv_b_destination();
+
+        let pos_attack = (7, 18);
+        let pos_decay = (43, 6);
+        let pos_sustain = (84, 6);
+        let pos_release = (121, 18);
+        let pos_extra_1 = (43, 30);
+        let pos_extra_2 = (84, 30);
+
+        self.draw_cv_pot(pos_attack, &cv_dest_a, PotKind::Attack)
+            .await;
+        self.draw_cv_pot(pos_decay, &cv_dest_a, PotKind::Decay)
+            .await;
+        self.draw_cv_pot(pos_sustain, &cv_dest_b, PotKind::Sustain)
+            .await;
+        self.draw_cv_pot(pos_release, &cv_dest_b, PotKind::Release)
+            .await;
+        self.draw_cv_pot(pos_extra_1, &cv_dest_a, PotKind::Extra1)
+            .await;
+        self.draw_cv_pot(pos_extra_2, &cv_dest_b, PotKind::Extra2)
+            .await;
+
+        let jack_dia = 9;
+        let pos_cv_1 = (49, 54);
+        let pos_cv_2 = (78, 54);
+        self.draw_cv_node(pos_cv_1, jack_dia, true).await;
+        self.draw_cv_node(pos_cv_2, jack_dia, true).await;
+
+        let cv_a_to_attack = [pos_cv_1, (26, 40), (16, 30), pos_attack];
+        let cv_a_to_decay = [pos_cv_1, (58, 39), (55, 18), pos_decay];
+        let cv_a_to_sustain = [pos_cv_1, (59, 37), (68, 20), pos_sustain];
+        let cv_a_to_release = [pos_cv_1, (66, 45), (92, 43), (110, 33), pos_release];
+        let cv_a_to_extra_1 = [pos_cv_1, (40, 42), pos_extra_1];
+        let cv_a_to_extra_2 = [pos_cv_1, (62, 41), pos_extra_2];
+
+        let mut mirror: [(i32, i32); 5] = [(0, 0); 5];
+
+        let points_or_none: Option<&[(i32, i32)]> = match cv_dest_a {
+            PotKind::Attack => Some(&cv_a_to_attack),
+            PotKind::Decay => Some(&cv_a_to_decay),
+            PotKind::Sustain => Some(&cv_a_to_sustain),
+            PotKind::Release => Some(&cv_a_to_release),
+            PotKind::Extra1 => Some(&cv_a_to_extra_1),
+            PotKind::Extra2 => Some(&cv_a_to_extra_2),
+            _ => None,
+        };
+        if let Some(points) = points_or_none {
+            self.display
+                .driver
+                .draw_spline(points, 18, BinaryColor::On)
+                .await;
+        };
+
+        let points_or_none: Option<&[(i32, i32)]> = match cv_dest_b {
+            PotKind::Attack => Some(&cv_a_to_release),
+            PotKind::Decay => Some(&cv_a_to_sustain),
+            PotKind::Sustain => Some(&cv_a_to_decay),
+            PotKind::Release => Some(&cv_a_to_attack),
+            PotKind::Extra1 => Some(&cv_a_to_extra_2),
+            PotKind::Extra2 => Some(&cv_a_to_extra_1),
+            _ => None,
+        };
+        if let Some(points) = points_or_none {
+            self.flip(points, &mut mirror);
+            self.display
+                .driver
+                .draw_spline(&mirror[0..points.len()], 18, BinaryColor::On)
+                .await;
+        }
+
+        self.display.driver.flush().await;
+    }
+
+    fn flip(&self, original: &[(i32, i32)], mirror: &mut [(i32, i32)]) {
+        for i in 0..original.len() {
+            mirror[i] = (127 - original[i].0, original[i].1);
+        }
+    }
+
+    async fn draw_cv_pot(&mut self, center: (i32, i32), cv_dest: &PotKind, pot_kind: PotKind) {
+        let knob_diameter = 13;
+        self.draw_cv_node(center, knob_diameter, *cv_dest == pot_kind)
+            .await;
+    }
+
+    async fn draw_cv_node(&mut self, center: (i32, i32), diameter: u32, in_use: bool) {
+        let top_left_x = center.0 - diameter as i32 / 2;
+        let top_left_y = center.1 - diameter as i32 / 2;
+        let styled = PrimitiveStyleBuilder::new()
+            .stroke_alignment(StrokeAlignment::Inside)
+            .stroke_width(1)
+            .stroke_color(BinaryColor::On)
+            .build();
+        self.display
+            .driver
+            .draw_circle((top_left_x, top_left_y), diameter, styled)
+            .await;
+        if in_use {
+            self.display
+                .driver
+                .draw_circle((center.0 - 2, center.1 - 2), 5, self.fill_area)
+                .await;
+        }
+    }
+
     // Utils /////////////////////////////////////////////////////////////////////////////////////
 
     #[inline]
@@ -609,7 +729,7 @@ impl<'a> InOperationMode<'a> {
     async fn _draw_node(&mut self, top_left_x: i32, top_left_y: i32) {
         self.display
             .driver
-            .draw_circle((top_left_x, top_left_y), _NODE_SIZE, self._fill_area)
+            .draw_circle((top_left_x, top_left_y), _NODE_SIZE, self.fill_area)
             .await;
     }
 

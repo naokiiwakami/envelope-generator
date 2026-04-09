@@ -116,6 +116,7 @@ pub enum Request {
         polarity_2: OutputPolarity,
         is_draw: bool,
     },
+    ShowCvAssignment,
     DisplayText {
         text: String<32>,
         text_box: TextBox,
@@ -155,7 +156,8 @@ impl Request {
             | Self::UpdatePot { .. }
             | Self::ShowPolarity { .. }
             | Self::SetPolarityChangeTargets { .. }
-            | Self::UpdatePolarities { .. } => Mode::InOperation,
+            | Self::UpdatePolarities { .. }
+            | Self::ShowCvAssignment => Mode::InOperation,
             Self::DisplayEngineTypeMenuItem { .. } => Mode::EngineTypeMenu,
             Self::DisplayAdminMenuItem { .. } => Mode::AdminMenu,
             Self::UpdatePotForDiag { .. } => Mode::PotsDiag,
@@ -179,6 +181,7 @@ impl Request {
             Self::ShowPolarity { .. } => "ShowPolarity",
             Self::SetPolarityChangeTargets { .. } => "SetPolarityChangeTargets",
             Self::UpdatePolarities { .. } => "UpdatePolarities",
+            Self::ShowCvAssignment => "ShowCvAssignment",
             Self::DisplayEngineTypeMenuItem { .. } => "DisplayEngineTypeMenuItem",
             Self::DisplayAdminMenuItem { .. } => "DisplayAdminMenuItem",
             Self::UpdatePotForDiag { .. } => "UpdatePotForDiag",
