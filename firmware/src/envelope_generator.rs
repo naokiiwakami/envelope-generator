@@ -14,6 +14,7 @@ use analog3::{
     rng,
     storage::{self, load_string, load_u8, load_u16, load_u16_or_default, load_u32},
 };
+use core::sync::atomic::{AtomicU32, Ordering};
 use defmt::{debug, warn};
 use embassy_executor::Spawner;
 use embassy_futures::{
@@ -24,6 +25,7 @@ use embassy_stm32::{dac::Dac, flash::Error, gpio::Output, interrupt, mode::Block
 use embassy_sync::{
     blocking_mutex::raw::ThreadModeRawMutex,
     channel::{self, Channel},
+    mutex::Mutex,
     pubsub::{self, PubSubChannel},
     signal::Signal,
 };
@@ -33,10 +35,11 @@ use {defmt_rtt as _, panic_probe as _};
 
 use crate::{
     addresses::{
-        ADDR_EG_TYPE_1, ADDR_OUT_ZERO_POINT_1, ADDR_OUT_ZERO_POINT_2, ADDR_OUTPUT_POLARITY_1,
-        ADDR_VOICE_ID_1,
+        ADDR_CV_A_DEST_ADSR, ADDR_CV_A_DEST_LINEAR, ADDR_CV_A_DEST_PARA_DECAYS,
+        ADDR_CV_A_DEST_TWO_DECAYS, ADDR_EG_TYPE_1, ADDR_OUT_ZERO_POINT_1, ADDR_OUT_ZERO_POINT_2,
+        ADDR_OUTPUT_POLARITY_1, ADDR_VOICE_ID_1,
     },
-    definitions::CvKind,
+    definitions::{CvKind, PotKind},
     input_reader::{InputReaderInfo, get_reader_info_receiver},
 };
 
@@ -57,6 +60,10 @@ pub use self::{
         OutputPolarity,
     },
 };
+
+// UID and string
+static UID: AtomicU32 = AtomicU32::new(u32::MAX);
+static NAME: Mutex<ThreadModeRawMutex, String<A3_MAX_PROP_DATA_SIZE>> = Mutex::new(String::new());
 
 // parameter tweaks
 const POLLING_INTERVAL: Duration = Duration::from_micros(50); // 20 kHz
@@ -104,22 +111,28 @@ pub async fn start(
     ind_gate_2: Output<'static>,
 ) {
     let mut eg_resources = EgResources::new(ind_gate_1, ind_gate_2);
-    retrieve_saved_config(&mut eg_resources).await;
+    retrieve_stored_config(&mut eg_resources).await;
     spawner.spawn(run_envelope_generator(dac_channels, eg_resources).unwrap());
 }
 
-async fn retrieve_saved_config(eg_resources: &mut EgResources) {
+async fn retrieve_stored_config(eg_resources: &mut EgResources) {
+    load_uid().await;
+    load_name().await;
     for index in 0..2 {
         eg_resources
             .config
             .set_voice_id(index, load_voice_id(index).await);
-        eg_resources
-            .config
-            .set_engine_type(index, load_engine_type(index).await);
+        let engine_type = load_engine_type(index).await;
+        eg_resources.config.set_engine_type(index, engine_type);
         eg_resources.voice_params[index].out_zero_point = load_out_zero_point(index).await;
         let polarity = load_out_polarity(index).await;
         eg_resources.voice_params[index].value_to_output = choose_output_converter(&polarity);
         eg_resources.config.set_out_polarity(index, polarity);
+        if index == 0 {
+            let (cv_a_destination, cv_b_destination) = load_cv_destinations(engine_type).await;
+            eg_resources.config.set_cv_a_destination(cv_a_destination);
+            eg_resources.config.set_cv_b_destination(cv_b_destination);
+        }
     }
 }
 
@@ -159,8 +172,8 @@ async fn save_engine_type(voice_index: usize, engine_type: &EngineType) {
 
 async fn load_out_polarity(voice_index: usize) -> OutputPolarity {
     let address = ADDR_OUTPUT_POLARITY_1 + voice_index as u16;
-    let type_id = load_u8(address, &SIGNAL_STORAGE).await;
-    match OutputPolarity::try_from(type_id) {
+    let polarity_id = load_u8(address, &SIGNAL_STORAGE).await;
+    match OutputPolarity::try_from(polarity_id) {
         Ok(polarity) => polarity,
         Err(()) => {
             let polarity = OutputPolarity::Positive;
@@ -179,6 +192,52 @@ async fn save_out_polarity(voice_index: usize, polarity: OutputPolarity) {
         .unwrap();
 }
 
+async fn load_cv_destinations(engine_type: EngineType) -> (PotKind, PotKind) {
+    let (address, default_a, default_b) = match engine_type {
+        EngineType::Adsr => (ADDR_CV_A_DEST_ADSR, PotKind::Attack, PotKind::Decay),
+        EngineType::TwoDecays => (ADDR_CV_A_DEST_TWO_DECAYS, PotKind::Attack, PotKind::Decay),
+        EngineType::ParaDecays => (ADDR_CV_A_DEST_PARA_DECAYS, PotKind::Attack, PotKind::Decay),
+        EngineType::Linear => (ADDR_CV_A_DEST_LINEAR, PotKind::Attack, PotKind::Decay),
+    };
+    let pot_kind_id = load_u8(address, &SIGNAL_STORAGE).await;
+    let destination_a = match PotKind::try_from(pot_kind_id) {
+        Ok(pot_kind) => pot_kind,
+        Err(()) => {
+            storage::save(address, Value::U8(default_a as u8), &SIGNAL_STORAGE)
+                .await
+                .unwrap();
+            default_a
+        }
+    };
+    let pot_kind_id = load_u8(address + 1, &SIGNAL_STORAGE).await;
+    let destination_b = match PotKind::try_from(pot_kind_id) {
+        Ok(pot_kind) => pot_kind,
+        Err(()) => {
+            storage::save(address + 1, Value::U8(default_b as u8), &SIGNAL_STORAGE)
+                .await
+                .unwrap();
+            default_b
+        }
+    };
+
+    (destination_a, destination_b)
+}
+
+async fn save_cv_destination(engine_type: EngineType, cv_kind: CvKind, destination: PotKind) {
+    let mut address = match engine_type {
+        EngineType::Adsr => ADDR_CV_A_DEST_ADSR,
+        EngineType::TwoDecays => ADDR_CV_A_DEST_TWO_DECAYS,
+        EngineType::ParaDecays => ADDR_CV_A_DEST_PARA_DECAYS,
+        EngineType::Linear => ADDR_CV_A_DEST_LINEAR,
+    };
+    if matches!(cv_kind, CvKind::B) {
+        address += 1;
+    }
+    storage::save(address, Value::U8(destination as u8), &SIGNAL_STORAGE)
+        .await
+        .unwrap();
+}
+
 async fn load_out_zero_point(voice_index: usize) -> u16 {
     let value = load_u16_or_default(
         ADDR_OUT_ZERO_POINT_1 + 2 * voice_index as u16,
@@ -192,7 +251,8 @@ async fn load_out_zero_point(voice_index: usize) -> u16 {
 
 /// Loads UID of this module from the flash memory. If the UID is not determined yet,
 /// the method creates one and save it.
-pub async fn get_uid() -> u32 {
+async fn load_uid() {
+    debug!("loading UID");
     let mut uid = load_u32(A3_ADDR_MODULE_UID, &SIGNAL_STORAGE).await;
     debug!("loaded UID: {=u32:#x}", uid);
     if uid == u32::MAX {
@@ -202,24 +262,36 @@ pub async fn get_uid() -> u32 {
             .await
             .unwrap();
     }
-    uid
+    UID.store(uid, Ordering::Relaxed);
+}
+
+pub fn get_uid() -> u32 {
+    UID.load(Ordering::Relaxed)
 }
 
 /// Loads name of this module from the flash memory. If the name is not determined yet,
 /// the method uses the default name and save it.
-pub async fn get_name() -> String<A3_MAX_PROP_DATA_SIZE> {
-    let mut name = load_string(A3_ADDR_MODULE_NAME, &SIGNAL_STORAGE).await;
-    debug!("loaded name: {}", name.as_str());
-    if name.len() == 0 {
-        name = String::try_from("Humps").unwrap();
+async fn load_name() {
+    let mut loaded_name = load_string(A3_ADDR_MODULE_NAME, &SIGNAL_STORAGE).await;
+    debug!("loaded name: {}", loaded_name.as_str());
+    if loaded_name.len() == 0 {
+        loaded_name = String::try_from("Humps").unwrap();
         storage::save(
             A3_ADDR_MODULE_NAME,
-            Value::Text(name.clone()),
+            Value::Text(loaded_name.clone()),
             &SIGNAL_STORAGE,
         )
         .await
         .unwrap();
     }
+    let mut name = NAME.lock().await;
+    name.clone_from(&loaded_name);
+}
+
+pub async fn get_name() -> String<A3_MAX_PROP_DATA_SIZE> {
+    let s = NAME.lock().await;
+    let mut name = String::<A3_MAX_PROP_DATA_SIZE>::new();
+    name.clone_from(&s);
     name
 }
 
@@ -234,24 +306,30 @@ async fn run_envelope_generator(
 
     loop {
         match eg_resources.voice_params[0].operation_mode {
-            Mode::Normal => match eg_resources.config.engine_type(0) {
-                EngineType::ParaDecays => {
-                    let mut eg = EnvelopeGenerator::<ParaDecaysEngine>::new(&mut eg_resources);
-                    eg.run().await;
+            Mode::Normal => {
+                let engine_type = eg_resources.config.engine_type(0);
+                let (cv_a_destination, cv_b_destination) = load_cv_destinations(engine_type).await;
+                eg_resources.config.set_cv_a_destination(cv_a_destination);
+                eg_resources.config.set_cv_b_destination(cv_b_destination);
+                match engine_type {
+                    EngineType::ParaDecays => {
+                        let mut eg = EnvelopeGenerator::<ParaDecaysEngine>::new(&mut eg_resources);
+                        eg.run().await;
+                    }
+                    EngineType::TwoDecays => {
+                        let mut eg = EnvelopeGenerator::<TwoDecaysEngine>::new(&mut eg_resources);
+                        eg.run().await;
+                    }
+                    EngineType::Adsr => {
+                        let mut eg = EnvelopeGenerator::<AdsrEngine>::new(&mut eg_resources);
+                        eg.run().await;
+                    }
+                    EngineType::Linear => {
+                        let mut eg = EnvelopeGenerator::<LinearEngine>::new(&mut eg_resources);
+                        eg.run().await;
+                    }
                 }
-                EngineType::Addsr => {
-                    let mut eg = EnvelopeGenerator::<TwoDecaysEngine>::new(&mut eg_resources);
-                    eg.run().await;
-                }
-                EngineType::Adsr => {
-                    let mut eg = EnvelopeGenerator::<AdsrEngine>::new(&mut eg_resources);
-                    eg.run().await;
-                }
-                EngineType::Linear => {
-                    let mut eg = EnvelopeGenerator::<LinearEngine>::new(&mut eg_resources);
-                    eg.run().await;
-                }
-            },
+            }
             Mode::Diagnose => {
                 let mut eg = EnvelopeGenerator::<DiagEngine>::new(&mut eg_resources);
                 eg.run().await;
@@ -433,13 +511,12 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
                 match source {
                     CvKind::A => {
                         self.config.set_cv_a_destination(destination);
-                        // TODO save
                     }
                     CvKind::B => {
                         self.config.set_cv_b_destination(destination);
-                        // TODO save
                     }
                 }
+                save_cv_destination(self.config.engine_type(0), source, destination).await;
                 false
             }
             EgRequest::ToggleMode { mode } => {

@@ -350,7 +350,7 @@ async fn main(spawner: Spawner) {
     )
     .await;
 
-    let uid = get_uid().await;
+    let uid = get_uid();
     let name = get_name().await;
 
     let a3_config = Analog3Config::new(MODULE_TYPE_HUMPS, uid, name.as_str());

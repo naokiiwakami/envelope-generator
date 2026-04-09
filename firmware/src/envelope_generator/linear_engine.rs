@@ -77,12 +77,20 @@ impl LinearEngine {
                 self.release_ratio =
                     calculate_linear_discharging_ratio(config.release(voice_index), mod_amount);
             }
+            PotKind::Extra1 => {
+                // TBD
+            }
             PotKind::Extra2 => {
                 let value = config.extra_2(voice_index);
                 config.set_note_scaling_depth(voice_index, value);
                 self.note_scale_depth = (value as u32) << 16;
             }
-            _ => {}
+            PotKind::CvADepth => {
+                self.cv_a_depth = (config.cv_a_depth() as u32) << 16;
+            }
+            PotKind::CvBDepth => {
+                self.cv_b_depth = (config.cv_b_depth() as u32) << 16;
+            }
         }
     }
 }

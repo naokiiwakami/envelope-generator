@@ -117,7 +117,7 @@ impl<'a> CvAssigner<'a> {
                 PotKind::Extra2,
                 PotKind::Extra1,
             ],
-            EngineType::Addsr => &[
+            EngineType::TwoDecays => &[
                 PotKind::Attack,
                 PotKind::Decay,
                 PotKind::Sustain,

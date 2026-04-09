@@ -809,24 +809,6 @@ impl<'a> InOperationMode<'a> {
     }
 
     #[inline(always)]
-    async fn _draw_node(&mut self, top_left_x: i32, top_left_y: i32) {
-        self.display
-            .driver
-            .draw_circle((top_left_x, top_left_y), _NODE_SIZE, self.fill_area)
-            .await;
-    }
-
-    #[inline(always)]
-    async fn erase_node(&mut self, center: (i32, i32), diameter: u32) {
-        let top_left_x = center.0 - diameter as i32 / 2;
-        let top_left_y = center.1 - diameter as i32 / 2;
-        self.display
-            .driver
-            .draw_circle((top_left_x, top_left_y), diameter, self.erase_area)
-            .await;
-    }
-
-    #[inline(always)]
     async fn draw_line(&mut self, start: (i32, i32), end: (i32, i32)) {
         self.display.driver.draw_line(start, end, self.stroke).await;
     }

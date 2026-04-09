@@ -15,6 +15,24 @@ pub enum PotKind {
     CvBDepth = 7,
 }
 
+impl TryFrom<u8> for PotKind {
+    type Error = ();
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Attack),
+            1 => Ok(Self::Decay),
+            2 => Ok(Self::Sustain),
+            3 => Ok(Self::Release),
+            4 => Ok(Self::Extra1),
+            5 => Ok(Self::Extra2),
+            6 => Ok(Self::CvADepth),
+            7 => Ok(Self::CvBDepth),
+            _ => Err(()),
+        }
+    }
+}
+
 pub trait AtomicEnumRepr: Copy + TryFrom<u8> {
     fn to_u8(self) -> u8;
 }
