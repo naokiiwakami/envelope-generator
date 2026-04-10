@@ -650,8 +650,8 @@ impl<'a> InOperationMode<'a> {
         self.draw_cv_pot(POS_EXTRA_2, flags[PotKind::Extra2 as usize])
             .await;
 
-        self.draw_cv_node(POS_CV_A, CV_JACK_DIAMETER, true).await;
-        self.draw_cv_node(POS_CV_B, CV_JACK_DIAMETER, true).await;
+        self.show_cv_source(POS_CV_A, true).await;
+        self.show_cv_source(POS_CV_B, true).await;
 
         let mut mirror: [(i32, i32); 5] = [(0, 0); 5];
 
@@ -697,14 +697,8 @@ impl<'a> InOperationMode<'a> {
                         .driver
                         .draw_spline(points, 18, BinaryColor::On)
                         .await;
-                    /*
-                    for i in 1..points.len() - 1 {
-                        let position = points[i];
-                        self.draw_cv_node(position, 3, false).await;
-                    }
-                    */
                 }
-                self.draw_cv_node(POS_CV_A, CV_JACK_DIAMETER, true).await;
+                self.show_cv_source(POS_CV_A, true).await;
                 // the erased line may have crossed with the other one. redraw.
                 if let Some(points) = path_from_b_to_dest(self.cv_b_destination) {
                     let mut mirror: [(i32, i32); 5] = [(0, 0); 5];
@@ -742,7 +736,7 @@ impl<'a> InOperationMode<'a> {
                         .draw_spline(&mirror[0..points.len()], 18, BinaryColor::On)
                         .await;
                 }
-                self.draw_cv_node(POS_CV_B, CV_JACK_DIAMETER, true).await;
+                self.show_cv_source(POS_CV_B, true).await;
                 // the erased line may have crossed with the other one. redraw.
                 if let Some(points) = path_from_a_to_dest(self.cv_a_destination) {
                     self.display
@@ -756,7 +750,13 @@ impl<'a> InOperationMode<'a> {
         }
     }
 
-    async fn blink_cv_source(&mut self, source: CvKind, turn_on: bool) {}
+    async fn blink_cv_source(&mut self, source: CvKind, turn_on: bool) {
+        match source {
+            CvKind::A => self.show_cv_source(POS_CV_A, turn_on).await,
+            CvKind::B => self.show_cv_source(POS_CV_B, turn_on).await,
+        }
+        self.display.driver.flush().await;
+    }
 
     fn flip(&self, original: &[(i32, i32)], mirror: &mut [(i32, i32)]) {
         for i in 0..original.len() {
@@ -777,7 +777,7 @@ impl<'a> InOperationMode<'a> {
             .await;
         let styled = PrimitiveStyleBuilder::new()
             .stroke_alignment(StrokeAlignment::Inside)
-            .stroke_width(1)
+            .stroke_width(2)
             .stroke_color(BinaryColor::On)
             .build();
         self.display
@@ -785,7 +785,7 @@ impl<'a> InOperationMode<'a> {
             .draw_circle(
                 (top_left_x, top_left_y),
                 diameter,
-                if in_use { self.stroke } else { self.fill_area },
+                if in_use { styled } else { self.fill_area },
             )
             .await;
         self.display
@@ -800,6 +800,26 @@ impl<'a> InOperationMode<'a> {
                 },
             )
             .await;
+    }
+
+    async fn show_cv_source(&mut self, center: (i32, i32), turn_on: bool) {
+        let diameter = CV_JACK_DIAMETER;
+        let top_left_x = center.0 - diameter as i32 / 2;
+        let top_left_y = center.1 - diameter as i32 / 2;
+        self.display
+            .driver
+            .draw_circle((top_left_x, top_left_y), diameter, self.erase_area)
+            .await;
+        self.display
+            .driver
+            .draw_circle((top_left_x, top_left_y), diameter, self.stroke)
+            .await;
+        if turn_on {
+            self.display
+                .driver
+                .draw_circle((center.0 - 2, center.1 - 2), 5, self.fill_area)
+                .await;
+        }
     }
 
     // Utils /////////////////////////////////////////////////////////////////////////////////////

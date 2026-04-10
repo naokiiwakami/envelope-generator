@@ -31,15 +31,29 @@ impl<'a> CvAssigner<'a> {
         defmt::debug!("CvAssigner.execute()");
         self.assign_cv(CvKind::A).await;
         self.assign_cv(CvKind::B).await;
+        for _ in 0..7 {
+            Timer::after_millis(60).await;
+            self.control_panel.ind_green.set_high();
+            Timer::after_millis(60).await;
+            self.control_panel.ind_green.set_low();
+        }
         self.control_panel.ind_red.set_low();
         self.control_panel.ind_green.set_low();
     }
 
     async fn assign_cv(&mut self, cv_kind: CvKind) {
         self.control_panel.smash_counter();
-        let (current_destination, skip) = match cv_kind {
-            CvKind::A => (self.current_cv_a_destination, self.current_cv_b_destination),
-            CvKind::B => (self.current_cv_b_destination, self.current_cv_a_destination),
+        let (current_destination, skip, mut blink_remaining) = match cv_kind {
+            CvKind::A => (
+                self.current_cv_a_destination,
+                self.current_cv_b_destination,
+                0i32,
+            ),
+            CvKind::B => (
+                self.current_cv_b_destination,
+                self.current_cv_a_destination,
+                14i32,
+            ),
         };
 
         let mut candidates: Vec<PotKind, 5> = Vec::new();
@@ -60,13 +74,23 @@ impl<'a> CvAssigner<'a> {
 
         let mut current_index = original_index;
         let mut iteration_count = 0;
+        let mut turn_on = false;
+
+        self.control_panel.ind_red.set_low();
+        self.control_panel.ind_green.set_low();
+
         loop {
             Timer::after_millis(10).await;
-            iteration_count += 1;
-            if iteration_count % 25 == 0 {
-                self.control_panel.ind_red.toggle();
-                self.control_panel.ind_green.toggle();
+            if blink_remaining >= 0 && iteration_count % 6 == 0 {
+                if blink_remaining > 0 {
+                    self.control_panel.ind_green.toggle();
+                } else {
+                    self.control_panel.ind_red.set_high();
+                    self.control_panel.ind_green.set_high();
+                }
+                blink_remaining -= 1;
             }
+            iteration_count += 1;
             if self.control_panel.button.get_level() == Level::Low {
                 if self.control_panel.button_pressed_at.is_none() {
                     self.control_panel.button_pressed_at = Some(Instant::now());
@@ -87,14 +111,15 @@ impl<'a> CvAssigner<'a> {
                     CvKind::A => self.current_cv_a_destination = new_destination,
                     CvKind::B => self.current_cv_b_destination = new_destination,
                 };
+                self.control_panel
+                    .display_request_sender
+                    .send(DisplayRequest::BlinkCvSource {
+                        source: cv_kind,
+                        turn_on: true,
+                    })
+                    .await;
                 self.control_panel.ind_red.set_low();
                 self.control_panel.ind_green.set_low();
-                for _ in 0..7 {
-                    Timer::after_millis(60).await;
-                    self.control_panel.ind_green.set_high();
-                    Timer::after_millis(60).await;
-                    self.control_panel.ind_green.set_low();
-                }
                 return;
             } else {
                 let raw = self.control_panel.encoder.count() as i16;
@@ -104,19 +129,28 @@ impl<'a> CvAssigner<'a> {
                 if next_index < 0 {
                     next_index += candidates.len() as i32;
                 }
-                if next_index as usize == current_index {
-                    continue;
+                if next_index as usize != current_index {
+                    current_index = next_index as usize;
+                    let next_destination = candidates[current_index];
+                    defmt::debug!("next dest: {:?}, delta: {}", next_destination, delta);
+                    self.control_panel
+                        .display_request_sender
+                        .send(DisplayRequest::UpdateCvAssignment {
+                            source: cv_kind,
+                            destination: next_destination,
+                        })
+                        .await;
                 }
-                current_index = next_index as usize;
-                let next_destination = candidates[current_index];
-                defmt::debug!("next dest: {:?}, delta: {}", next_destination, delta);
-                self.control_panel
-                    .display_request_sender
-                    .send(DisplayRequest::UpdateCvAssignment {
-                        source: cv_kind,
-                        destination: next_destination,
-                    })
-                    .await;
+                if iteration_count % 25 == 0 {
+                    self.control_panel
+                        .display_request_sender
+                        .send(DisplayRequest::BlinkCvSource {
+                            source: cv_kind,
+                            turn_on,
+                        })
+                        .await;
+                    turn_on = !turn_on;
+                }
             }
         }
     }
