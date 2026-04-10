@@ -7,12 +7,13 @@ use embedded_graphics::{
 use ssd1306_lite::{FontSize, TextBox};
 
 use crate::{
+    control_panel::display::definitions::{BOTTOM, LEFT, TOP},
     definitions::{CvKind, PotKind},
     envelope_generator::{ConfigReader, EngineType, OutputPolarity},
     input_reader::PotInfo,
 };
 
-use super::{adsr_home::AdsrHome, linear_home::LinearHome, Display, ENGINE_TYPE_MENU_ITEMS, Mode, Request};
+use super::{Display, ENGINE_TYPE_MENU_ITEMS, Mode, Request, adsr_home, linear_home};
 
 // CV assignment display constants
 const POS_ATTACK: (i32, i32) = (7, 18);
@@ -39,8 +40,12 @@ pub struct InOperationMode<'a> {
     pub(super) display: &'a mut Display,
 
     pub(super) eg_config: ConfigReader,
-    adsr_home: AdsrHome,
-    linear_home: LinearHome,
+
+    // current displaying parameters
+    pub(super) attack: i32,
+    pub(super) decay: i32,
+    pub(super) sustain: i32,
+    pub(super) release: i32,
 
     cv_destination_a: PotKind,
     cv_destination_b: PotKind,
@@ -54,19 +59,15 @@ pub struct InOperationMode<'a> {
 
 const _NODE_SIZE: u32 = 3;
 
-// window edges
-const LEFT: i32 = 0;
-const RIGHT: i32 = 127;
-const TOP: i32 = 0;
-const BOTTOM: i32 = 28;
-
 impl<'a> InOperationMode<'a> {
     pub fn new(display: &'a mut Display) -> Self {
         Self {
             display,
             eg_config: ConfigReader::new(),
-            adsr_home: AdsrHome::new(),
-            linear_home: LinearHome::new(),
+            attack: 0,
+            decay: 0,
+            sustain: 0,
+            release: 0,
             cv_destination_a: PotKind::Decay,
             cv_destination_b: PotKind::Sustain,
             erase_area: PrimitiveStyleBuilder::new()
@@ -158,21 +159,18 @@ impl<'a> InOperationMode<'a> {
 
         debug!("showing {} home page", engine_type);
 
+        self.attack = self.attack_pos(attack);
+        self.decay = self.decay_pos(decay, self.attack);
+        self.sustain = self.sustain_pos(sustain);
+        self.release = self.release_pos(release);
+
         self.display.current_engine_type = engine_type;
         match self.display.current_engine_type {
             EngineType::Adsr => {
-                let mut adsr_home = core::mem::replace(&mut self.adsr_home, AdsrHome::new());
-                adsr_home
-                    .show_home_page(self, attack, decay, sustain, release, extra_1, extra_2)
-                    .await;
-                self.adsr_home = adsr_home;
+                adsr_home::show_home_page(self).await;
             }
             EngineType::Linear => {
-                let mut linear_home = core::mem::replace(&mut self.linear_home, LinearHome::new());
-                linear_home
-                    .show_home_page(self, attack, decay, sustain, release, extra_1, extra_2)
-                    .await;
-                self.linear_home = linear_home;
+                linear_home::show_home_page(self).await;
             }
             _ => {
                 self.show_default_home_page(attack, decay, sustain, release, extra_1, extra_2)
@@ -202,16 +200,8 @@ impl<'a> InOperationMode<'a> {
 
     async fn update_pot(&mut self, pot_info: PotInfo) {
         match self.display.current_engine_type {
-            EngineType::Adsr => {
-                let mut adsr_home = core::mem::replace(&mut self.adsr_home, AdsrHome::new());
-                adsr_home.update_pot(self, pot_info).await;
-                self.adsr_home = adsr_home;
-            }
-            EngineType::Linear => {
-                let mut linear_home = core::mem::replace(&mut self.linear_home, LinearHome::new());
-                linear_home.update_pot(self, pot_info).await;
-                self.linear_home = linear_home;
-            }
+            EngineType::Adsr => adsr_home::update_pot(self, pot_info).await,
+            EngineType::Linear => linear_home::update_pot(self, pot_info).await,
             _ => {}
         }
     }

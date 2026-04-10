@@ -1,137 +1,123 @@
 use crate::{definitions::PotKind, input_reader::PotInfo};
 
-use super::in_operation_mode::InOperationMode;
+use super::{
+    definitions::{BOTTOM, LEFT, RIGHT, TOP},
+    in_operation_mode::InOperationMode,
+};
 
-pub struct AdsrHome {
-    attack: i32,
-    decay: i32,
-    sustain: i32,
-    release: i32,
+pub async fn show_home_page<'a>(parent: &mut InOperationMode<'a>) {
+    parent.display.clear(false, false).await;
+
+    parent
+        .draw_curve((LEFT, BOTTOM), (parent.attack, TOP))
+        .await;
+    parent
+        .draw_curve((parent.attack, TOP), (parent.decay, parent.sustain))
+        .await;
+    parent
+        .draw_line(
+            (parent.decay, parent.sustain),
+            (parent.release, parent.sustain),
+        )
+        .await;
+    parent
+        .draw_curve((parent.release, parent.sustain), (RIGHT, BOTTOM))
+        .await;
+
+    parent
+        .draw_note_scaling_bar(parent.eg_config.note_scaling_depth(0))
+        .await;
+
+    parent.display.driver.flush().await;
 }
 
-impl AdsrHome {
-    pub fn new() -> Self {
-        Self {
-            attack: 0,
-            decay: 0,
-            sustain: 0,
-            release: 0,
+pub async fn update_pot<'a>(parent: &mut InOperationMode<'a>, pot_info: PotInfo) {
+    match pot_info.kind {
+        PotKind::Attack => {
+            let next_attack = parent.attack_pos(pot_info.value);
+            if next_attack == parent.attack {
+                return;
+            }
+            parent.attack = next_attack;
+
+            parent.erase_x_range(LEFT, parent.attack).await;
+            parent
+                .draw_curve((LEFT, BOTTOM), (parent.attack, TOP))
+                .await;
         }
-    }
-
-    pub async fn show_home_page<'a>(
-        &mut self,
-        parent: &mut InOperationMode<'a>,
-        attack: u16,
-        decay: u16,
-        sustain: u16,
-        release: u16,
-        _extra_1: u16,
-        _extra_2: u16,
-    ) {
-        parent.display.clear(false, false).await;
-
-        self.attack = parent.attack_pos(attack);
-        self.decay = parent.decay_pos(decay, self.attack);
-        self.sustain = parent.sustain_pos(sustain);
-        self.release = parent.release_pos(release);
-
-        parent.draw_curve((LEFT, BOTTOM), (self.attack, TOP)).await;
-        parent
-            .draw_curve((self.attack, TOP), (self.decay, self.sustain))
-            .await;
-        parent
-            .draw_line((self.decay, self.sustain), (self.release, self.sustain))
-            .await;
-        parent
-            .draw_curve((self.release, self.sustain), (RIGHT, BOTTOM))
-            .await;
-
-        parent
-            .draw_note_scaling_bar(parent.eg_config.note_scaling_depth(0))
-            .await;
-
-        parent.display.driver.flush().await;
-    }
-
-    pub async fn update_pot<'a>(&mut self, parent: &mut InOperationMode<'a>, pot_info: PotInfo) {
-        match pot_info.kind {
-            PotKind::Attack => {
-                let next_attack = parent.attack_pos(pot_info.value);
-                if next_attack == self.attack {
-                    return;
-                }
-                self.attack = next_attack;
-
-                parent.erase_x_range(LEFT, self.attack).await;
-                parent.draw_curve((LEFT, BOTTOM), (self.attack, TOP)).await;
+        PotKind::Decay => {
+            let next_decay = parent.decay_pos(pot_info.value, parent.attack);
+            if next_decay == parent.decay {
+                return;
             }
-            PotKind::Decay => {
-                let next_decay = parent.decay_pos(pot_info.value, self.attack);
-                if next_decay == self.decay {
-                    return;
-                }
-                self.decay = next_decay;
+            parent.decay = next_decay;
 
-                parent.erase_x_range(self.attack, self.release).await;
+            parent.erase_x_range(parent.attack, parent.release).await;
+            parent
+                .draw_curve((parent.attack, TOP), (parent.decay, parent.sustain))
+                .await;
+            parent
+                .draw_line(
+                    (parent.decay, parent.sustain),
+                    (parent.release, parent.sustain),
+                )
+                .await;
+            if parent.attack < LEFT + 2 {
                 parent
-                    .draw_curve((self.attack, TOP), (self.decay, self.sustain))
-                    .await;
-                parent
-                    .draw_line((self.decay, self.sustain), (self.release, self.sustain))
-                    .await;
-                if self.attack < LEFT + 2 {
-                    parent.draw_curve((LEFT, BOTTOM), (self.attack, TOP)).await;
-                }
-            }
-            PotKind::Sustain => {
-                let next_sustain = parent.sustain_pos(pot_info.value);
-                if next_sustain == self.sustain {
-                    return;
-                }
-                self.sustain = next_sustain;
-
-                parent.erase_x_range(self.attack, RIGHT).await;
-                parent
-                    .draw_curve((self.attack, TOP), (self.decay, self.sustain))
-                    .await;
-                parent
-                    .draw_line((self.decay, self.sustain), (self.release, self.sustain))
-                    .await;
-                parent
-                    .draw_curve((self.release, self.sustain), (RIGHT, BOTTOM))
-                    .await;
-                if self.attack < LEFT + 2 {
-                    parent.draw_curve((LEFT, BOTTOM), (self.attack, TOP)).await;
-                }
-            }
-            PotKind::Release => {
-                let next_release = parent.release_pos(pot_info.value);
-                if next_release == self.release {
-                    return;
-                }
-                self.release = next_release;
-
-                parent.erase_x_range(self.decay, RIGHT).await;
-                parent
-                    .draw_line((self.decay, self.sustain), (self.release, self.sustain))
-                    .await;
-                parent
-                    .draw_curve((self.release, self.sustain), (RIGHT, BOTTOM))
+                    .draw_curve((LEFT, BOTTOM), (parent.attack, TOP))
                     .await;
             }
-            PotKind::Extra2 => {
-                parent
-                    .draw_note_scaling_bar(parent.eg_config.note_scaling_depth(0))
-                    .await;
-            }
-            _ => {}
         }
-        parent.display.driver.flush().await;
+        PotKind::Sustain => {
+            let next_sustain = parent.sustain_pos(pot_info.value);
+            if next_sustain == parent.sustain {
+                return;
+            }
+            parent.sustain = next_sustain;
+
+            parent.erase_x_range(parent.attack, RIGHT).await;
+            parent
+                .draw_curve((parent.attack, TOP), (parent.decay, parent.sustain))
+                .await;
+            parent
+                .draw_line(
+                    (parent.decay, parent.sustain),
+                    (parent.release, parent.sustain),
+                )
+                .await;
+            parent
+                .draw_curve((parent.release, parent.sustain), (RIGHT, BOTTOM))
+                .await;
+            if parent.attack < LEFT + 2 {
+                parent
+                    .draw_curve((LEFT, BOTTOM), (parent.attack, TOP))
+                    .await;
+            }
+        }
+        PotKind::Release => {
+            let next_release = parent.release_pos(pot_info.value);
+            if next_release == parent.release {
+                return;
+            }
+            parent.release = next_release;
+
+            parent.erase_x_range(parent.decay, RIGHT).await;
+            parent
+                .draw_line(
+                    (parent.decay, parent.sustain),
+                    (parent.release, parent.sustain),
+                )
+                .await;
+            parent
+                .draw_curve((parent.release, parent.sustain), (RIGHT, BOTTOM))
+                .await;
+        }
+        PotKind::Extra2 => {
+            parent
+                .draw_note_scaling_bar(parent.eg_config.note_scaling_depth(0))
+                .await;
+        }
+        _ => {}
     }
+    parent.display.driver.flush().await;
 }
-
-const LEFT: i32 = 0;
-const RIGHT: i32 = 127;
-const TOP: i32 = 0;
-const BOTTOM: i32 = 28;

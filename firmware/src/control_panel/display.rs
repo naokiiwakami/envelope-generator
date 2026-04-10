@@ -1,4 +1,5 @@
 mod adsr_home;
+mod definitions;
 mod in_operation_mode;
 mod linear_home;
 mod menu_mode;
