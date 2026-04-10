@@ -4,6 +4,7 @@ mod diagnoser;
 mod display;
 mod menu;
 mod module_state;
+mod polarity_changer;
 
 use analog3::rng::make_local_rng;
 use defmt::{self, debug, error};
@@ -30,6 +31,7 @@ use crate::{
     input_reader::{InputReaderInfo, get_reader_info_receiver},
 };
 
+use self::polarity_changer::PolarityChanger;
 use self::{
     calibrator::Calibrator,
     cv_assigner::CvAssigner,
@@ -101,10 +103,6 @@ enum ControlPanelMode {
     EngineTypeSelected,
     AdminMenu,
     AdminActionSelected,
-    ChooseChangePolarityTarget,
-    ChangePolarityTargetSelected,
-    ChangePolarity,
-    PolarityChanged,
 }
 
 #[derive(Clone, Copy)]
@@ -141,7 +139,6 @@ struct ControlPanel {
     eg_config: ConfigReader,
     state: &'static ModuleState,
     engine_type_index: usize,
-    polarity_change_targets: u8,
 
     // rotary encoder
     encoder: Qei<'static, TIM3>,
@@ -177,7 +174,6 @@ impl ControlPanel {
             eg_config: ConfigReader::new(),
             state: &STATE,
             engine_type_index: 0,
-            polarity_change_targets: 0,
             encoder,
             button: encoder_button,
             ind_red: encoder_ind_red,
@@ -280,12 +276,6 @@ impl ControlPanel {
             ControlPanelMode::AdminMenu => {
                 self.mode = ControlPanelMode::AdminActionSelected;
             }
-            ControlPanelMode::ChooseChangePolarityTarget => {
-                self.mode = ControlPanelMode::ChangePolarityTargetSelected;
-            }
-            ControlPanelMode::ChangePolarity => {
-                self.mode = ControlPanelMode::PolarityChanged;
-            }
             _ => {}
         };
     }
@@ -315,10 +305,6 @@ impl ControlPanel {
                 self.ind_green.set_low();
                 self.execute_admin_action().await;
             }
-            ControlPanelMode::ChangePolarityTargetSelected => {
-                self.into_change_polarity_mode().await
-            }
-            ControlPanelMode::PolarityChanged => self.conclude_polarity_change().await,
             _ => {
                 self.ind_red.set_low();
                 self.ind_green.set_low();
@@ -329,10 +315,6 @@ impl ControlPanel {
     async fn regular_update(&mut self) {
         match self.mode {
             ControlPanelMode::Normal => self.update_normal().await,
-            ControlPanelMode::ChooseChangePolarityTarget => {
-                self.update_change_polarity_target().await
-            }
-            ControlPanelMode::ChangePolarity => self.update_change_polarity().await,
             ControlPanelMode::EngineTypeMenu => self.update_engine_type_menu().await,
             ControlPanelMode::AdminMenu => self.update_admin_menu().await,
             _ => {}
@@ -342,7 +324,11 @@ impl ControlPanel {
     async fn execute_action(&mut self, action: Action) {
         match action {
             Action::SelectEngineType => self.into_engine_type_menu_mode().await,
-            Action::SetupPolarity => self.into_change_polarity_select_mode().await,
+            Action::SetupPolarity => {
+                let mut polarity_changer = PolarityChanger::new(self);
+                polarity_changer.execute().await;
+                self.mode = ControlPanelMode::Normal;
+            }
             Action::AssignCv => self.assign_cv().await,
             Action::SetNoteScaling => {}
         }
@@ -412,133 +398,6 @@ impl ControlPanel {
             index: self.menu_item_index,
         };
         self.display_request_sender.send(request).await;
-    }
-
-    // Change Polarity mode //////////////////////////////////////////////////
-
-    async fn into_change_polarity_select_mode(&mut self) {
-        debug!("into change_polarity_select_mode");
-        self.into_menu_mode(
-            ControlPanelMode::ChooseChangePolarityTarget,
-            0,
-            true,
-            true,
-            true,
-        );
-        let targets = POLARITY_CHANGE_TARGET_ITEMS[0].selection;
-        self.display_request_sender
-            .send(DisplayRequest::SetPolarityChangeTargets { targets })
-            .await;
-    }
-
-    async fn update_change_polarity_target(&mut self) {
-        self.update_menu_index(POLARITY_CHANGE_TARGET_ITEMS.len());
-        if Instant::now().ge(&self.toggle_time) {
-            if self.ind_red.is_set_low() {
-                self.ind_red.set_high();
-                self.ind_green.set_high();
-                let targets = POLARITY_CHANGE_TARGET_ITEMS[self.menu_item_index].selection;
-                self.display_request_sender
-                    .send(DisplayRequest::SetPolarityChangeTargets { targets })
-                    .await;
-            } else {
-                self.ind_red.set_low();
-                self.ind_green.set_low();
-                self.display_request_sender
-                    .send(DisplayRequest::SetPolarityChangeTargets { targets: 0 })
-                    .await;
-            }
-            self.toggle_time = self.toggle_time.saturating_add(Duration::from_millis(500));
-        }
-    }
-
-    async fn into_change_polarity_mode(&mut self) {
-        self.mode = ControlPanelMode::ChangePolarity;
-        self.polarity_change_targets = POLARITY_CHANGE_TARGET_ITEMS[self.menu_item_index].selection;
-        self.smash_counter();
-        self.display_request_sender
-            .send(DisplayRequest::SetPolarityChangeTargets {
-                targets: self.polarity_change_targets,
-            })
-            .await;
-    }
-
-    async fn update_change_polarity(&mut self) {
-        if Instant::now().ge(&self.toggle_time) {
-            let targets = self.polarity_change_targets;
-            if self.ind_red.is_set_low() {
-                self.ind_red.set_high();
-                self.ind_green.set_high();
-
-                let mut polarity_1 = self.eg_config.out_polarity(0);
-                let mut polarity_2 = self.eg_config.out_polarity(1);
-                let voice_1 = (targets & 0x1) != 0;
-                let voice_2 = (targets & 0x2) != 0;
-                if voice_1 {
-                    polarity_1 = self.get_next_polarity(polarity_1);
-                }
-                if voice_2 {
-                    polarity_2 = self.get_next_polarity(polarity_2);
-                }
-
-                let targets = POLARITY_CHANGE_TARGET_ITEMS[self.menu_item_index].selection;
-                self.display_request_sender
-                    .send(DisplayRequest::UpdatePolarities {
-                        targets,
-                        polarity_1,
-                        polarity_2,
-                        is_draw: true,
-                    })
-                    .await;
-            } else {
-                self.ind_red.set_low();
-                self.ind_green.set_low();
-                self.display_request_sender
-                    .send(DisplayRequest::UpdatePolarities {
-                        targets,
-                        polarity_1: OutputPolarity::Positive,
-                        polarity_2: OutputPolarity::Positive,
-                        is_draw: false,
-                    })
-                    .await;
-            }
-            self.toggle_time = self.toggle_time.saturating_add(Duration::from_millis(500));
-        }
-    }
-
-    async fn conclude_polarity_change(&mut self) {
-        self.ind_red.set_low();
-        self.ind_green.set_low();
-        let targets = self.polarity_change_targets;
-        let voice_1 = (targets & 0x1) != 0;
-        let voice_2 = (targets & 0x2) != 0;
-        let mut polarity_1 = self.eg_config.out_polarity(0);
-        if voice_1 {
-            polarity_1 = self.get_next_polarity(polarity_1);
-        }
-        let mut polarity_2 = self.eg_config.out_polarity(1);
-        if voice_2 {
-            polarity_2 = self.get_next_polarity(polarity_2);
-        }
-        self.eg_request_sender
-            .send(EgRequest::ChangeOutputPolarities {
-                polarity_1,
-                polarity_2,
-                send_notif: false,
-            })
-            .await;
-        self.show_polarity(polarity_1, polarity_2).await;
-        self.mode = ControlPanelMode::Normal;
-    }
-
-    fn get_next_polarity(&self, current_polarity: OutputPolarity) -> OutputPolarity {
-        let raw = self.encoder.count() as i16;
-        let delta = (raw - self.encoder_last_raw) / 4;
-        let mut new_value: i8 = (current_polarity as u8 as i8 + (delta % 2) as i8) % 2;
-        if new_value < 0 {
-            new_value += 2;
-        }
-        OutputPolarity::try_from(new_value as u8).unwrap()
     }
 
     // CV Assignment mode /////////////////////////////////////////////////////
