@@ -1,4 +1,6 @@
+mod adsr_home;
 mod in_operation_mode;
+mod linear_home;
 mod menu_mode;
 
 use analog3::{
