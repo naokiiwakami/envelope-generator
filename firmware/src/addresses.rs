@@ -25,16 +25,16 @@ pub const ADDR_OUTPUT_POLARITY_1: u16 = ADDR_EG_TYPE_2 + 1; // U8
 pub const ADDR_OUTPUT_POLARITY_2: u16 = ADDR_OUTPUT_POLARITY_1 + 1; // U8
 // CV destinations are saved per engine type because their semantics are different.
 // we restore the engine's previous setup when loading an engine.
-pub const ADDR_CV_A_DEST_ADSR: u16 = ADDR_OUTPUT_POLARITY_2 + 1; // U8
-pub const ADDR_CV_B_DEST_ADSR: u16 = ADDR_CV_A_DEST_ADSR + 1; // U8
-pub const ADDR_CV_A_DEST_TWO_DECAYS: u16 = ADDR_CV_B_DEST_ADSR + 1; // U8
-pub const ADDR_CV_B_DEST_TWO_DECAYS: u16 = ADDR_CV_A_DEST_TWO_DECAYS + 1; // U8
-pub const ADDR_CV_A_DEST_PARA_DECAYS: u16 = ADDR_CV_B_DEST_TWO_DECAYS + 1; // U8
-pub const ADDR_CV_B_DEST_PARA_DECAYS: u16 = ADDR_CV_A_DEST_PARA_DECAYS + 1; // U8
-pub const ADDR_CV_A_DEST_LINEAR: u16 = ADDR_CV_B_DEST_PARA_DECAYS + 1; // U8
-pub const ADDR_CV_B_DEST_LINEAR: u16 = ADDR_CV_A_DEST_LINEAR + 1; // U8
+pub const ADDR_CV_DEST_A_ADSR: u16 = ADDR_OUTPUT_POLARITY_2 + 1; // U8
+pub const ADDR_CV_DEST_B_ADSR: u16 = ADDR_CV_DEST_A_ADSR + 1; // U8
+pub const ADDR_CV_DEST_A_TWO_DECAYS: u16 = ADDR_CV_DEST_B_ADSR + 1; // U8
+pub const ADDR_CV_DEST_B_TWO_DECAYS: u16 = ADDR_CV_DEST_A_TWO_DECAYS + 1; // U8
+pub const ADDR_CV_DEST_A_PARA_DECAYS: u16 = ADDR_CV_DEST_B_TWO_DECAYS + 1; // U8
+pub const ADDR_CV_DEST_B_PARA_DECAYS: u16 = ADDR_CV_DEST_A_PARA_DECAYS + 1; // U8
+pub const ADDR_CV_DEST_A_LINEAR: u16 = ADDR_CV_DEST_B_PARA_DECAYS + 1; // U8
+pub const ADDR_CV_DEST_B_LINEAR: u16 = ADDR_CV_DEST_A_LINEAR + 1; // U8
 
 // ensure the last address is within the page.
 const _: () = {
-    assert!(ADDR_CV_B_DEST_LINEAR + 1 <= PAGE_SIZE as u16);
+    assert!(ADDR_CV_DEST_B_LINEAR + 1 <= PAGE_SIZE as u16);
 };

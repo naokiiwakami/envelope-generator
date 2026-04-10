@@ -35,8 +35,8 @@ use {defmt_rtt as _, panic_probe as _};
 
 use crate::{
     addresses::{
-        ADDR_CV_A_DEST_ADSR, ADDR_CV_A_DEST_LINEAR, ADDR_CV_A_DEST_PARA_DECAYS,
-        ADDR_CV_A_DEST_TWO_DECAYS, ADDR_EG_TYPE_1, ADDR_OUT_ZERO_POINT_1, ADDR_OUT_ZERO_POINT_2,
+        ADDR_CV_DEST_A_ADSR, ADDR_CV_DEST_A_LINEAR, ADDR_CV_DEST_A_PARA_DECAYS,
+        ADDR_CV_DEST_A_TWO_DECAYS, ADDR_EG_TYPE_1, ADDR_OUT_ZERO_POINT_1, ADDR_OUT_ZERO_POINT_2,
         ADDR_OUTPUT_POLARITY_1, ADDR_VOICE_ID_1,
     },
     definitions::{CvKind, PotKind},
@@ -129,9 +129,9 @@ async fn retrieve_stored_config(eg_resources: &mut EgResources) {
         eg_resources.voice_params[index].value_to_output = choose_output_converter(&polarity);
         eg_resources.config.set_out_polarity(index, polarity);
         if index == 0 {
-            let (cv_a_destination, cv_b_destination) = load_cv_destinations(engine_type).await;
-            eg_resources.config.set_cv_a_destination(cv_a_destination);
-            eg_resources.config.set_cv_b_destination(cv_b_destination);
+            let (cv_destination_a, cv_destination_b) = load_cv_destinations(engine_type).await;
+            eg_resources.config.set_cv_destination_a(cv_destination_a);
+            eg_resources.config.set_cv_destination_b(cv_destination_b);
         }
     }
 }
@@ -194,10 +194,10 @@ async fn save_out_polarity(voice_index: usize, polarity: OutputPolarity) {
 
 async fn load_cv_destinations(engine_type: EngineType) -> (PotKind, PotKind) {
     let (address, default_a, default_b) = match engine_type {
-        EngineType::Adsr => (ADDR_CV_A_DEST_ADSR, PotKind::Attack, PotKind::Decay),
-        EngineType::TwoDecays => (ADDR_CV_A_DEST_TWO_DECAYS, PotKind::Attack, PotKind::Decay),
-        EngineType::ParaDecays => (ADDR_CV_A_DEST_PARA_DECAYS, PotKind::Attack, PotKind::Decay),
-        EngineType::Linear => (ADDR_CV_A_DEST_LINEAR, PotKind::Attack, PotKind::Decay),
+        EngineType::Adsr => (ADDR_CV_DEST_A_ADSR, PotKind::Attack, PotKind::Decay),
+        EngineType::TwoDecays => (ADDR_CV_DEST_A_TWO_DECAYS, PotKind::Attack, PotKind::Decay),
+        EngineType::ParaDecays => (ADDR_CV_DEST_A_PARA_DECAYS, PotKind::Attack, PotKind::Decay),
+        EngineType::Linear => (ADDR_CV_DEST_A_LINEAR, PotKind::Attack, PotKind::Decay),
     };
     let pot_kind_id = load_u8(address, &SIGNAL_STORAGE).await;
     let destination_a = match PotKind::try_from(pot_kind_id) {
@@ -225,10 +225,10 @@ async fn load_cv_destinations(engine_type: EngineType) -> (PotKind, PotKind) {
 
 async fn save_cv_destination(engine_type: EngineType, cv_kind: CvKind, destination: PotKind) {
     let mut address = match engine_type {
-        EngineType::Adsr => ADDR_CV_A_DEST_ADSR,
-        EngineType::TwoDecays => ADDR_CV_A_DEST_TWO_DECAYS,
-        EngineType::ParaDecays => ADDR_CV_A_DEST_PARA_DECAYS,
-        EngineType::Linear => ADDR_CV_A_DEST_LINEAR,
+        EngineType::Adsr => ADDR_CV_DEST_A_ADSR,
+        EngineType::TwoDecays => ADDR_CV_DEST_A_TWO_DECAYS,
+        EngineType::ParaDecays => ADDR_CV_DEST_A_PARA_DECAYS,
+        EngineType::Linear => ADDR_CV_DEST_A_LINEAR,
     };
     if matches!(cv_kind, CvKind::B) {
         address += 1;
@@ -308,9 +308,9 @@ async fn run_envelope_generator(
         match eg_resources.voice_params[0].operation_mode {
             Mode::Normal => {
                 let engine_type = eg_resources.config.engine_type(0);
-                let (cv_a_destination, cv_b_destination) = load_cv_destinations(engine_type).await;
-                eg_resources.config.set_cv_a_destination(cv_a_destination);
-                eg_resources.config.set_cv_b_destination(cv_b_destination);
+                let (cv_destination_a, cv_destination_b) = load_cv_destinations(engine_type).await;
+                eg_resources.config.set_cv_destination_a(cv_destination_a);
+                eg_resources.config.set_cv_destination_b(cv_destination_b);
                 match engine_type {
                     EngineType::ParaDecays => {
                         let mut eg = EnvelopeGenerator::<ParaDecaysEngine>::new(&mut eg_resources);
@@ -520,15 +520,15 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
                 debug!("change cv destination");
                 match source {
                     CvKind::A => {
-                        if self.config.cv_a_destination() != destination {
-                            self.config.set_cv_a_destination(destination);
+                        if self.config.cv_destination_a() != destination {
+                            self.config.set_cv_destination_a(destination);
                             save_cv_destination(self.config.engine_type(0), source, destination)
                                 .await;
                         }
                     }
                     CvKind::B => {
-                        if self.config.cv_b_destination() != destination {
-                            self.config.set_cv_b_destination(destination);
+                        if self.config.cv_destination_b() != destination {
+                            self.config.set_cv_destination_b(destination);
                             save_cv_destination(self.config.engine_type(0), source, destination)
                                 .await;
                         }

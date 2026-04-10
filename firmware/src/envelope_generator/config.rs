@@ -24,10 +24,10 @@ struct ConfigData {
     pub release: [u16; 2],
     pub extra_1: [u16; 2],
     pub extra_2: [u16; 2],
-    pub cv_a_destination: PotKind,
-    pub cv_a_depth: u16,
-    pub cv_b_destination: PotKind,
-    pub cv_b_depth: u16,
+    pub cv_destination_a: PotKind,
+    pub cv_depth_a: u16,
+    pub cv_destination_b: PotKind,
+    pub cv_depth_b: u16,
     pub out_polarity: [OutputPolarity; 2],
 
     pub note_scaling_depth: [u16; 2],
@@ -45,10 +45,10 @@ impl ConfigData {
             release: [0; 2],
             extra_1: [0; 2],
             extra_2: [0; 2],
-            cv_a_destination: PotKind::Decay,
-            cv_a_depth: 0,
-            cv_b_destination: PotKind::Sustain,
-            cv_b_depth: 0,
+            cv_destination_a: PotKind::Decay,
+            cv_depth_a: 0,
+            cv_destination_b: PotKind::Sustain,
+            cv_depth_b: 0,
             out_polarity: [OutputPolarity::Positive; 2],
 
             note_scaling_depth: [0x4000; 2], // 0.25
@@ -99,23 +99,23 @@ fn get_extra_2(voice_index: usize) -> u16 {
 }
 
 #[inline(always)]
-fn get_cv_a_destination() -> PotKind {
-    unsafe { CONFIG_DATA.cv_a_destination }
+fn get_cv_destination_a() -> PotKind {
+    unsafe { CONFIG_DATA.cv_destination_a }
 }
 
 #[inline(always)]
-fn get_cv_a_depth() -> u16 {
-    unsafe { CONFIG_DATA.cv_a_depth }
+fn get_cv_depth_a() -> u16 {
+    unsafe { CONFIG_DATA.cv_depth_a }
 }
 
 #[inline(always)]
-fn get_cv_b_destination() -> PotKind {
-    unsafe { CONFIG_DATA.cv_b_destination }
+fn get_cv_destination_b() -> PotKind {
+    unsafe { CONFIG_DATA.cv_destination_b }
 }
 
 #[inline(always)]
-fn get_cv_b_depth() -> u16 {
-    unsafe { CONFIG_DATA.cv_b_depth }
+fn get_cv_depth_b() -> u16 {
+    unsafe { CONFIG_DATA.cv_depth_b }
 }
 
 #[inline(always)]
@@ -140,10 +140,10 @@ enum EgProperty {
     ReleaseTime = 9,
     Extra1 = 10,
     Extra2 = 11,
-    CvADestination = 12,
-    CvADepth = 13,
-    CvBDestination = 14,
-    CvBDepth = 15,
+    CvDestinationA = 12,
+    CvDepthA = 13,
+    CvDestinationB = 14,
+    CvDepthB = 15,
     OutputPolarity = 16,
 }
 
@@ -164,10 +164,10 @@ impl EgConfig {
         EgProperty::ReleaseTime,
         EgProperty::Extra1,
         EgProperty::Extra2,
-        EgProperty::CvADestination,
-        EgProperty::CvADepth,
-        EgProperty::CvBDestination,
-        EgProperty::CvBDepth,
+        EgProperty::CvDestinationA,
+        EgProperty::CvDepthA,
+        EgProperty::CvDestinationB,
+        EgProperty::CvDepthB,
         EgProperty::OutputPolarity,
     ];
 
@@ -275,50 +275,50 @@ impl EgConfig {
     }
 
     #[inline(always)]
-    pub fn cv_a_destination(&self) -> PotKind {
-        get_cv_a_destination()
+    pub fn cv_destination_a(&self) -> PotKind {
+        get_cv_destination_a()
     }
 
     #[inline(always)]
-    pub fn set_cv_a_destination(&self, value: PotKind) {
+    pub fn set_cv_destination_a(&self, value: PotKind) {
         unsafe {
-            CONFIG_DATA.cv_a_destination = value;
+            CONFIG_DATA.cv_destination_a = value;
         }
     }
 
     #[inline(always)]
-    pub fn cv_a_depth(&self) -> u16 {
-        get_cv_a_depth()
+    pub fn cv_depth_a(&self) -> u16 {
+        get_cv_depth_a()
     }
 
     #[inline(always)]
-    pub fn set_cv_a_depth(&self, value: u16) {
+    pub fn set_cv_depth_a(&self, value: u16) {
         unsafe {
-            CONFIG_DATA.cv_a_depth = value;
+            CONFIG_DATA.cv_depth_a = value;
         }
     }
 
     #[inline(always)]
-    pub fn cv_b_destination(&self) -> PotKind {
-        get_cv_b_destination()
+    pub fn cv_destination_b(&self) -> PotKind {
+        get_cv_destination_b()
     }
 
     #[inline(always)]
-    pub fn set_cv_b_destination(&self, value: PotKind) {
+    pub fn set_cv_destination_b(&self, value: PotKind) {
         unsafe {
-            CONFIG_DATA.cv_b_destination = value;
+            CONFIG_DATA.cv_destination_b = value;
         }
     }
 
     #[inline(always)]
-    pub fn cv_b_depth(&self) -> u16 {
-        get_cv_b_depth()
+    pub fn cv_depth_b(&self) -> u16 {
+        get_cv_depth_b()
     }
 
     #[inline(always)]
-    pub fn set_cv_b_depth(&self, value: u16) {
+    pub fn set_cv_depth_b(&self, value: u16) {
         unsafe {
-            CONFIG_DATA.cv_b_depth = value;
+            CONFIG_DATA.cv_depth_b = value;
         }
     }
 
@@ -420,10 +420,10 @@ impl EgConfig {
             EgProperty::Extra2 => {
                 Value::VectorU16(Self::make_vec16(&[self.extra_2(0), self.extra_2(1)]))
             }
-            EgProperty::CvADestination => Value::U8(self.cv_a_destination() as u8),
-            EgProperty::CvADepth => Value::U16(self.cv_a_depth()),
-            EgProperty::CvBDestination => Value::U8(self.cv_b_destination() as u8),
-            EgProperty::CvBDepth => Value::U16(self.cv_b_depth()),
+            EgProperty::CvDestinationA => Value::U8(self.cv_destination_a() as u8),
+            EgProperty::CvDepthA => Value::U16(self.cv_depth_a()),
+            EgProperty::CvDestinationB => Value::U8(self.cv_destination_b() as u8),
+            EgProperty::CvDepthB => Value::U16(self.cv_depth_b()),
             EgProperty::OutputPolarity => {
                 let polarity_1 = self.out_polarity(0) as u8;
                 let polarity_2 = self.out_polarity(1) as u8;
@@ -461,8 +461,8 @@ impl EgConfig {
                 self.set_extra_2(0, pot_value);
                 self.set_extra_2(1, pot_value);
             }
-            PotKind::CvADepth => self.set_cv_a_depth(pot_value),
-            PotKind::CvBDepth => self.set_cv_b_depth(pot_value),
+            PotKind::CvDepthA => self.set_cv_depth_a(pot_value),
+            PotKind::CvDepthB => self.set_cv_depth_b(pot_value),
         }
     }
 }
@@ -515,23 +515,23 @@ impl ConfigReader {
     }
 
     #[inline(always)]
-    pub fn cv_a_destination(&self) -> PotKind {
-        get_cv_a_destination()
+    pub fn cv_destination_a(&self) -> PotKind {
+        get_cv_destination_a()
     }
 
     #[inline(always)]
-    pub fn cv_a_depth(&self) -> u16 {
-        get_cv_a_depth()
+    pub fn cv_depth_a(&self) -> u16 {
+        get_cv_depth_a()
     }
 
     #[inline(always)]
-    pub fn cv_b_destination(&self) -> PotKind {
-        get_cv_b_destination()
+    pub fn cv_destination_b(&self) -> PotKind {
+        get_cv_destination_b()
     }
 
     #[inline(always)]
-    pub fn cv_b_depth(&self) -> u16 {
-        get_cv_b_depth()
+    pub fn cv_depth_b(&self) -> u16 {
+        get_cv_depth_b()
     }
 
     #[inline(always)]

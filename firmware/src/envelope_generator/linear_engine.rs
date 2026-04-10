@@ -40,8 +40,8 @@ pub struct LinearEngine {
     note_scale_depth: u32,
 
     // modulations
-    cv_a_depth: u32, // Q0.32, 0 to 1
-    cv_b_depth: u32, // Q0.32, 0 to 1
+    cv_depth_a: u32, // Q0.32, 0 to 1
+    cv_depth_b: u32, // Q0.32, 0 to 1
 
     // State
     current_value: u32,
@@ -85,11 +85,11 @@ impl LinearEngine {
                 config.set_note_scaling_depth(voice_index, value);
                 self.note_scale_depth = (value as u32) << 16;
             }
-            PotKind::CvADepth => {
-                self.cv_a_depth = (config.cv_a_depth() as u32) << 16;
+            PotKind::CvDepthA => {
+                self.cv_depth_a = (config.cv_depth_a() as u32) << 16;
             }
-            PotKind::CvBDepth => {
-                self.cv_b_depth = (config.cv_b_depth() as u32) << 16;
+            PotKind::CvDepthB => {
+                self.cv_depth_b = (config.cv_depth_b() as u32) << 16;
             }
         }
     }
@@ -106,8 +106,8 @@ impl Engine for LinearEngine {
             note_scale: 0x1000000,
             note_scale_depth: 0,
 
-            cv_a_depth: 0,
-            cv_b_depth: 0,
+            cv_depth_a: 0,
+            cv_depth_b: 0,
 
             current_value: 0,
             target_value: 0,
@@ -125,8 +125,8 @@ impl Engine for LinearEngine {
         self.update_params(index, config, &InputReaderInfo::new(PotKind::Release));
         self.update_params(index, config, &InputReaderInfo::new(PotKind::Extra1));
         self.update_params(index, config, &InputReaderInfo::new(PotKind::Extra2));
-        self.update_params(index, config, &InputReaderInfo::new(PotKind::CvADepth));
-        self.update_params(index, config, &InputReaderInfo::new(PotKind::CvBDepth));
+        self.update_params(index, config, &InputReaderInfo::new(PotKind::CvDepthA));
+        self.update_params(index, config, &InputReaderInfo::new(PotKind::CvDepthB));
         self.note_scale_depth = (config.note_scaling_depth(index) as u32) << 16;
         self.current_value = 0;
         self.phase = EnginePhase::Initial;
@@ -134,21 +134,21 @@ impl Engine for LinearEngine {
 
     fn update_params(&mut self, voice_index: usize, config: &EgConfig, input: &InputReaderInfo) {
         let pot_kind = input.pot_info.kind;
-        let mod_a = mul_i16_uq0_16(input.cv_info.cv_a, config.cv_a_depth());
-        let mod_b = mul_i16_uq0_16(input.cv_info.cv_b, config.cv_b_depth());
-        let (mod_amount, mod_a_covered, mod_b_covered) = if config.cv_a_destination() == pot_kind {
+        let mod_a = mul_i16_uq0_16(input.cv_info.cv_a, config.cv_depth_a());
+        let mod_b = mul_i16_uq0_16(input.cv_info.cv_b, config.cv_depth_b());
+        let (mod_amount, mod_a_covered, mod_b_covered) = if config.cv_destination_a() == pot_kind {
             (mod_a, true, false)
-        } else if config.cv_b_destination() == pot_kind {
+        } else if config.cv_destination_b() == pot_kind {
             (mod_b, false, true)
         } else {
             (0, false, false)
         };
         self.update_params_for_pot(voice_index, config, &pot_kind, mod_amount);
         if !mod_a_covered {
-            self.update_params_for_pot(voice_index, config, &config.cv_a_destination(), mod_a);
+            self.update_params_for_pot(voice_index, config, &config.cv_destination_a(), mod_a);
         }
         if !mod_b_covered {
-            self.update_params_for_pot(voice_index, config, &config.cv_b_destination(), mod_b);
+            self.update_params_for_pot(voice_index, config, &config.cv_destination_b(), mod_b);
         }
     }
 

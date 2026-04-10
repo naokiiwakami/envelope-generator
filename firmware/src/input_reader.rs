@@ -167,8 +167,8 @@ static MUX_ADDRESSES: [(Level, Level, Level, PotKind); 8] = [
     (Level::Low, Level::High, Level::High, PotKind::Release),
     (Level::High, Level::Low, Level::Low, PotKind::Extra1),
     (Level::High, Level::Low, Level::High, PotKind::Extra2),
-    (Level::High, Level::High, Level::Low, PotKind::CvADepth),
-    (Level::High, Level::High, Level::High, PotKind::CvBDepth),
+    (Level::High, Level::High, Level::Low, PotKind::CvDepthA),
+    (Level::High, Level::High, Level::High, PotKind::CvDepthB),
 ];
 
 #[embassy_executor::task]

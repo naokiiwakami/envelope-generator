@@ -11,8 +11,8 @@ pub enum PotKind {
     Release = 3,
     Extra1 = 4,
     Extra2 = 5,
-    CvADepth = 6,
-    CvBDepth = 7,
+    CvDepthA = 6,
+    CvDepthB = 7,
 }
 
 impl TryFrom<u8> for PotKind {
@@ -26,8 +26,8 @@ impl TryFrom<u8> for PotKind {
             3 => Ok(Self::Release),
             4 => Ok(Self::Extra1),
             5 => Ok(Self::Extra2),
-            6 => Ok(Self::CvADepth),
-            7 => Ok(Self::CvBDepth),
+            6 => Ok(Self::CvDepthA),
+            7 => Ok(Self::CvDepthB),
             _ => Err(()),
         }
     }

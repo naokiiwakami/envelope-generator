@@ -12,18 +12,18 @@ use super::{ControlPanel, DisplayRequest};
 
 pub struct CvAssigner<'a> {
     control_panel: &'a mut ControlPanel,
-    current_cv_a_destination: PotKind,
-    current_cv_b_destination: PotKind,
+    current_cv_destination_a: PotKind,
+    current_cv_destination_b: PotKind,
 }
 
 impl<'a> CvAssigner<'a> {
     pub fn new(control_panel: &'a mut ControlPanel) -> Self {
-        let current_cv_a_destination = control_panel.eg_config.cv_a_destination();
-        let current_cv_b_destination = control_panel.eg_config.cv_b_destination();
+        let current_cv_destination_a = control_panel.eg_config.cv_destination_a();
+        let current_cv_destination_b = control_panel.eg_config.cv_destination_b();
         Self {
             control_panel,
-            current_cv_a_destination,
-            current_cv_b_destination,
+            current_cv_destination_a,
+            current_cv_destination_b,
         }
     }
 
@@ -45,13 +45,13 @@ impl<'a> CvAssigner<'a> {
         self.control_panel.smash_counter();
         let (current_destination, skip, mut blink_remaining) = match cv_kind {
             CvKind::A => (
-                self.current_cv_a_destination,
-                self.current_cv_b_destination,
+                self.current_cv_destination_a,
+                self.current_cv_destination_b,
                 0i32,
             ),
             CvKind::B => (
-                self.current_cv_b_destination,
-                self.current_cv_a_destination,
+                self.current_cv_destination_b,
+                self.current_cv_destination_a,
                 14i32,
             ),
         };
@@ -108,8 +108,8 @@ impl<'a> CvAssigner<'a> {
                     })
                     .await;
                 match cv_kind {
-                    CvKind::A => self.current_cv_a_destination = new_destination,
-                    CvKind::B => self.current_cv_b_destination = new_destination,
+                    CvKind::A => self.current_cv_destination_a = new_destination,
+                    CvKind::B => self.current_cv_destination_b = new_destination,
                 };
                 self.control_panel
                     .display_request_sender

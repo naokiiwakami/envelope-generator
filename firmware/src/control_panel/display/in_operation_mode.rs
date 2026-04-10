@@ -46,8 +46,8 @@ pub struct InOperationMode<'a> {
     sustain: i32,
     release: i32,
 
-    cv_a_destination: PotKind,
-    cv_b_destination: PotKind,
+    cv_destination_a: PotKind,
+    cv_destination_b: PotKind,
 
     // frequently used styles
     erase_area: PrimitiveStyle<BinaryColor>,
@@ -73,8 +73,8 @@ impl<'a> InOperationMode<'a> {
             decay: 0,
             sustain: 0,
             release: 0,
-            cv_a_destination: PotKind::Decay,
-            cv_b_destination: PotKind::Sustain,
+            cv_destination_a: PotKind::Decay,
+            cv_destination_b: PotKind::Sustain,
             erase_area: PrimitiveStyleBuilder::new()
                 .stroke_width(1)
                 .stroke_color(BinaryColor::Off)
@@ -629,13 +629,13 @@ impl<'a> InOperationMode<'a> {
             )
             .await;
 
-        let cv_dest_a = self.eg_config.cv_a_destination();
-        let cv_dest_b = self.eg_config.cv_b_destination();
-        self.cv_a_destination = cv_dest_a;
-        self.cv_b_destination = cv_dest_b;
+        let cv_destination_a = self.eg_config.cv_destination_a();
+        let cv_destination_b = self.eg_config.cv_destination_b();
+        self.cv_destination_a = cv_destination_a;
+        self.cv_destination_b = cv_destination_b;
         let mut flags = [false; 8];
-        flags[cv_dest_a as usize] = true;
-        flags[cv_dest_b as usize] = true;
+        flags[cv_destination_a as usize] = true;
+        flags[cv_destination_b as usize] = true;
 
         self.draw_cv_pot(POS_ATTACK, flags[PotKind::Attack as usize])
             .await;
@@ -655,14 +655,14 @@ impl<'a> InOperationMode<'a> {
 
         let mut mirror: [(i32, i32); 5] = [(0, 0); 5];
 
-        if let Some(points) = path_from_a_to_dest(cv_dest_a) {
+        if let Some(points) = path_from_a_to_dest(cv_destination_a) {
             self.display
                 .driver
                 .draw_spline(points, 18, BinaryColor::On)
                 .await;
         };
 
-        if let Some(points) = path_from_b_to_dest(cv_dest_b) {
+        if let Some(points) = path_from_b_to_dest(cv_destination_b) {
             self.flip(points, &mut mirror);
             self.display
                 .driver
@@ -677,16 +677,16 @@ impl<'a> InOperationMode<'a> {
         defmt::debug!("update_cv_assignment: {:?} {:?}", source, destination);
         match source {
             CvKind::A => {
-                if destination == self.cv_a_destination {
+                if destination == self.cv_destination_a {
                     return;
                 }
-                if let Some(points) = path_from_a_to_dest(self.cv_a_destination) {
+                if let Some(points) = path_from_a_to_dest(self.cv_destination_a) {
                     self.display
                         .driver
                         .draw_spline(points, 18, BinaryColor::Off)
                         .await;
                 };
-                if let Some(position) = pot_pos(self.cv_a_destination) {
+                if let Some(position) = pot_pos(self.cv_destination_a) {
                     self.draw_cv_node(*position, CV_KNOB_DIAMETER, false).await;
                 }
                 if let Some(position) = pot_pos(destination) {
@@ -700,7 +700,7 @@ impl<'a> InOperationMode<'a> {
                 }
                 self.show_cv_source(POS_CV_A, true).await;
                 // the erased line may have crossed with the other one. redraw.
-                if let Some(points) = path_from_b_to_dest(self.cv_b_destination) {
+                if let Some(points) = path_from_b_to_dest(self.cv_destination_b) {
                     let mut mirror: [(i32, i32); 5] = [(0, 0); 5];
                     self.flip(points, &mut mirror);
                     self.display
@@ -709,21 +709,21 @@ impl<'a> InOperationMode<'a> {
                         .await;
                 }
                 self.display.driver.flush().await;
-                self.cv_a_destination = destination;
+                self.cv_destination_a = destination;
             }
             CvKind::B => {
-                if destination == self.cv_b_destination {
+                if destination == self.cv_destination_b {
                     return;
                 }
                 let mut mirror: [(i32, i32); 5] = [(0, 0); 5];
-                if let Some(points) = path_from_b_to_dest(self.cv_b_destination) {
+                if let Some(points) = path_from_b_to_dest(self.cv_destination_b) {
                     self.flip(points, &mut mirror);
                     self.display
                         .driver
                         .draw_spline(&mirror[0..points.len()], 18, BinaryColor::Off)
                         .await;
                 };
-                if let Some(position) = pot_pos(self.cv_b_destination) {
+                if let Some(position) = pot_pos(self.cv_destination_b) {
                     self.draw_cv_node(*position, CV_KNOB_DIAMETER, false).await;
                 }
                 if let Some(position) = pot_pos(destination) {
@@ -738,14 +738,14 @@ impl<'a> InOperationMode<'a> {
                 }
                 self.show_cv_source(POS_CV_B, true).await;
                 // the erased line may have crossed with the other one. redraw.
-                if let Some(points) = path_from_a_to_dest(self.cv_a_destination) {
+                if let Some(points) = path_from_a_to_dest(self.cv_destination_a) {
                     self.display
                         .driver
                         .draw_spline(points, 18, BinaryColor::On)
                         .await;
                 }
                 self.display.driver.flush().await;
-                self.cv_b_destination = destination;
+                self.cv_destination_b = destination;
             }
         }
     }
