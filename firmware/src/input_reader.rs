@@ -24,9 +24,12 @@ use embassy_sync::{
 };
 use embassy_time::Timer;
 
-use crate::addresses::ADDR_CV_OFFSET_A;
-use crate::envelope_generator::{
-    EG_CHANNEL_SIZE, EgRequest, GateEventType, GateId, get_eg_request_sender,
+use crate::{
+    addresses::ADDR_CV_OFFSET_A,
+    definitions::PotKind,
+    envelope_generator::{
+        EG_CHANNEL_SIZE, EgRequest, GateEventType, GateId, get_eg_request_sender,
+    },
 };
 
 bind_interrupts!(struct Irqs {
@@ -56,19 +59,6 @@ pub struct AdcResources {
 
     pub cv_a: AnyAdcChannel<'static, ADC1>,
     pub cv_b: AnyAdcChannel<'static, ADC1>,
-}
-
-#[derive(Clone, Debug, defmt::Format)]
-#[repr(usize)]
-pub enum PotKind {
-    Attack = 0,
-    Decay = 1,
-    Sustain = 2,
-    Release = 3,
-    Extra1 = 4,
-    Extra2 = 5,
-    CvADepth = 6,
-    CvBDepth = 7,
 }
 
 #[derive(Clone)]
@@ -270,7 +260,7 @@ impl InputReader {
 
         (
             PotInfo {
-                kind: kind.clone(),
+                kind: *kind,
                 value: pot_value,
             },
             CvInfo { cv_a, cv_b },

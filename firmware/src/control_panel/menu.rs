@@ -10,7 +10,7 @@ pub const ENGINE_TYPE_MENU_ITEMS: [MenuItem<Option<EngineType>>; 5] = [
     },
     MenuItem {
         name: "ADDSR",
-        selection: Some(EngineType::Addsr),
+        selection: Some(EngineType::TwoDecays),
     },
     MenuItem {
         name: "ADSR",

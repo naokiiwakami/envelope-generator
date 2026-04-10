@@ -27,6 +27,7 @@ use ssd1306_lite::{Angle, FontSize, Ssd1306Lite, TextBox};
 
 use crate::{
     control_panel::{display::menu_mode::MenuMode, menu::ENGINE_TYPE_MENU_ITEMS},
+    definitions::{CvKind, PotKind},
     envelope_generator::{EngineType, OutputPolarity},
     input_reader::{CvInfo, PotInfo},
     patch_controller::{LedColor, PatchControllerRequest, get_patch_controller_request_sender},
@@ -103,6 +104,7 @@ pub enum Request {
     UpdatePot {
         pot_info: PotInfo,
     },
+    // output polarity management
     ShowPolarity {
         polarity_1: OutputPolarity,
         polarity_2: OutputPolarity,
@@ -115,6 +117,16 @@ pub enum Request {
         polarity_1: OutputPolarity,
         polarity_2: OutputPolarity,
         is_draw: bool,
+    },
+    // CV assignment
+    ShowCvAssignment,
+    UpdateCvAssignment {
+        source: CvKind,
+        destination: PotKind,
+    },
+    BlinkCvSource {
+        source: CvKind,
+        turn_on: bool,
     },
     DisplayText {
         text: String<32>,
@@ -155,7 +167,10 @@ impl Request {
             | Self::UpdatePot { .. }
             | Self::ShowPolarity { .. }
             | Self::SetPolarityChangeTargets { .. }
-            | Self::UpdatePolarities { .. } => Mode::InOperation,
+            | Self::UpdatePolarities { .. }
+            | Self::ShowCvAssignment
+            | Self::UpdateCvAssignment { .. }
+            | Self::BlinkCvSource { .. } => Mode::InOperation,
             Self::DisplayEngineTypeMenuItem { .. } => Mode::EngineTypeMenu,
             Self::DisplayAdminMenuItem { .. } => Mode::AdminMenu,
             Self::UpdatePotForDiag { .. } => Mode::PotsDiag,
@@ -179,6 +194,9 @@ impl Request {
             Self::ShowPolarity { .. } => "ShowPolarity",
             Self::SetPolarityChangeTargets { .. } => "SetPolarityChangeTargets",
             Self::UpdatePolarities { .. } => "UpdatePolarities",
+            Self::ShowCvAssignment => "ShowCvAssignment",
+            Self::UpdateCvAssignment { .. } => "UpdateCvAssignment",
+            Self::BlinkCvSource { .. } => "BlinkCvSource",
             Self::DisplayEngineTypeMenuItem { .. } => "DisplayEngineTypeMenuItem",
             Self::DisplayAdminMenuItem { .. } => "DisplayAdminMenuItem",
             Self::UpdatePotForDiag { .. } => "UpdatePotForDiag",
@@ -298,6 +316,20 @@ impl Display {
                 .await;
             self.driver.flush().await;
         }
+        pc_request_sender
+            .send(PatchControllerRequest::OperateIndicator {
+                led_color: LedColor::Red,
+                is_high: false,
+            })
+            .await;
+        pc_request_sender
+            .send(PatchControllerRequest::OperateIndicator {
+                led_color: LedColor::Green,
+                is_high: false,
+            })
+            .await;
+        a3_request_sender.send(IndicatorRequest::ResetRedLed).await;
+        a3_request_sender.send(IndicatorRequest::ResetBlueLed).await;
         Timer::after_millis(300).await;
         self.pending_request = Some(Request::GoToOpHome);
     }
@@ -475,7 +507,7 @@ impl Display {
         erase: &PrimitiveStyle<BinaryColor>,
         positions: &[(Point, Point); 8],
     ) {
-        let index = pot_info.kind.clone() as usize;
+        let index = pot_info.kind as usize;
         if index >= positions.len() {
             error!("update_pot_value: Index out of bounds; index={}", index);
             return;

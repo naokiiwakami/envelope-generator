@@ -17,3 +17,9 @@ pub fn fraction_uq32_32(numerator: u32, denominator: u32) -> u64 {
 pub fn mul_uq8_24(a: u32, b: u32) -> u32 {
     ((a as u64 >> 4) * (b as u64 >> 4) >> 16) as u32
 }
+
+#[inline(always)]
+pub fn mul_i16_uq0_16(a: i16, b: u16) -> i16 {
+    let prod = (a as i32) * (b as i32);
+    (prod >> 16) as i16
+}

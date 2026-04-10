@@ -3,15 +3,19 @@ use defmt;
 use super::config::EgConfig;
 
 use crate::{
-    definitions::AtomicEnumRepr, envelope_generator::utils::uq0_32_to_12bit_positive,
+    definitions::{AtomicEnumRepr, CvKind, PotKind},
+    envelope_generator::utils::uq0_32_to_12bit_positive,
     input_reader::InputReaderInfo,
 };
 
 pub const DEFAULT_VOICE_IDS: [u16; 2] = [0x101, 0x102];
 pub const DEFAULT_ENGINE_TYPE: EngineType = EngineType::ParaDecays;
 
+/// The zero point should be at the center of value range if the circuit is perfect.
+pub const DEFAULT_OUT_ZERO_POINT: u16 = 0x800;
+
 /// Envelope Generator operation modes
-#[derive(Clone, PartialEq, Debug, defmt::Format)]
+#[derive(Clone, Copy, PartialEq, Debug, defmt::Format)]
 pub enum Mode {
     Normal,
     Diagnose,
@@ -58,6 +62,11 @@ pub enum EgRequest {
         polarity_2: OutputPolarity,
         send_notif: bool,
     },
+    /// Requests to change CV destination
+    ChangeCvDestination {
+        source: CvKind,
+        destination: PotKind,
+    },
     /// Requests to toggle the operation mode.
     /// The EnvelopeGenerator switches operation mode if the requested mode is different
     /// from the current one, otherwise switches to the Normal mode.
@@ -75,7 +84,7 @@ pub enum EgRequest {
 #[repr(u8)]
 pub enum EngineType {
     ParaDecays = 0,
-    Addsr = 1,
+    TwoDecays = 1,
     Adsr = 2,
     Linear = 3,
 }
@@ -84,7 +93,7 @@ impl EngineType {
     pub fn name(&self) -> &'static str {
         match self {
             EngineType::ParaDecays => "ParaDecays",
-            EngineType::Addsr => "ADDSR",
+            EngineType::TwoDecays => "ADDSR",
             EngineType::Adsr => "ADSR",
             EngineType::Linear => "Linear",
         }
@@ -102,7 +111,7 @@ impl TryFrom<u8> for EngineType {
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(Self::ParaDecays),
-            1 => Ok(Self::Addsr),
+            1 => Ok(Self::TwoDecays),
             2 => Ok(Self::Adsr),
             3 => Ok(Self::Linear),
             _ => Err(()),
@@ -132,7 +141,7 @@ pub enum GateEventType {
     GateOff,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 #[repr(u8)]
 pub enum OutputPolarity {
     Positive = 0,
@@ -179,5 +188,16 @@ pub trait Engine {
     fn update(&mut self, params: &VoiceParams) -> u16;
 }
 
-/// The zero point should be at the center of value range if the circuit is perfect.
-pub const DEFAULT_OUT_ZERO_POINT: u16 = 0x800;
+/*
+// This looks similar to PotKind for now, but we may add more destinations in the future.
+#[derive(Clone, Copy, PartialEq)]
+#[repr(u8)]
+pub enum CvDestination {
+    Attack,
+    Decay,
+    Sustain,
+    Release,
+    Extra1,
+    Extra2,
+}
+*/

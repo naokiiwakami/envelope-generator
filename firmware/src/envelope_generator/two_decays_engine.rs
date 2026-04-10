@@ -2,8 +2,12 @@
 use defmt;
 
 use crate::{
-    input_reader::{InputReaderInfo, PotKind},
-    utils::{fraction_uq32_32, mul_uq0_32},
+    definitions::PotKind,
+    envelope_generator::utils::{
+        calculate_charging_ratio, calculate_discharging_ratio, calculate_sustain_level,
+    },
+    input_reader::InputReaderInfo,
+    utils::{fraction_uq32_32, mul_i16_uq0_16, mul_uq0_32},
 };
 
 use super::{
@@ -39,6 +43,10 @@ pub struct TwoDecaysEngine {
     // note scaling depth, Q0.32
     note_scale_depth: u32,
 
+    // modulations
+    cv_a_depth: u32, // Q0.32, 0 to 1
+    cv_b_depth: u32, // Q0.32, 0 to 1
+
     // Values that represent current EG state
 
     // Current values are calculated to fit within range [0:0.5) in UQ32.32 representation
@@ -54,6 +62,49 @@ pub struct TwoDecaysEngine {
     peak_value: u32,
 
     phase: EnginePhase,
+}
+
+impl TwoDecaysEngine {
+    fn update_params_for_pot(
+        &mut self,
+        voice_index: usize,
+        config: &EgConfig,
+        pot_kind: &PotKind,
+        mod_amount: i16,
+    ) {
+        match pot_kind {
+            PotKind::Attack => {
+                self.attack_ratio =
+                    calculate_charging_ratio(config.attack(voice_index), mod_amount);
+            }
+            PotKind::Decay => {
+                self.decay_ratio =
+                    calculate_discharging_ratio(config.decay(voice_index), mod_amount);
+            }
+            PotKind::Sustain => {
+                self.sustain_level =
+                    calculate_sustain_level(config.sustain(voice_index), mod_amount);
+            }
+            PotKind::Release => {
+                self.release_ratio =
+                    calculate_discharging_ratio(config.release(voice_index), mod_amount);
+            }
+            PotKind::Extra1 => {
+                self.initial_decay_ratio =
+                    calculate_discharging_ratio(config.extra_1(voice_index), mod_amount);
+            }
+            PotKind::Extra2 => {
+                let level = config.extra_2(voice_index) as u32;
+                self.decay_switch_level = ((level >> 1) + 32768) * level;
+            }
+            PotKind::CvADepth => {
+                self.cv_a_depth = (config.cv_a_depth() as u32) << 16;
+            }
+            PotKind::CvBDepth => {
+                self.cv_b_depth = (config.cv_b_depth() as u32) << 16;
+            }
+        }
+    }
 }
 
 impl Engine for TwoDecaysEngine {
@@ -72,6 +123,9 @@ impl Engine for TwoDecaysEngine {
             note_scale: 0x1000000,
             note_scale_depth: 0x40000000, // 0.25
 
+            cv_a_depth: 0,
+            cv_b_depth: 0,
+
             current_value: 0,
             target_value: 0,
             peak_value: 0,
@@ -80,53 +134,38 @@ impl Engine for TwoDecaysEngine {
         }
     }
 
-    fn initialize(&mut self, voice_index: usize, config: &EgConfig) {
-        self.update_params(voice_index, config, &InputReaderInfo::new(PotKind::Attack));
-        self.update_params(voice_index, config, &InputReaderInfo::new(PotKind::Decay));
-        self.update_params(voice_index, config, &InputReaderInfo::new(PotKind::Sustain));
-        self.update_params(voice_index, config, &InputReaderInfo::new(PotKind::Release));
-        self.update_params(voice_index, config, &InputReaderInfo::new(PotKind::Extra1));
-        self.update_params(voice_index, config, &InputReaderInfo::new(PotKind::Extra2));
+    fn initialize(&mut self, index: usize, config: &EgConfig) {
+        self.update_params(index, config, &InputReaderInfo::new(PotKind::Attack));
+        self.update_params(index, config, &InputReaderInfo::new(PotKind::Decay));
+        self.update_params(index, config, &InputReaderInfo::new(PotKind::Sustain));
+        self.update_params(index, config, &InputReaderInfo::new(PotKind::Release));
+        self.update_params(index, config, &InputReaderInfo::new(PotKind::Extra1));
+        self.update_params(index, config, &InputReaderInfo::new(PotKind::Extra2));
+        self.update_params(index, config, &InputReaderInfo::new(PotKind::CvADepth));
+        self.update_params(index, config, &InputReaderInfo::new(PotKind::CvBDepth));
+        self.note_scale_depth = (config.note_scaling_depth(index) as u32) << 16;
         self.current_value = 0;
         self.target_value = 0;
         self.phase = EnginePhase::Released;
     }
 
     fn update_params(&mut self, voice_index: usize, config: &EgConfig, input: &InputReaderInfo) {
-        match input.pot_info.kind {
-            PotKind::Attack => {
-                let attack_param = config.attack[voice_index] as u64;
-                // approximately 1 + 1.5e-9 * attack_param^3
-                let attack_time: u64 = 1 + ((7 * attack_param * attack_param * attack_param) >> 32);
-                self.attack_ratio = 0xffffffff / attack_time as u32;
-            }
-            PotKind::Decay => {
-                let decay_param = config.decay[voice_index] as u64;
-                // approximately 7 + 2.5e-9 * decay_param^3
-                let decay_time = 7 + ((11 * decay_param * decay_param * decay_param) >> 32);
-                self.decay_ratio = 0xffffffff / decay_time as u32;
-            }
-            PotKind::Sustain => {
-                let sustain_param = config.sustain[voice_index] as u32;
-                self.sustain_level = ((sustain_param >> 1) + 32768) * sustain_param;
-            }
-            PotKind::Release => {
-                let release_param = config.release[voice_index] as u64;
-                // approximately 7 + 2.5e-9 * decay_param^3
-                let release_time = 7 + ((11 * release_param * release_param * release_param) >> 32);
-                self.release_ratio = 0xffffffff / release_time as u32;
-            }
-            PotKind::Extra1 => {
-                let decay_param = config.extra1[voice_index] as u64;
-                // approximately 7 + 2.5e-9 * decay_param^3
-                let decay_time = 7 + ((11 * decay_param * decay_param * decay_param) >> 32);
-                self.initial_decay_ratio = 0xffffffff / decay_time as u32;
-            }
-            PotKind::Extra2 => {
-                let level = config.extra2[voice_index] as u32;
-                self.decay_switch_level = ((level >> 1) + 32768) * level;
-            }
-            _ => {} // TODO interpret CV1_DEPTH and CV2_DEPTH
+        let pot_kind = input.pot_info.kind;
+        let mod_a = mul_i16_uq0_16(input.cv_info.cv_a, config.cv_a_depth());
+        let mod_b = mul_i16_uq0_16(input.cv_info.cv_b, config.cv_b_depth());
+        let (mod_amount, mod_a_covered, mod_b_covered) = if config.cv_a_destination() == pot_kind {
+            (mod_a, true, false)
+        } else if config.cv_b_destination() == pot_kind {
+            (mod_b, false, true)
+        } else {
+            (0, false, false)
+        };
+        self.update_params_for_pot(voice_index, config, &pot_kind, mod_amount);
+        if !mod_a_covered {
+            self.update_params_for_pot(voice_index, config, &config.cv_a_destination(), mod_a);
+        }
+        if !mod_b_covered {
+            self.update_params_for_pot(voice_index, config, &config.cv_b_destination(), mod_b);
         }
     }
 

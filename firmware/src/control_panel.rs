@@ -1,13 +1,12 @@
 mod calibrator;
+mod cv_assigner;
 mod diagnoser;
 mod display;
 mod menu;
 mod module_state;
 
-use core::sync::atomic::Ordering;
-
 use analog3::rng::make_local_rng;
-use defmt::{debug, error};
+use defmt::{self, debug, error};
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_stm32::{
@@ -25,14 +24,15 @@ use ssd1306_lite::{FontSize, TextBox};
 use crate::{
     control_panel::{menu::POLARITY_CHANGE_TARGET_ITEMS, module_state::ModuleState},
     envelope_generator::{
-        EG_CHANNEL_SIZE, EG_PUBS, EG_SUBS, EgEvent, EgRequest, EngineType, Mode as EgOperationMode,
-        OutputPolarity, get_eg_event_subscriber, get_eg_request_sender,
+        ConfigReader, EG_CHANNEL_SIZE, EG_PUBS, EG_SUBS, EgEvent, EgRequest, EngineType,
+        Mode as EgOperationMode, OutputPolarity, get_eg_event_subscriber, get_eg_request_sender,
     },
-    input_reader::{InputReaderInfo, PotKind, get_reader_info_receiver},
+    input_reader::{InputReaderInfo, get_reader_info_receiver},
 };
 
 use self::{
     calibrator::Calibrator,
+    cv_assigner::CvAssigner,
     diagnoser::Diagnoser,
     display::{
         CHANNEL_LENGTH as DISPLAY_CHANNEL_LENGTH, Display, Mode as DisplayMode,
@@ -41,10 +41,27 @@ use self::{
     menu::{ADMIN_MENU_ITEMS, AdminAction, ENGINE_TYPE_MENU_ITEMS},
 };
 
-const PARA_DECAYS_PAGES: [OperationPage; 2] = [OperationPage::Home, OperationPage::OutputPolarity];
-const ADDSR_PAGES: [OperationPage; 2] = [OperationPage::Home, OperationPage::OutputPolarity];
-const ADSR_PAGES: [OperationPage; 2] = [OperationPage::Home, OperationPage::OutputPolarity];
-const LINEAR_PAGES: [OperationPage; 2] = [OperationPage::Home, OperationPage::OutputPolarity];
+const PARA_DECAYS_PAGES: [OperationPage; 4] = [
+    OperationPage::Home,
+    OperationPage::OutputPolarity,
+    OperationPage::CvAssignment,
+    OperationPage::NoteScaling,
+];
+const ADDSR_PAGES: [OperationPage; 3] = [
+    OperationPage::Home,
+    OperationPage::OutputPolarity,
+    OperationPage::CvAssignment,
+];
+const ADSR_PAGES: [OperationPage; 3] = [
+    OperationPage::Home,
+    OperationPage::OutputPolarity,
+    OperationPage::CvAssignment,
+];
+const LINEAR_PAGES: [OperationPage; 3] = [
+    OperationPage::Home,
+    OperationPage::OutputPolarity,
+    OperationPage::CvAssignment,
+];
 
 const ALL_PAGES: [&[OperationPage]; 4] =
     [&PARA_DECAYS_PAGES, &ADDSR_PAGES, &ADSR_PAGES, &LINEAR_PAGES];
@@ -76,6 +93,7 @@ async fn run_control_panel(mut control_panel: ControlPanel) {
     control_panel.run().await;
 }
 
+#[derive(Debug, defmt::Format)]
 enum ControlPanelMode {
     Normal,
     ActionSelected,
@@ -89,19 +107,21 @@ enum ControlPanelMode {
     PolarityChanged,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 enum OperationPage {
     Home,
     OutputPolarity,
-    // CvAssignment,
+    CvAssignment,
     // VelocitySensitivity,
-    // NoteScaling,
+    NoteScaling,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 enum Action {
     SelectEngineType,
     SetupPolarity,
+    AssignCv,
+    SetNoteScaling,
 }
 
 struct ControlPanel {
@@ -116,22 +136,13 @@ struct ControlPanel {
 
     // Input Reader
     reader_info_receiver: watch::Receiver<'static, ThreadModeRawMutex, InputReaderInfo, 2>,
-    // attack: u16,
-    // decay: u16,
-    // sustain: u16,
-    // release: u16,
-    // extra_1: u16,
-    // extra_2: u16,
 
     // EG state
+    eg_config: ConfigReader,
     state: &'static ModuleState,
     engine_type_index: usize,
-    /*
-    current_engine_type: EngineType,
-    polarity_1: OutputPolarity,
-    polarity_2: OutputPolarity,
-    */
     polarity_change_targets: u8,
+
     // rotary encoder
     encoder: Qei<'static, TIM3>,
     button: Input<'static>,
@@ -163,6 +174,7 @@ impl ControlPanel {
             eg_request_sender: get_eg_request_sender(),
             eg_event_subscriber: get_eg_event_subscriber(),
             reader_info_receiver: get_reader_info_receiver().await,
+            eg_config: ConfigReader::new(),
             state: &STATE,
             engine_type_index: 0,
             polarity_change_targets: 0,
@@ -205,6 +217,10 @@ impl ControlPanel {
         }
     }
 
+    fn smash_counter(&mut self) {
+        self.encoder_last_raw = self.encoder.count() as i16;
+    }
+
     async fn handle_eg_event(&mut self, event: EgEvent) {
         match event {
             EgEvent::EngineSwitched(engine_type) => self.switch_engine_type(engine_type).await,
@@ -213,34 +229,7 @@ impl ControlPanel {
     }
 
     async fn handle_reader_info(&mut self, info: InputReaderInfo) {
-        let value = info.pot_info.value;
-        let mut updated = true;
-        match info.pot_info.kind {
-            PotKind::Attack => {
-                self.state.attack.store(value, Ordering::Relaxed);
-            }
-            PotKind::Decay => {
-                self.state.decay.store(value, Ordering::Relaxed);
-            }
-            PotKind::Sustain => {
-                self.state.sustain.store(value, Ordering::Relaxed);
-            }
-            PotKind::Release => {
-                self.state.release.store(value, Ordering::Relaxed);
-            }
-            PotKind::Extra1 => {
-                self.state.extra_1.store(value, Ordering::Relaxed);
-            }
-            PotKind::Extra2 => {
-                self.state.extra_2.store(value, Ordering::Relaxed);
-            }
-            _ => {
-                updated = false;
-            }
-        }
-        if updated
-            && matches!(self.mode, ControlPanelMode::Normal)
-            && matches!(self.page, OperationPage::Home)
+        if matches!(self.mode, ControlPanelMode::Normal) && matches!(self.page, OperationPage::Home)
         {
             self.display_request_sender
                 .send(DisplayRequest::UpdatePot {
@@ -280,6 +269,8 @@ impl ControlPanel {
                 self.next_action = match self.page {
                     OperationPage::Home => Some(Action::SelectEngineType),
                     OperationPage::OutputPolarity => Some(Action::SetupPolarity),
+                    OperationPage::CvAssignment => Some(Action::AssignCv),
+                    OperationPage::NoteScaling => Some(Action::SetNoteScaling),
                 };
                 self.mode = ControlPanelMode::ActionSelected;
             }
@@ -306,14 +297,14 @@ impl ControlPanel {
                 self.ind_green.set_low();
             }
             ControlPanelMode::ActionSelected => match &self.next_action {
-                Some(action) => self.execute_action(action.clone()).await,
+                Some(action) => self.execute_action(*action).await,
                 None => error!("No action set up -- shouldn't happen"),
             },
             ControlPanelMode::EngineTypeSelected => {
                 match &ENGINE_TYPE_MENU_ITEMS[self.menu_item_index].selection {
                     Some(engine_type) => {
-                        self.request_switching_engine(&engine_type).await;
-                        self.switch_engine_type(engine_type.clone()).await;
+                        self.request_switching_engine(*engine_type).await;
+                        self.clear_screen(false, true).await;
                     }
                     None => {} // do not switch the engine type
                 }
@@ -352,12 +343,14 @@ impl ControlPanel {
         match action {
             Action::SelectEngineType => self.into_engine_type_menu_mode().await,
             Action::SetupPolarity => self.into_change_polarity_select_mode().await,
+            Action::AssignCv => self.assign_cv().await,
+            Action::SetNoteScaling => {}
         }
     }
 
     // Normal mode //////////////////////////////////////////////////////////
     async fn update_normal(&mut self) {
-        let engine_index = self.state.engine_type.load().index();
+        let engine_index = self.eg_config.engine_type(0).index();
         if engine_index >= ALL_PAGES.len() {
             return; // shouldn't happen but being defensive here
         }
@@ -369,19 +362,27 @@ impl ControlPanel {
         self.encoder_last_raw = raw;
 
         // switch page
-        let pages = ALL_PAGES[self.state.engine_type.load().index()];
+        let pages = ALL_PAGES[self.eg_config.engine_type(0).index()];
         if pages.len() <= 1 {
             return; // switching page never happens
         }
-        let mut index: i32 = (self.page_index as i32 + delta as i32) % pages.len() as i32;
+        let mut index: i32 = (self.page_index as i32 - delta as i32) % pages.len() as i32;
         while index < 0 {
             index += pages.len() as i32;
         }
         self.page_index = index as usize;
-        self.page = pages[self.page_index].clone();
+        self.page = pages[self.page_index];
         match self.page {
             OperationPage::Home => self.go_to_op_home().await,
-            OperationPage::OutputPolarity => self.show_polarity().await,
+            OperationPage::OutputPolarity => {
+                self.show_polarity(
+                    self.eg_config.out_polarity(0),
+                    self.eg_config.out_polarity(1),
+                )
+                .await
+            }
+            OperationPage::CvAssignment => self.show_cv_assignment().await,
+            OperationPage::NoteScaling => self.show_note_scaling().await,
         }
     }
 
@@ -454,7 +455,7 @@ impl ControlPanel {
     async fn into_change_polarity_mode(&mut self) {
         self.mode = ControlPanelMode::ChangePolarity;
         self.polarity_change_targets = POLARITY_CHANGE_TARGET_ITEMS[self.menu_item_index].selection;
-        self.encoder_last_raw = self.encoder.count() as i16;
+        self.smash_counter();
         self.display_request_sender
             .send(DisplayRequest::SetPolarityChangeTargets {
                 targets: self.polarity_change_targets,
@@ -469,8 +470,8 @@ impl ControlPanel {
                 self.ind_red.set_high();
                 self.ind_green.set_high();
 
-                let mut polarity_1 = self.state.polarity_1.load();
-                let mut polarity_2 = self.state.polarity_2.load();
+                let mut polarity_1 = self.eg_config.out_polarity(0);
+                let mut polarity_2 = self.eg_config.out_polarity(1);
                 let voice_1 = (targets & 0x1) != 0;
                 let voice_2 = (targets & 0x2) != 0;
                 if voice_1 {
@@ -511,24 +512,22 @@ impl ControlPanel {
         let targets = self.polarity_change_targets;
         let voice_1 = (targets & 0x1) != 0;
         let voice_2 = (targets & 0x2) != 0;
+        let mut polarity_1 = self.eg_config.out_polarity(0);
         if voice_1 {
-            self.state
-                .polarity_1
-                .store(self.get_next_polarity(self.state.polarity_1.load()));
+            polarity_1 = self.get_next_polarity(polarity_1);
         }
+        let mut polarity_2 = self.eg_config.out_polarity(1);
         if voice_2 {
-            self.state
-                .polarity_2
-                .store(self.get_next_polarity(self.state.polarity_2.load()));
+            polarity_2 = self.get_next_polarity(polarity_2);
         }
         self.eg_request_sender
             .send(EgRequest::ChangeOutputPolarities {
-                polarity_1: self.state.polarity_1.load(),
-                polarity_2: self.state.polarity_2.load(),
+                polarity_1,
+                polarity_2,
                 send_notif: false,
             })
             .await;
-        self.show_polarity().await;
+        self.show_polarity(polarity_1, polarity_2).await;
         self.mode = ControlPanelMode::Normal;
     }
 
@@ -540,6 +539,16 @@ impl ControlPanel {
             new_value += 2;
         }
         OutputPolarity::try_from(new_value as u8).unwrap()
+    }
+
+    // CV Assignment mode /////////////////////////////////////////////////////
+
+    async fn assign_cv(&mut self) {
+        let mut cv_assigner = CvAssigner::new(self);
+        cv_assigner.execute().await;
+        self.show_cv_assignment().await;
+        self.smash_counter(); // reset the counter, otherwise the page may move
+        self.mode = ControlPanelMode::Normal;
     }
 
     // Admin mode ////////////////////////////////////////////////////////////
@@ -606,7 +615,7 @@ impl ControlPanel {
         blink: bool,
     ) {
         self.mode = mode;
-        self.encoder_last_raw = self.encoder.count() as i16;
+        self.smash_counter();
         self.ind_red
             .set_level(if red { Level::High } else { Level::Low });
         self.ind_green
@@ -658,11 +667,11 @@ impl ControlPanel {
     }
 
     /// Requests EnvelopeGenerator to switch engine type.
-    async fn request_switching_engine(&mut self, engine_type: &EngineType) {
+    async fn request_switching_engine(&mut self, engine_type: EngineType) {
         self.eg_request_sender
             .send(EgRequest::SwitchEngine {
-                engine_type: engine_type.clone(),
-                send_notif: false,
+                engine_type: engine_type,
+                send_notif: true,
             })
             .await;
     }
@@ -675,21 +684,20 @@ impl ControlPanel {
     }
 
     async fn switch_engine_type(&mut self, next_engine_type: EngineType) {
-        self.engine_type_index = (next_engine_type.clone() as u8) as usize;
-        self.state.engine_type.store(next_engine_type);
+        self.engine_type_index = (next_engine_type as u8) as usize;
         self.page_index = 0;
         self.page = OperationPage::Home;
-        self.encoder_last_raw = self.encoder.count() as i16;
+        self.smash_counter();
         self.go_to_op_home().await;
     }
 
     async fn change_polarity(&mut self, polarity_1: OutputPolarity, polarity_2: OutputPolarity) {
-        self.state.polarity_1.store(polarity_1);
-        self.state.polarity_2.store(polarity_2);
+        // self.state.polarity_1.store(polarity_1);
+        // self.state.polarity_2.store(polarity_2);
         if matches!(self.mode, ControlPanelMode::Normal)
             && matches!(self.page, OperationPage::OutputPolarity)
         {
-            self.show_polarity().await;
+            self.show_polarity(polarity_1, polarity_2).await;
         }
     }
 
@@ -740,13 +748,30 @@ impl ControlPanel {
             .await;
     }
 
-    async fn show_polarity(&mut self) {
+    async fn show_polarity(&mut self, polarity_1: OutputPolarity, polarity_2: OutputPolarity) {
         self.display_request_sender
             .send(DisplayRequest::ShowPolarity {
-                polarity_1: self.state.polarity_1.load(),
-                polarity_2: self.state.polarity_2.load(),
+                polarity_1,
+                polarity_2,
             })
             .await;
+    }
+
+    async fn show_cv_assignment(&mut self) {
+        self.display_request_sender
+            .send(DisplayRequest::ShowCvAssignment)
+            .await;
+    }
+
+    async fn show_note_scaling(&mut self) {
+        self.clear_screen(false, false).await;
+        self.display_text(
+            "note scaling",
+            TextBox::center().build(),
+            FontSize::Large,
+            true,
+        )
+        .await;
     }
 }
 

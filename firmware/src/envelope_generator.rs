@@ -14,6 +14,7 @@ use analog3::{
     rng,
     storage::{self, load_string, load_u8, load_u16, load_u16_or_default, load_u32},
 };
+use core::sync::atomic::{AtomicU32, Ordering};
 use defmt::{debug, warn};
 use embassy_executor::Spawner;
 use embassy_futures::{
@@ -24,6 +25,7 @@ use embassy_stm32::{dac::Dac, flash::Error, gpio::Output, interrupt, mode::Block
 use embassy_sync::{
     blocking_mutex::raw::ThreadModeRawMutex,
     channel::{self, Channel},
+    mutex::Mutex,
     pubsub::{self, PubSubChannel},
     signal::Signal,
 };
@@ -33,16 +35,14 @@ use {defmt_rtt as _, panic_probe as _};
 
 use crate::{
     addresses::{
-        ADDR_EG_TYPE_1, ADDR_OUT_ZERO_POINT_1, ADDR_OUT_ZERO_POINT_2, ADDR_OUTPUT_POLARITY_1,
-        ADDR_VOICE_ID_1,
+        ADDR_CV_A_DEST_ADSR, ADDR_CV_A_DEST_LINEAR, ADDR_CV_A_DEST_PARA_DECAYS,
+        ADDR_CV_A_DEST_TWO_DECAYS, ADDR_EG_TYPE_1, ADDR_OUT_ZERO_POINT_1, ADDR_OUT_ZERO_POINT_2,
+        ADDR_OUTPUT_POLARITY_1, ADDR_VOICE_ID_1,
     },
+    definitions::{CvKind, PotKind},
     input_reader::{InputReaderInfo, get_reader_info_receiver},
 };
 
-pub use self::definitions::{
-    DEFAULT_OUT_ZERO_POINT, EgEvent, EgRequest, EngineType, GateEventType, GateId, Mode,
-    OutputPolarity,
-};
 use self::{
     adsr_engine::AdsrEngine,
     config::EgConfig,
@@ -53,6 +53,17 @@ use self::{
     two_decays_engine::TwoDecaysEngine,
     utils::choose_output_converter,
 };
+pub use self::{
+    config::ConfigReader,
+    definitions::{
+        DEFAULT_OUT_ZERO_POINT, EgEvent, EgRequest, EngineType, GateEventType, GateId, Mode,
+        OutputPolarity,
+    },
+};
+
+// UID and string
+static UID: AtomicU32 = AtomicU32::new(u32::MAX);
+static NAME: Mutex<ThreadModeRawMutex, String<A3_MAX_PROP_DATA_SIZE>> = Mutex::new(String::new());
 
 // parameter tweaks
 const POLLING_INTERVAL: Duration = Duration::from_micros(50); // 20 kHz
@@ -100,18 +111,28 @@ pub async fn start(
     ind_gate_2: Output<'static>,
 ) {
     let mut eg_resources = EgResources::new(ind_gate_1, ind_gate_2);
-    retrieve_saved_config(&mut eg_resources).await;
+    retrieve_stored_config(&mut eg_resources).await;
     spawner.spawn(run_envelope_generator(dac_channels, eg_resources).unwrap());
 }
 
-async fn retrieve_saved_config(eg_resources: &mut EgResources) {
+async fn retrieve_stored_config(eg_resources: &mut EgResources) {
+    load_uid().await;
+    load_name().await;
     for index in 0..2 {
-        eg_resources.config.voice_id[index] = load_voice_id(index).await;
-        eg_resources.config.engine_type[index] = load_engine_type(index).await;
+        eg_resources
+            .config
+            .set_voice_id(index, load_voice_id(index).await);
+        let engine_type = load_engine_type(index).await;
+        eg_resources.config.set_engine_type(index, engine_type);
         eg_resources.voice_params[index].out_zero_point = load_out_zero_point(index).await;
         let polarity = load_out_polarity(index).await;
         eg_resources.voice_params[index].value_to_output = choose_output_converter(&polarity);
-        eg_resources.config.out_polarity[index] = polarity;
+        eg_resources.config.set_out_polarity(index, polarity);
+        if index == 0 {
+            let (cv_a_destination, cv_b_destination) = load_cv_destinations(engine_type).await;
+            eg_resources.config.set_cv_a_destination(cv_a_destination);
+            eg_resources.config.set_cv_b_destination(cv_b_destination);
+        }
     }
 }
 
@@ -134,13 +155,9 @@ async fn load_engine_type(voice_index: usize) -> EngineType {
         Ok(engine_type) => engine_type,
         Err(()) => {
             let engine_type = DEFAULT_ENGINE_TYPE;
-            storage::save(
-                address,
-                Value::U8(engine_type.clone() as u8),
-                &SIGNAL_STORAGE,
-            )
-            .await
-            .unwrap();
+            storage::save(address, Value::U8(engine_type as u8), &SIGNAL_STORAGE)
+                .await
+                .unwrap();
             engine_type
         }
     }
@@ -148,23 +165,19 @@ async fn load_engine_type(voice_index: usize) -> EngineType {
 
 async fn save_engine_type(voice_index: usize, engine_type: &EngineType) {
     let address = ADDR_EG_TYPE_1 + voice_index as u16;
-    storage::save(
-        address,
-        Value::U8(engine_type.clone() as u8),
-        &SIGNAL_STORAGE,
-    )
-    .await
-    .unwrap();
+    storage::save(address, Value::U8(*engine_type as u8), &SIGNAL_STORAGE)
+        .await
+        .unwrap();
 }
 
 async fn load_out_polarity(voice_index: usize) -> OutputPolarity {
     let address = ADDR_OUTPUT_POLARITY_1 + voice_index as u16;
-    let type_id = load_u8(address, &SIGNAL_STORAGE).await;
-    match OutputPolarity::try_from(type_id) {
+    let polarity_id = load_u8(address, &SIGNAL_STORAGE).await;
+    match OutputPolarity::try_from(polarity_id) {
         Ok(polarity) => polarity,
         Err(()) => {
             let polarity = OutputPolarity::Positive;
-            storage::save(address, Value::U8(polarity.clone() as u8), &SIGNAL_STORAGE)
+            storage::save(address, Value::U8(polarity as u8), &SIGNAL_STORAGE)
                 .await
                 .unwrap();
             polarity
@@ -172,9 +185,55 @@ async fn load_out_polarity(voice_index: usize) -> OutputPolarity {
     }
 }
 
-async fn save_out_polarity(voice_index: usize, polarity: &OutputPolarity) {
+async fn save_out_polarity(voice_index: usize, polarity: OutputPolarity) {
     let address = ADDR_OUTPUT_POLARITY_1 + voice_index as u16;
-    storage::save(address, Value::U8(polarity.clone() as u8), &SIGNAL_STORAGE)
+    storage::save(address, Value::U8(polarity as u8), &SIGNAL_STORAGE)
+        .await
+        .unwrap();
+}
+
+async fn load_cv_destinations(engine_type: EngineType) -> (PotKind, PotKind) {
+    let (address, default_a, default_b) = match engine_type {
+        EngineType::Adsr => (ADDR_CV_A_DEST_ADSR, PotKind::Attack, PotKind::Decay),
+        EngineType::TwoDecays => (ADDR_CV_A_DEST_TWO_DECAYS, PotKind::Attack, PotKind::Decay),
+        EngineType::ParaDecays => (ADDR_CV_A_DEST_PARA_DECAYS, PotKind::Attack, PotKind::Decay),
+        EngineType::Linear => (ADDR_CV_A_DEST_LINEAR, PotKind::Attack, PotKind::Decay),
+    };
+    let pot_kind_id = load_u8(address, &SIGNAL_STORAGE).await;
+    let destination_a = match PotKind::try_from(pot_kind_id) {
+        Ok(pot_kind) => pot_kind,
+        Err(()) => {
+            storage::save(address, Value::U8(default_a as u8), &SIGNAL_STORAGE)
+                .await
+                .unwrap();
+            default_a
+        }
+    };
+    let pot_kind_id = load_u8(address + 1, &SIGNAL_STORAGE).await;
+    let destination_b = match PotKind::try_from(pot_kind_id) {
+        Ok(pot_kind) => pot_kind,
+        Err(()) => {
+            storage::save(address + 1, Value::U8(default_b as u8), &SIGNAL_STORAGE)
+                .await
+                .unwrap();
+            default_b
+        }
+    };
+
+    (destination_a, destination_b)
+}
+
+async fn save_cv_destination(engine_type: EngineType, cv_kind: CvKind, destination: PotKind) {
+    let mut address = match engine_type {
+        EngineType::Adsr => ADDR_CV_A_DEST_ADSR,
+        EngineType::TwoDecays => ADDR_CV_A_DEST_TWO_DECAYS,
+        EngineType::ParaDecays => ADDR_CV_A_DEST_PARA_DECAYS,
+        EngineType::Linear => ADDR_CV_A_DEST_LINEAR,
+    };
+    if matches!(cv_kind, CvKind::B) {
+        address += 1;
+    }
+    storage::save(address, Value::U8(destination as u8), &SIGNAL_STORAGE)
         .await
         .unwrap();
 }
@@ -192,7 +251,8 @@ async fn load_out_zero_point(voice_index: usize) -> u16 {
 
 /// Loads UID of this module from the flash memory. If the UID is not determined yet,
 /// the method creates one and save it.
-pub async fn get_uid() -> u32 {
+async fn load_uid() {
+    debug!("loading UID");
     let mut uid = load_u32(A3_ADDR_MODULE_UID, &SIGNAL_STORAGE).await;
     debug!("loaded UID: {=u32:#x}", uid);
     if uid == u32::MAX {
@@ -202,24 +262,36 @@ pub async fn get_uid() -> u32 {
             .await
             .unwrap();
     }
-    uid
+    UID.store(uid, Ordering::Relaxed);
+}
+
+pub fn get_uid() -> u32 {
+    UID.load(Ordering::Relaxed)
 }
 
 /// Loads name of this module from the flash memory. If the name is not determined yet,
 /// the method uses the default name and save it.
-pub async fn get_name() -> String<A3_MAX_PROP_DATA_SIZE> {
-    let mut name = load_string(A3_ADDR_MODULE_NAME, &SIGNAL_STORAGE).await;
-    debug!("loaded name: {}", name.as_str());
-    if name.len() == 0 {
-        name = String::try_from("Humps").unwrap();
+async fn load_name() {
+    let mut loaded_name = load_string(A3_ADDR_MODULE_NAME, &SIGNAL_STORAGE).await;
+    debug!("loaded name: {}", loaded_name.as_str());
+    if loaded_name.len() == 0 {
+        loaded_name = String::try_from("Humps").unwrap();
         storage::save(
             A3_ADDR_MODULE_NAME,
-            Value::Text(name.clone()),
+            Value::Text(loaded_name.clone()),
             &SIGNAL_STORAGE,
         )
         .await
         .unwrap();
     }
+    let mut name = NAME.lock().await;
+    name.clone_from(&loaded_name);
+}
+
+pub async fn get_name() -> String<A3_MAX_PROP_DATA_SIZE> {
+    let s = NAME.lock().await;
+    let mut name = String::<A3_MAX_PROP_DATA_SIZE>::new();
+    name.clone_from(&s);
     name
 }
 
@@ -234,24 +306,30 @@ async fn run_envelope_generator(
 
     loop {
         match eg_resources.voice_params[0].operation_mode {
-            Mode::Normal => match eg_resources.config.engine_type[0] {
-                EngineType::ParaDecays => {
-                    let mut eg = EnvelopeGenerator::<ParaDecaysEngine>::new(&mut eg_resources);
-                    eg.run().await;
+            Mode::Normal => {
+                let engine_type = eg_resources.config.engine_type(0);
+                let (cv_a_destination, cv_b_destination) = load_cv_destinations(engine_type).await;
+                eg_resources.config.set_cv_a_destination(cv_a_destination);
+                eg_resources.config.set_cv_b_destination(cv_b_destination);
+                match engine_type {
+                    EngineType::ParaDecays => {
+                        let mut eg = EnvelopeGenerator::<ParaDecaysEngine>::new(&mut eg_resources);
+                        eg.run().await;
+                    }
+                    EngineType::TwoDecays => {
+                        let mut eg = EnvelopeGenerator::<TwoDecaysEngine>::new(&mut eg_resources);
+                        eg.run().await;
+                    }
+                    EngineType::Adsr => {
+                        let mut eg = EnvelopeGenerator::<AdsrEngine>::new(&mut eg_resources);
+                        eg.run().await;
+                    }
+                    EngineType::Linear => {
+                        let mut eg = EnvelopeGenerator::<LinearEngine>::new(&mut eg_resources);
+                        eg.run().await;
+                    }
                 }
-                EngineType::Addsr => {
-                    let mut eg = EnvelopeGenerator::<TwoDecaysEngine>::new(&mut eg_resources);
-                    eg.run().await;
-                }
-                EngineType::Adsr => {
-                    let mut eg = EnvelopeGenerator::<AdsrEngine>::new(&mut eg_resources);
-                    eg.run().await;
-                }
-                EngineType::Linear => {
-                    let mut eg = EnvelopeGenerator::<LinearEngine>::new(&mut eg_resources);
-                    eg.run().await;
-                }
-            },
+            }
             Mode::Diagnose => {
                 let mut eg = EnvelopeGenerator::<DiagEngine>::new(&mut eg_resources);
                 eg.run().await;
@@ -329,15 +407,15 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
         let mut input_reader_info_receiver = get_reader_info_receiver().await;
         debug!(
             "Notifying the initial engine type: {}",
-            self.config.engine_type[0]
+            self.config.engine_type(0)
         );
         self.event_publisher
-            .publish(EgEvent::EngineSwitched(self.config.engine_type[0].clone()))
+            .publish(EgEvent::EngineSwitched(self.config.engine_type(0)))
             .await;
         self.event_publisher
             .publish(EgEvent::PolarityChanged((
-                self.config.out_polarity[0].clone(),
-                self.config.out_polarity[1].clone(),
+                self.config.out_polarity(0),
+                self.config.out_polarity(1),
             )))
             .await;
         loop {
@@ -366,9 +444,9 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
 
     async fn handle_a3_message(&mut self, message: &A3Datagram) {
         if let A3DatagramId::Standard(id) = message.id {
-            if id == self.config.voice_id[0] {
+            if id == self.config.voice_id(0) {
                 self.voice_1.handle_a3_message(message).await;
-            } else if id == self.config.voice_id[1] {
+            } else if id == self.config.voice_id(1) {
                 self.voice_2.handle_a3_message(message).await;
             }
         }
@@ -395,10 +473,14 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
                 send_notif,
             } => {
                 debug!("switching engine to {}", engine_type.name());
-                self.config.engine_type[0] = engine_type.clone();
-                self.config.engine_type[1] = engine_type.clone();
-                save_engine_type(0, &engine_type).await;
-                save_engine_type(1, &engine_type).await;
+                if self.config.engine_type(0) == engine_type {
+                    debug!("No change to engine type");
+                } else {
+                    self.config.set_engine_type(0, engine_type);
+                    self.config.set_engine_type(1, engine_type);
+                    save_engine_type(0, &engine_type).await;
+                    save_engine_type(1, &engine_type).await;
+                }
                 if send_notif {
                     self.event_publisher
                         .publish(EgEvent::EngineSwitched(engine_type))
@@ -412,16 +494,45 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
                 send_notif,
             } => {
                 debug!("switching polarities");
-                self.config.out_polarity[0] = polarity_1.clone();
-                self.config.out_polarity[1] = polarity_2.clone();
-                save_out_polarity(0, &polarity_1).await;
-                save_out_polarity(1, &polarity_2).await;
-                self.voice_1.params.value_to_output = choose_output_converter(&polarity_1);
-                self.voice_2.params.value_to_output = choose_output_converter(&polarity_2);
+                if self.config.out_polarity(0) == polarity_1
+                    && self.config.out_polarity(1) == polarity_2
+                {
+                    debug!("No change to polarities");
+                } else {
+                    self.config.set_out_polarity(0, polarity_1);
+                    self.config.set_out_polarity(1, polarity_2);
+                    save_out_polarity(0, polarity_1).await;
+                    save_out_polarity(1, polarity_2).await;
+                    self.voice_1.params.value_to_output = choose_output_converter(&polarity_1);
+                    self.voice_2.params.value_to_output = choose_output_converter(&polarity_2);
+                }
                 if send_notif {
                     self.event_publisher
                         .publish(EgEvent::PolarityChanged((polarity_1, polarity_2)))
                         .await;
+                }
+                false
+            }
+            EgRequest::ChangeCvDestination {
+                source,
+                destination,
+            } => {
+                debug!("change cv destination");
+                match source {
+                    CvKind::A => {
+                        if self.config.cv_a_destination() != destination {
+                            self.config.set_cv_a_destination(destination);
+                            save_cv_destination(self.config.engine_type(0), source, destination)
+                                .await;
+                        }
+                    }
+                    CvKind::B => {
+                        if self.config.cv_b_destination() != destination {
+                            self.config.set_cv_b_destination(destination);
+                            save_cv_destination(self.config.engine_type(0), source, destination)
+                                .await;
+                        }
+                    }
                 }
                 false
             }
@@ -435,7 +546,7 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
                 } else {
                     mode
                 };
-                self.voice_1.params.operation_mode = next_mode.clone();
+                self.voice_1.params.operation_mode = next_mode;
                 self.voice_2.params.operation_mode = next_mode;
                 true
             }

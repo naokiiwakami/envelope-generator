@@ -1,5 +1,3 @@
-use core::sync::atomic::Ordering;
-
 use defmt::debug;
 use embedded_graphics::{
     pixelcolor::BinaryColor,
@@ -9,24 +7,51 @@ use embedded_graphics::{
 use ssd1306_lite::{FontSize, TextBox};
 
 use crate::{
-    control_panel::STATE,
-    envelope_generator::{EngineType, OutputPolarity},
-    input_reader::{PotInfo, PotKind},
+    definitions::{CvKind, PotKind},
+    envelope_generator::{ConfigReader, EngineType, OutputPolarity},
+    input_reader::PotInfo,
 };
 
 use super::{Display, ENGINE_TYPE_MENU_ITEMS, Mode, Request};
 
+// CV assignment display constants
+const POS_ATTACK: (i32, i32) = (7, 18);
+const POS_DECAY: (i32, i32) = (43, 6);
+const POS_SUSTAIN: (i32, i32) = (84, 6);
+const POS_RELEASE: (i32, i32) = (121, 18);
+const POS_EXTRA_1: (i32, i32) = (43, 30);
+const POS_EXTRA_2: (i32, i32) = (84, 30);
+
+const POS_CV_A: (i32, i32) = (49, 54);
+const POS_CV_B: (i32, i32) = (78, 54);
+
+const CV_A_TO_ATTACK: [(i32, i32); 4] = [POS_CV_A, (26, 40), (16, 30), POS_ATTACK];
+const CV_A_TO_DECAY: [(i32, i32); 5] = [POS_CV_A, (34, 46), (27, 32), (32, 16), POS_DECAY];
+const CV_A_TO_SUSTAIN: [(i32, i32); 4] = [POS_CV_A, (59, 36), (70, 21), POS_SUSTAIN];
+const CV_A_TO_RELEASE: [(i32, i32); 5] = [POS_CV_A, (66, 45), (92, 43), (110, 33), POS_RELEASE];
+const CV_A_TO_EXTRA_1: [(i32, i32); 3] = [POS_CV_A, (40, 42), POS_EXTRA_1];
+const CV_A_TO_EXTRA_2: [(i32, i32); 3] = [POS_CV_A, (62, 41), POS_EXTRA_2];
+
+const CV_KNOB_DIAMETER: u32 = 13;
+const CV_JACK_DIAMETER: u32 = 9;
+
 pub struct InOperationMode<'a> {
     display: &'a mut Display,
 
+    eg_config: ConfigReader,
+
+    // current displaying parameters
     attack: i32,
     decay: i32,
     sustain: i32,
     release: i32,
 
+    cv_a_destination: PotKind,
+    cv_b_destination: PotKind,
+
     // frequently used styles
     erase_area: PrimitiveStyle<BinaryColor>,
-    _fill_area: PrimitiveStyle<BinaryColor>,
+    fill_area: PrimitiveStyle<BinaryColor>,
     erase_stroke: PrimitiveStyle<BinaryColor>,
     stroke: PrimitiveStyle<BinaryColor>,
 }
@@ -43,16 +68,19 @@ impl<'a> InOperationMode<'a> {
     pub fn new(display: &'a mut Display) -> Self {
         Self {
             display,
+            eg_config: ConfigReader::new(),
             attack: 0,
             decay: 0,
             sustain: 0,
             release: 0,
+            cv_a_destination: PotKind::Decay,
+            cv_b_destination: PotKind::Sustain,
             erase_area: PrimitiveStyleBuilder::new()
                 .stroke_width(1)
                 .stroke_color(BinaryColor::Off)
                 .fill_color(BinaryColor::Off)
                 .build(),
-            _fill_area: PrimitiveStyleBuilder::new()
+            fill_area: PrimitiveStyleBuilder::new()
                 .stroke_width(0)
                 // .stroke_color(BinaryColor::On)
                 .fill_color(BinaryColor::On)
@@ -107,6 +135,14 @@ impl<'a> InOperationMode<'a> {
                     self.update_polarities(targets, polarity_1, polarity_2, is_draw)
                         .await
                 }
+                Request::ShowCvAssignment => self.show_cv_assignment().await,
+                Request::UpdateCvAssignment {
+                    source,
+                    destination,
+                } => self.update_cv_assignment(source, destination).await,
+                Request::BlinkCvSource { source, turn_on } => {
+                    self.blink_cv_source(source, turn_on).await
+                }
                 _ => {
                     self.display
                         .switch_mode(request.mode(), Some(request))
@@ -118,15 +154,15 @@ impl<'a> InOperationMode<'a> {
     }
 
     pub async fn show_home_page(&mut self) {
-        let engine_type = STATE.engine_type.load();
-        let attack = STATE.attack.load(Ordering::Relaxed);
-        let decay = STATE.decay.load(Ordering::Relaxed);
-        let sustain = STATE.sustain.load(Ordering::Relaxed);
-        let release = STATE.release.load(Ordering::Relaxed);
-        let extra_1 = STATE.extra_1.load(Ordering::Relaxed);
-        let extra_2 = STATE.extra_2.load(Ordering::Relaxed);
+        let engine_type = self.eg_config.engine_type(0);
+        let attack = self.eg_config.attack(0);
+        let decay = self.eg_config.decay(0);
+        let sustain = self.eg_config.sustain(0);
+        let release = self.eg_config.release(0);
+        let extra_1 = self.eg_config.extra_1(0);
+        let extra_2 = self.eg_config.extra_2(0);
 
-        debug!("engine type to {}", engine_type);
+        debug!("showing {} home page", engine_type);
 
         self.display.current_engine_type = engine_type;
         match self.display.current_engine_type {
@@ -155,8 +191,7 @@ impl<'a> InOperationMode<'a> {
         _extra_2: u16,
     ) {
         self.display.clear(false, false).await;
-        let name =
-            ENGINE_TYPE_MENU_ITEMS[(self.display.current_engine_type.clone() as u8) as usize].name;
+        let name = ENGINE_TYPE_MENU_ITEMS[(self.display.current_engine_type as u8) as usize].name;
         let text_box = TextBox::center().build();
         self.display
             .driver
@@ -182,7 +217,7 @@ impl<'a> InOperationMode<'a> {
         sustain: u16,
         release: u16,
         _extra_1: u16,
-        extra_2: u16,
+        _extra_2: u16,
     ) {
         self.display.clear(false, false).await;
 
@@ -199,7 +234,8 @@ impl<'a> InOperationMode<'a> {
         self.draw_curve((self.release, self.sustain), (RIGHT, BOTTOM))
             .await;
 
-        self.draw_note_scaling_bar(extra_2).await;
+        self.draw_note_scaling_bar(self.eg_config.note_scaling_depth(0))
+            .await;
 
         self.display.driver.flush().await;
     }
@@ -271,7 +307,8 @@ impl<'a> InOperationMode<'a> {
                     .await;
             }
             PotKind::Extra2 => {
-                self.draw_note_scaling_bar(pot_info.value).await;
+                self.draw_note_scaling_bar(self.eg_config.note_scaling_depth(0))
+                    .await;
             }
             _ => {}
         }
@@ -287,7 +324,7 @@ impl<'a> InOperationMode<'a> {
         sustain: u16,
         release: u16,
         _extra_1: u16,
-        extra_2: u16,
+        _extra_2: u16,
     ) {
         self.display.clear(false, false).await;
 
@@ -304,7 +341,8 @@ impl<'a> InOperationMode<'a> {
         self.draw_line((self.release, self.sustain), (RIGHT, BOTTOM))
             .await;
 
-        self.draw_note_scaling_bar(extra_2).await;
+        self.draw_note_scaling_bar(self.eg_config.note_scaling_depth(0))
+            .await;
 
         self.display.driver.flush().await;
     }
@@ -388,7 +426,8 @@ impl<'a> InOperationMode<'a> {
                     .await;
             }
             PotKind::Extra2 => {
-                self.draw_note_scaling_bar(pot_info.value).await;
+                self.draw_note_scaling_bar(self.eg_config.note_scaling_depth(0))
+                    .await;
             }
             _ => {}
         }
@@ -577,6 +616,212 @@ impl<'a> InOperationMode<'a> {
         }
     }
 
+    // CV Assignment ///////////////////////////////////////////////////////////
+
+    async fn show_cv_assignment(&mut self) {
+        self.display.clear(false, false).await;
+        self.display
+            .driver
+            .draw_string(
+                "CV",
+                TextBox::simple(0, 50, BinaryColor::On),
+                FontSize::Medium,
+            )
+            .await;
+
+        let cv_dest_a = self.eg_config.cv_a_destination();
+        let cv_dest_b = self.eg_config.cv_b_destination();
+        self.cv_a_destination = cv_dest_a;
+        self.cv_b_destination = cv_dest_b;
+        let mut flags = [false; 8];
+        flags[cv_dest_a as usize] = true;
+        flags[cv_dest_b as usize] = true;
+
+        self.draw_cv_pot(POS_ATTACK, flags[PotKind::Attack as usize])
+            .await;
+        self.draw_cv_pot(POS_DECAY, flags[PotKind::Decay as usize])
+            .await;
+        self.draw_cv_pot(POS_SUSTAIN, flags[PotKind::Sustain as usize])
+            .await;
+        self.draw_cv_pot(POS_RELEASE, flags[PotKind::Release as usize])
+            .await;
+        self.draw_cv_pot(POS_EXTRA_1, flags[PotKind::Extra1 as usize])
+            .await;
+        self.draw_cv_pot(POS_EXTRA_2, flags[PotKind::Extra2 as usize])
+            .await;
+
+        self.show_cv_source(POS_CV_A, true).await;
+        self.show_cv_source(POS_CV_B, true).await;
+
+        let mut mirror: [(i32, i32); 5] = [(0, 0); 5];
+
+        if let Some(points) = path_from_a_to_dest(cv_dest_a) {
+            self.display
+                .driver
+                .draw_spline(points, 18, BinaryColor::On)
+                .await;
+        };
+
+        if let Some(points) = path_from_b_to_dest(cv_dest_b) {
+            self.flip(points, &mut mirror);
+            self.display
+                .driver
+                .draw_spline(&mirror[0..points.len()], 18, BinaryColor::On)
+                .await;
+        }
+
+        self.display.driver.flush().await;
+    }
+
+    async fn update_cv_assignment(&mut self, source: CvKind, destination: PotKind) {
+        defmt::debug!("update_cv_assignment: {:?} {:?}", source, destination);
+        match source {
+            CvKind::A => {
+                if destination == self.cv_a_destination {
+                    return;
+                }
+                if let Some(points) = path_from_a_to_dest(self.cv_a_destination) {
+                    self.display
+                        .driver
+                        .draw_spline(points, 18, BinaryColor::Off)
+                        .await;
+                };
+                if let Some(position) = pot_pos(self.cv_a_destination) {
+                    self.draw_cv_node(*position, CV_KNOB_DIAMETER, false).await;
+                }
+                if let Some(position) = pot_pos(destination) {
+                    self.draw_cv_node(*position, CV_KNOB_DIAMETER, true).await;
+                }
+                if let Some(points) = path_from_a_to_dest(destination) {
+                    self.display
+                        .driver
+                        .draw_spline(points, 18, BinaryColor::On)
+                        .await;
+                }
+                self.show_cv_source(POS_CV_A, true).await;
+                // the erased line may have crossed with the other one. redraw.
+                if let Some(points) = path_from_b_to_dest(self.cv_b_destination) {
+                    let mut mirror: [(i32, i32); 5] = [(0, 0); 5];
+                    self.flip(points, &mut mirror);
+                    self.display
+                        .driver
+                        .draw_spline(&mirror[0..points.len()], 18, BinaryColor::On)
+                        .await;
+                }
+                self.display.driver.flush().await;
+                self.cv_a_destination = destination;
+            }
+            CvKind::B => {
+                if destination == self.cv_b_destination {
+                    return;
+                }
+                let mut mirror: [(i32, i32); 5] = [(0, 0); 5];
+                if let Some(points) = path_from_b_to_dest(self.cv_b_destination) {
+                    self.flip(points, &mut mirror);
+                    self.display
+                        .driver
+                        .draw_spline(&mirror[0..points.len()], 18, BinaryColor::Off)
+                        .await;
+                };
+                if let Some(position) = pot_pos(self.cv_b_destination) {
+                    self.draw_cv_node(*position, CV_KNOB_DIAMETER, false).await;
+                }
+                if let Some(position) = pot_pos(destination) {
+                    self.draw_cv_node(*position, CV_KNOB_DIAMETER, true).await;
+                }
+                if let Some(points) = path_from_b_to_dest(destination) {
+                    self.flip(points, &mut mirror);
+                    self.display
+                        .driver
+                        .draw_spline(&mirror[0..points.len()], 18, BinaryColor::On)
+                        .await;
+                }
+                self.show_cv_source(POS_CV_B, true).await;
+                // the erased line may have crossed with the other one. redraw.
+                if let Some(points) = path_from_a_to_dest(self.cv_a_destination) {
+                    self.display
+                        .driver
+                        .draw_spline(points, 18, BinaryColor::On)
+                        .await;
+                }
+                self.display.driver.flush().await;
+                self.cv_b_destination = destination;
+            }
+        }
+    }
+
+    async fn blink_cv_source(&mut self, source: CvKind, turn_on: bool) {
+        match source {
+            CvKind::A => self.show_cv_source(POS_CV_A, turn_on).await,
+            CvKind::B => self.show_cv_source(POS_CV_B, turn_on).await,
+        }
+        self.display.driver.flush().await;
+    }
+
+    fn flip(&self, original: &[(i32, i32)], mirror: &mut [(i32, i32)]) {
+        for i in 0..original.len() {
+            mirror[i] = (127 - original[i].0, original[i].1);
+        }
+    }
+
+    async fn draw_cv_pot(&mut self, center: (i32, i32), in_use: bool) {
+        self.draw_cv_node(center, CV_KNOB_DIAMETER, in_use).await;
+    }
+
+    async fn draw_cv_node(&mut self, center: (i32, i32), diameter: u32, in_use: bool) {
+        let top_left_x = center.0 - diameter as i32 / 2;
+        let top_left_y = center.1 - diameter as i32 / 2;
+        self.display
+            .driver
+            .draw_circle((top_left_x, top_left_y), diameter, self.erase_area)
+            .await;
+        let styled = PrimitiveStyleBuilder::new()
+            .stroke_alignment(StrokeAlignment::Inside)
+            .stroke_width(2)
+            .stroke_color(BinaryColor::On)
+            .build();
+        self.display
+            .driver
+            .draw_circle(
+                (top_left_x, top_left_y),
+                diameter,
+                if in_use { styled } else { self.fill_area },
+            )
+            .await;
+        self.display
+            .driver
+            .draw_circle(
+                (center.0 - 2, center.1 - 2),
+                5,
+                if in_use {
+                    self.fill_area
+                } else {
+                    self.erase_area
+                },
+            )
+            .await;
+    }
+
+    async fn show_cv_source(&mut self, center: (i32, i32), turn_on: bool) {
+        let diameter = CV_JACK_DIAMETER;
+        let top_left_x = center.0 - diameter as i32 / 2;
+        let top_left_y = center.1 - diameter as i32 / 2;
+        self.display
+            .driver
+            .draw_circle((top_left_x, top_left_y), diameter, self.erase_area)
+            .await;
+        self.display
+            .driver
+            .draw_circle((top_left_x, top_left_y), diameter, self.stroke)
+            .await;
+        if turn_on {
+            self.display
+                .driver
+                .draw_circle((center.0 - 2, center.1 - 2), 5, self.fill_area)
+                .await;
+        }
+    }
+
     // Utils /////////////////////////////////////////////////////////////////////////////////////
 
     #[inline]
@@ -599,22 +844,6 @@ impl<'a> InOperationMode<'a> {
     #[inline]
     fn release_pos(&self, release: u16) -> i32 {
         125 - ((35 * (distort(release) as i32 + 1)) >> 16)
-    }
-
-    #[inline(always)]
-    async fn _draw_node(&mut self, top_left_x: i32, top_left_y: i32) {
-        self.display
-            .driver
-            .draw_circle((top_left_x, top_left_y), _NODE_SIZE, self._fill_area)
-            .await;
-    }
-
-    #[inline(always)]
-    async fn _erase_node(&mut self, top_left_x: i32, top_left_y: i32) {
-        self.display
-            .driver
-            .draw_circle((top_left_x, top_left_y), _NODE_SIZE, self.erase_area)
-            .await;
     }
 
     #[inline(always)]
@@ -658,4 +887,40 @@ impl<'a> InOperationMode<'a> {
 fn distort(input: u16) -> u16 {
     let reverse = (!input) as u32;
     !(((((reverse * reverse) >> 16) * reverse) >> 16) as u16)
+}
+
+fn path_from_a_to_dest(destination: PotKind) -> Option<&'static [(i32, i32)]> {
+    match destination {
+        PotKind::Attack => Some(&CV_A_TO_ATTACK),
+        PotKind::Decay => Some(&CV_A_TO_DECAY),
+        PotKind::Sustain => Some(&CV_A_TO_SUSTAIN),
+        PotKind::Release => Some(&CV_A_TO_RELEASE),
+        PotKind::Extra1 => Some(&CV_A_TO_EXTRA_1),
+        PotKind::Extra2 => Some(&CV_A_TO_EXTRA_2),
+        _ => None,
+    }
+}
+
+fn pot_pos(pot: PotKind) -> Option<&'static (i32, i32)> {
+    match pot {
+        PotKind::Attack => Some(&POS_ATTACK),
+        PotKind::Decay => Some(&POS_DECAY),
+        PotKind::Sustain => Some(&POS_SUSTAIN),
+        PotKind::Release => Some(&POS_RELEASE),
+        PotKind::Extra1 => Some(&POS_EXTRA_1),
+        PotKind::Extra2 => Some(&POS_EXTRA_2),
+        _ => None,
+    }
+}
+
+fn path_from_b_to_dest(destination: PotKind) -> Option<&'static [(i32, i32)]> {
+    match destination {
+        PotKind::Attack => Some(&CV_A_TO_RELEASE),
+        PotKind::Decay => Some(&CV_A_TO_SUSTAIN),
+        PotKind::Sustain => Some(&CV_A_TO_DECAY),
+        PotKind::Release => Some(&CV_A_TO_ATTACK),
+        PotKind::Extra1 => Some(&CV_A_TO_EXTRA_2),
+        PotKind::Extra2 => Some(&CV_A_TO_EXTRA_1),
+        _ => None,
+    }
 }
