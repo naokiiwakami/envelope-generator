@@ -436,7 +436,7 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
                         break;
                     }
                 }
-                Either5::Fifth(input) => self.consume_input(input),
+                Either5::Fifth(input) => self.consume_input(input).await,
             };
             self.regular_task();
         }
@@ -570,10 +570,13 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
         }
     }
 
-    fn consume_input(&mut self, input: InputReaderInfo) {
+    async fn consume_input(&mut self, input: InputReaderInfo) {
         self.config.translate(&input.pot_info);
         self.voice_1.update_params(&self.config, &input);
         self.voice_2.update_params(&self.config, &input);
+        self.event_publisher
+            .publish(EgEvent::PotMoved(input.pot_info.clone()))
+            .await;
     }
 }
 

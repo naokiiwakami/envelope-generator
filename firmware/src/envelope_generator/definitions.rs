@@ -5,7 +5,7 @@ use super::config::EgConfig;
 use crate::{
     definitions::{AtomicEnumRepr, CvKind, PotKind},
     envelope_generator::utils::uq0_32_to_12bit_positive,
-    input_reader::InputReaderInfo,
+    input_reader::{InputReaderInfo, PotInfo},
 };
 
 pub const DEFAULT_VOICE_IDS: [u16; 2] = [0x101, 0x102];
@@ -171,6 +171,7 @@ impl AtomicEnumRepr for OutputPolarity {
 pub enum EgEvent {
     EngineSwitched(EngineType),
     PolarityChanged((OutputPolarity, OutputPolarity)), // polarity_1, polarity_2
+    PotMoved(PotInfo),
 }
 
 pub trait Engine {
