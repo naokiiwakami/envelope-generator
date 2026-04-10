@@ -1,5 +1,5 @@
 use embassy_futures::select::{Either, select};
-use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, signal::Signal};
+use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, signal::Signal, watch};
 use embassy_time::{Duration, Instant, Timer};
 use embedded_graphics::{
     pixelcolor::BinaryColor, prelude::Point, primitives::PrimitiveStyleBuilder,
@@ -8,6 +8,7 @@ use ssd1306_lite::{FontSize, TextBox};
 
 use crate::{
     envelope_generator::Mode as EgOperationMode,
+    input_reader::{InputReaderInfo, get_reader_info_receiver},
     patch_controller::{diagnose_button, diagnose_leds},
 };
 
@@ -26,6 +27,8 @@ impl<'a> Diagnoser<'a> {
     }
 
     pub async fn execute(&mut self) {
+        let mut reader_info_receiver = get_reader_info_receiver().await;
+
         let text_box = TextBox::center().fg_color(BinaryColor::Off).build();
         self.control_panel
             .switch_display_mode(DisplayMode::Fundamental)
@@ -42,8 +45,8 @@ impl<'a> Diagnoser<'a> {
         self.control_panel.blink_leds().await;
         Timer::after_millis(500).await;
         self.diagnose_patch_controller().await;
-        self.diagnose_pots().await;
-        self.diagnose_cv().await;
+        self.diagnose_pots(&mut reader_info_receiver).await;
+        self.diagnose_cv(&mut reader_info_receiver).await;
         self.control_panel
             .request_toggle_eg_mode(EgOperationMode::Normal)
             .await;
@@ -91,7 +94,10 @@ impl<'a> Diagnoser<'a> {
         diagnose_button(&SIGNAL_REPLY).await;
     }
 
-    async fn diagnose_pots(&mut self) {
+    async fn diagnose_pots(
+        &mut self,
+        reader_info_receiver: &mut watch::Receiver<'static, ThreadModeRawMutex, InputReaderInfo, 2>,
+    ) {
         let mut now = Instant::now();
         self.control_panel.button_pressed_at = if self.control_panel.button.is_low() {
             Some(now.clone())
@@ -104,12 +110,7 @@ impl<'a> Diagnoser<'a> {
         let mut first_one_covered = false;
         loop {
             let sleep_time = next.duration_since(now);
-            match select(
-                self.control_panel.reader_info_receiver.changed(),
-                Timer::after(sleep_time),
-            )
-            .await
-            {
+            match select(reader_info_receiver.changed(), Timer::after(sleep_time)).await {
                 Either::First(reader_info) => {
                     let pot_info = reader_info.pot_info;
                     let index = pot_info.kind.clone() as usize;
@@ -153,7 +154,10 @@ impl<'a> Diagnoser<'a> {
         }
     }
 
-    async fn diagnose_cv(&mut self) {
+    async fn diagnose_cv(
+        &mut self,
+        reader_info_receiver: &mut watch::Receiver<'static, ThreadModeRawMutex, InputReaderInfo, 2>,
+    ) {
         let mut now = Instant::now();
         self.control_panel.button_pressed_at = if self.control_panel.button.is_low() {
             Some(now.clone())
@@ -166,12 +170,7 @@ impl<'a> Diagnoser<'a> {
         let mut last_update_time = Instant::now();
         loop {
             let sleep_time = next.duration_since(now);
-            match select(
-                self.control_panel.reader_info_receiver.changed(),
-                Timer::after(sleep_time),
-            )
-            .await
-            {
+            match select(reader_info_receiver.changed(), Timer::after(sleep_time)).await {
                 Either::First(reader_info) => {
                     let cv_info = reader_info.cv_info;
                     if last_update_time.elapsed().as_millis() >= 30 {

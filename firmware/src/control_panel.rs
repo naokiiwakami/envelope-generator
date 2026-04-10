@@ -17,7 +17,7 @@ use embassy_stm32::{
     peripherals::TIM3,
     timer::qei::Qei,
 };
-use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel, pubsub, watch};
+use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel, pubsub};
 use embassy_time::{Duration, Instant, Timer};
 use heapless::String;
 use ssd1306_lite::{FontSize, TextBox};
@@ -28,7 +28,7 @@ use crate::{
         ConfigReader, EG_CHANNEL_SIZE, EG_PUBS, EG_SUBS, EgEvent, EgRequest, EngineType,
         Mode as EgOperationMode, OutputPolarity, get_eg_event_subscriber, get_eg_request_sender,
     },
-    input_reader::{InputReaderInfo, get_reader_info_receiver},
+    input_reader::PotInfo,
 };
 
 use self::polarity_changer::PolarityChanger;
@@ -132,9 +132,6 @@ struct ControlPanel {
     eg_event_subscriber:
         pubsub::Subscriber<'static, ThreadModeRawMutex, EgEvent, EG_CHANNEL_SIZE, EG_SUBS, EG_PUBS>,
 
-    // Input Reader
-    reader_info_receiver: watch::Receiver<'static, ThreadModeRawMutex, InputReaderInfo, 2>,
-
     // EG state
     eg_config: ConfigReader,
     state: &'static ModuleState,
@@ -170,7 +167,6 @@ impl ControlPanel {
             display_request_sender,
             eg_request_sender: get_eg_request_sender(),
             eg_event_subscriber: get_eg_event_subscriber(),
-            reader_info_receiver: get_reader_info_receiver().await,
             eg_config: ConfigReader::new(),
             state: &STATE,
             engine_type_index: 0,
@@ -199,12 +195,12 @@ impl ControlPanel {
         loop {
             match select(
                 self.eg_event_subscriber.next_message_pure(),
-                self.reader_info_receiver.changed(),
+                Timer::after_millis(10),
             )
             .await
             {
                 Either::First(event) => self.handle_eg_event(event).await,
-                Either::Second(info) => self.handle_reader_info(info).await,
+                Either::Second(()) => {}
             };
             if last_updated.elapsed().as_millis() > 10 {
                 self.update().await;
@@ -221,16 +217,15 @@ impl ControlPanel {
         match event {
             EgEvent::EngineSwitched(engine_type) => self.switch_engine_type(engine_type).await,
             EgEvent::PolarityChanged((p1, p2)) => self.change_polarity(p1, p2).await,
+            EgEvent::PotMoved(pot_info) => self.handle_pot_moved(pot_info).await,
         }
     }
 
-    async fn handle_reader_info(&mut self, info: InputReaderInfo) {
+    async fn handle_pot_moved(&mut self, pot_info: PotInfo) {
         if matches!(self.mode, ControlPanelMode::Normal) && matches!(self.page, OperationPage::Home)
         {
             self.display_request_sender
-                .send(DisplayRequest::UpdatePot {
-                    pot_info: info.pot_info,
-                })
+                .send(DisplayRequest::UpdatePot { pot_info })
                 .await;
         }
     }
@@ -551,8 +546,6 @@ impl ControlPanel {
     }
 
     async fn change_polarity(&mut self, polarity_1: OutputPolarity, polarity_2: OutputPolarity) {
-        // self.state.polarity_1.store(polarity_1);
-        // self.state.polarity_2.store(polarity_2);
         if matches!(self.mode, ControlPanelMode::Normal)
             && matches!(self.page, OperationPage::OutputPolarity)
         {
