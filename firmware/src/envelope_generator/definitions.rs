@@ -141,7 +141,7 @@ pub enum GateEventType {
     GateOff,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 #[repr(u8)]
 pub enum OutputPolarity {
     Positive = 0,

@@ -59,8 +59,14 @@ impl<'a> CvAssigner<'a> {
         );
 
         let mut current_index = original_index;
+        let mut iteration_count = 0;
         loop {
             Timer::after_millis(10).await;
+            iteration_count += 1;
+            if iteration_count % 25 == 0 {
+                self.control_panel.ind_red.toggle();
+                self.control_panel.ind_green.toggle();
+            }
             if self.control_panel.button.get_level() == Level::Low {
                 if self.control_panel.button_pressed_at.is_none() {
                     self.control_panel.button_pressed_at = Some(Instant::now());
@@ -81,6 +87,14 @@ impl<'a> CvAssigner<'a> {
                     CvKind::A => self.current_cv_a_destination = new_destination,
                     CvKind::B => self.current_cv_b_destination = new_destination,
                 };
+                self.control_panel.ind_red.set_low();
+                self.control_panel.ind_green.set_low();
+                for _ in 0..7 {
+                    Timer::after_millis(60).await;
+                    self.control_panel.ind_green.set_high();
+                    Timer::after_millis(60).await;
+                    self.control_panel.ind_green.set_low();
+                }
                 return;
             } else {
                 let raw = self.control_panel.encoder.count() as i16;

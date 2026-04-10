@@ -631,6 +631,8 @@ impl<'a> InOperationMode<'a> {
 
         let cv_dest_a = self.eg_config.cv_a_destination();
         let cv_dest_b = self.eg_config.cv_b_destination();
+        self.cv_a_destination = cv_dest_a;
+        self.cv_b_destination = cv_dest_b;
         let mut flags = [false; 8];
         flags[cv_dest_a as usize] = true;
         flags[cv_dest_b as usize] = true;

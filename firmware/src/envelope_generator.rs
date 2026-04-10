@@ -473,10 +473,14 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
                 send_notif,
             } => {
                 debug!("switching engine to {}", engine_type.name());
-                self.config.set_engine_type(0, engine_type);
-                self.config.set_engine_type(1, engine_type);
-                save_engine_type(0, &engine_type).await;
-                save_engine_type(1, &engine_type).await;
+                if self.config.engine_type(0) == engine_type {
+                    debug!("No change to engine type");
+                } else {
+                    self.config.set_engine_type(0, engine_type);
+                    self.config.set_engine_type(1, engine_type);
+                    save_engine_type(0, &engine_type).await;
+                    save_engine_type(1, &engine_type).await;
+                }
                 if send_notif {
                     self.event_publisher
                         .publish(EgEvent::EngineSwitched(engine_type))
@@ -490,12 +494,18 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
                 send_notif,
             } => {
                 debug!("switching polarities");
-                self.config.set_out_polarity(0, polarity_1);
-                self.config.set_out_polarity(1, polarity_2);
-                save_out_polarity(0, polarity_1).await;
-                save_out_polarity(1, polarity_2).await;
-                self.voice_1.params.value_to_output = choose_output_converter(&polarity_1);
-                self.voice_2.params.value_to_output = choose_output_converter(&polarity_2);
+                if self.config.out_polarity(0) == polarity_1
+                    && self.config.out_polarity(1) == polarity_2
+                {
+                    debug!("No change to polarities");
+                } else {
+                    self.config.set_out_polarity(0, polarity_1);
+                    self.config.set_out_polarity(1, polarity_2);
+                    save_out_polarity(0, polarity_1).await;
+                    save_out_polarity(1, polarity_2).await;
+                    self.voice_1.params.value_to_output = choose_output_converter(&polarity_1);
+                    self.voice_2.params.value_to_output = choose_output_converter(&polarity_2);
+                }
                 if send_notif {
                     self.event_publisher
                         .publish(EgEvent::PolarityChanged((polarity_1, polarity_2)))
@@ -510,13 +520,20 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
                 debug!("change cv destination");
                 match source {
                     CvKind::A => {
-                        self.config.set_cv_a_destination(destination);
+                        if self.config.cv_a_destination() != destination {
+                            self.config.set_cv_a_destination(destination);
+                            save_cv_destination(self.config.engine_type(0), source, destination)
+                                .await;
+                        }
                     }
                     CvKind::B => {
-                        self.config.set_cv_b_destination(destination);
+                        if self.config.cv_b_destination() != destination {
+                            self.config.set_cv_b_destination(destination);
+                            save_cv_destination(self.config.engine_type(0), source, destination)
+                                .await;
+                        }
                     }
                 }
-                save_cv_destination(self.config.engine_type(0), source, destination).await;
                 false
             }
             EgRequest::ToggleMode { mode } => {
