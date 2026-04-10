@@ -26,7 +26,7 @@ const POS_CV_A: (i32, i32) = (49, 54);
 const POS_CV_B: (i32, i32) = (78, 54);
 
 const CV_A_TO_ATTACK: [(i32, i32); 4] = [POS_CV_A, (26, 40), (16, 30), POS_ATTACK];
-const CV_A_TO_DECAY: [(i32, i32); 4] = [POS_CV_A, (58, 39), (55, 18), POS_DECAY];
+const CV_A_TO_DECAY: [(i32, i32); 5] = [POS_CV_A, (34, 46), (27, 32), (32, 16), POS_DECAY];
 const CV_A_TO_SUSTAIN: [(i32, i32); 4] = [POS_CV_A, (59, 36), (70, 21), POS_SUSTAIN];
 const CV_A_TO_RELEASE: [(i32, i32); 5] = [POS_CV_A, (66, 45), (92, 43), (110, 33), POS_RELEASE];
 const CV_A_TO_EXTRA_1: [(i32, i32); 3] = [POS_CV_A, (40, 42), POS_EXTRA_1];
@@ -697,6 +697,12 @@ impl<'a> InOperationMode<'a> {
                         .driver
                         .draw_spline(points, 18, BinaryColor::On)
                         .await;
+                    /*
+                    for i in 1..points.len() - 1 {
+                        let position = points[i];
+                        self.draw_cv_node(position, 3, false).await;
+                    }
+                    */
                 }
                 self.draw_cv_node(POS_CV_A, CV_JACK_DIAMETER, true).await;
                 // the erased line may have crossed with the other one. redraw.
@@ -776,14 +782,24 @@ impl<'a> InOperationMode<'a> {
             .build();
         self.display
             .driver
-            .draw_circle((top_left_x, top_left_y), diameter, styled)
+            .draw_circle(
+                (top_left_x, top_left_y),
+                diameter,
+                if in_use { self.stroke } else { self.fill_area },
+            )
             .await;
-        if in_use {
-            self.display
-                .driver
-                .draw_circle((center.0 - 2, center.1 - 2), 5, self.fill_area)
-                .await;
-        }
+        self.display
+            .driver
+            .draw_circle(
+                (center.0 - 2, center.1 - 2),
+                5,
+                if in_use {
+                    self.fill_area
+                } else {
+                    self.erase_area
+                },
+            )
+            .await;
     }
 
     // Utils /////////////////////////////////////////////////////////////////////////////////////
