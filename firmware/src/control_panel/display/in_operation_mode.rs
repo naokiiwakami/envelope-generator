@@ -7,7 +7,7 @@ use embedded_graphics::{
 use ssd1306_lite::{FontSize, TextBox};
 
 use crate::{
-    control_panel::display::definitions::{BOTTOM, LEFT, TOP},
+    control_panel::display::definitions::{BOTTOM, LEFT, N_BOTTOM, TOP},
     definitions::{CvKind, PotKind},
     envelope_generator::{ConfigReader, EngineType, OutputPolarity},
     input_reader::PotInfo,
@@ -174,6 +174,7 @@ impl<'a> InOperationMode<'a> {
         match self.display.current_engine_type {
             EngineType::ParaDecays => {
                 self.extra_1 = self.decay_pos(extra_1, self.attack);
+                self.extra_2 = self.mirroring_pos(extra_2);
                 para_decays_home::show_home_page(self).await;
             }
             EngineType::Adsr => {
@@ -616,6 +617,13 @@ impl<'a> InOperationMode<'a> {
     #[inline]
     pub(super) fn release_pos(&self, release: u16) -> i32 {
         125 - ((35 * (distort(release) as i32 + 1)) >> 16)
+    }
+
+    #[inline]
+    pub(super) fn mirroring_pos(&self, param: u16) -> i32 {
+        let param = !param as u32;
+        let pos = N_BOTTOM as u32 - (param * 56) / 65535;
+        pos as i32
     }
 
     #[inline(always)]

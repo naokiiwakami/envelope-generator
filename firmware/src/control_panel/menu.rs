@@ -3,7 +3,7 @@ use crate::envelope_generator::EngineType;
 /// EG Engine type.
 /// IMPORTANT: The menu index must be the same as u8 representation of the
 /// EngineType entry, otherwise ControlPanel misbehaves on switching engine types.
-pub const ENGINE_TYPE_MENU_ITEMS: [MenuItem<Option<EngineType>>; 5] = [
+pub const ENGINE_TYPE_MENU_ITEMS: [MenuItem<Option<EngineType>>; 4] = [
     MenuItem {
         name: "PARA DECAYS",
         selection: Some(EngineType::ParaDecays),
@@ -20,10 +20,12 @@ pub const ENGINE_TYPE_MENU_ITEMS: [MenuItem<Option<EngineType>>; 5] = [
         name: "LINEAR",
         selection: Some(EngineType::Linear),
     },
+    /*
     MenuItem {
         name: "CANCEL",
         selection: None,
     },
+    */
 ];
 
 pub const POLARITY_CHANGE_TARGET_ITEMS: [MenuItem<u8>; 3] = [
