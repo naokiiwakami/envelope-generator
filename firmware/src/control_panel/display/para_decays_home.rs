@@ -59,6 +59,7 @@ pub async fn show_home_page<'a>(parent: &mut InOperationMode<'a>) {
         .draw_curve(map((parent.release, n_sustain)), map((RIGHT, BOTTOM)))
         .await;
 
+    parent.draw_line((LEFT, center), (RIGHT, center)).await;
     parent.display.driver.flush().await;
 }
 
@@ -315,6 +316,7 @@ pub async fn update_pot<'a>(parent: &mut InOperationMode<'a>, pot_info: PotInfo)
         _ => {}
     }
 
+    parent.draw_line((LEFT, center), (RIGHT, center)).await;
     parent.display.driver.flush().await;
 }
 
