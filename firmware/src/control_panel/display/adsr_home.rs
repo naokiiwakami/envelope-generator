@@ -28,6 +28,8 @@ pub async fn show_home_page<'a>(parent: &mut InOperationMode<'a>) {
         .draw_note_scaling_bar(parent.eg_config.note_scaling_depth(0))
         .await;
 
+    parent.draw_punch(parent.extra_1 as u16).await;
+
     parent.display.driver.flush().await;
 }
 
@@ -111,6 +113,14 @@ pub async fn update_pot<'a>(parent: &mut InOperationMode<'a>, pot_info: PotInfo)
             parent
                 .draw_curve((parent.release, parent.sustain), (RIGHT, BOTTOM))
                 .await;
+        }
+        PotKind::Extra1 => {
+            let new_value = pot_info.value;
+            if new_value == parent.extra_1 as u16 {
+                return;
+            }
+            parent.extra_1 = new_value as i32;
+            parent.draw_punch(new_value).await;
         }
         PotKind::Extra2 => {
             parent

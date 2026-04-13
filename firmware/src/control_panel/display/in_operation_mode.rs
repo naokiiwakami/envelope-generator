@@ -1,13 +1,13 @@
 use defmt::debug;
 use embedded_graphics::{
     pixelcolor::BinaryColor,
-    prelude::{Point, Size},
+    prelude::Point,
     primitives::{PrimitiveStyle, PrimitiveStyleBuilder, StrokeAlignment},
 };
 use ssd1306_lite::{FontSize, TextBox};
 
 use crate::{
-    control_panel::display::definitions::{BOTTOM, LEFT, N_BOTTOM, TOP},
+    control_panel::display::definitions::{BOTTOM, EDGE_BOTTOM, LEFT, N_BOTTOM, TOP},
     definitions::{CvKind, PotKind},
     envelope_generator::{ConfigReader, EngineType, OutputPolarity},
     input_reader::PotInfo,
@@ -178,6 +178,7 @@ impl<'a> InOperationMode<'a> {
                 para_decays_home::show_home_page(self).await;
             }
             EngineType::Adsr => {
+                self.extra_1 = extra_1 as i32;
                 adsr_home::show_home_page(self).await;
             }
             EngineType::Linear => {
@@ -245,6 +246,54 @@ impl<'a> InOperationMode<'a> {
             .await;
         self.draw_line((left, triangle_top_y), (left, bottom_y))
             .await;
+    }
+
+    // Punch /////////////////////////////////////////////////////////////////////////////////////
+
+    pub(super) async fn draw_punch(&mut self, depth: u16) {
+        let max_outer = 27;
+        let max_inner = 11;
+
+        let outer = (((((max_outer - 5) * distort2(depth) as i32) >> 16) + 1) & !1) + 5;
+        let inner = (((((max_inner - 5) * depth as i32) >> 16) + 1) & !1) + 5;
+
+        let center = Point::new(LEFT + 30, EDGE_BOTTOM - 14);
+
+        let stroke_width = if outer >= 23 { 2 } else { 1 };
+        let style = PrimitiveStyleBuilder::new()
+            .stroke_width(stroke_width)
+            .stroke_alignment(StrokeAlignment::Inside)
+            .stroke_color(BinaryColor::On)
+            .build();
+
+        self.display
+            .clear_rectangle(
+                (center.x - max_outer / 2, center.y - max_outer / 2),
+                max_outer as u32,
+                max_outer as u32,
+                false,
+            )
+            .await;
+
+        self.display
+            .draw_circle(
+                center - Point::new(outer / 2, outer / 2),
+                outer as u32,
+                style,
+                false,
+            )
+            .await;
+
+        self.display
+            .draw_circle(
+                center - Point::new(inner / 2, inner / 2),
+                inner as u32,
+                self.fill_area,
+                false,
+            )
+            .await;
+
+        self.display.driver.flush().await;
     }
 
     // Polarity management ///////////////////////////////////////////////////////////////////////
@@ -667,6 +716,20 @@ impl<'a> InOperationMode<'a> {
 fn distort(input: u16) -> u16 {
     let reverse = (!input) as u32;
     !(((((((reverse * reverse) >> 16) * reverse) >> 16) * reverse) >> 16) as u16)
+}
+
+/*
+#[inline]
+fn distort3(input: u16) -> u16 {
+    let reverse = (!input) as u32;
+    !(((((reverse * reverse) >> 16) * reverse) >> 16) as u16)
+}
+    */
+
+#[inline]
+fn distort2(input: u16) -> u16 {
+    let reverse = (!input) as u32;
+    !(((reverse * reverse) >> 16) as u16)
 }
 
 fn path_from_a_to_dest(destination: PotKind) -> Option<&'static [(i32, i32)]> {

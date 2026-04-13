@@ -33,15 +33,25 @@ impl TryFrom<u8> for PotKind {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Debug, defmt::Format)]
+#[repr(u8)]
+pub enum CvKind {
+    A,
+    B,
+}
+
+#[allow(dead_code)]
 pub trait AtomicEnumRepr: Copy + TryFrom<u8> {
     fn to_u8(self) -> u8;
 }
 
+#[allow(dead_code)]
 pub struct AtomicEnum<E: AtomicEnumRepr> {
     inner: AtomicU8,
     _marker: PhantomData<E>,
 }
 
+#[allow(dead_code)]
 impl<E: AtomicEnumRepr> AtomicEnum<E> {
     pub const fn new(value: u8) -> Self {
         Self {
@@ -58,11 +68,4 @@ impl<E: AtomicEnumRepr> AtomicEnum<E> {
     pub fn store(&self, value: E) {
         self.inner.store(value.to_u8(), Ordering::Relaxed);
     }
-}
-
-#[derive(Clone, Copy, PartialEq, Debug, defmt::Format)]
-#[repr(u8)]
-pub enum CvKind {
-    A,
-    B,
 }

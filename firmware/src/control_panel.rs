@@ -3,7 +3,6 @@ mod cv_assigner;
 mod diagnoser;
 mod display;
 mod menu;
-mod module_state;
 mod polarity_changer;
 
 use analog3::rng::make_local_rng;
@@ -23,7 +22,7 @@ use heapless::String;
 use ssd1306_lite::{FontSize, TextBox};
 
 use crate::{
-    control_panel::{menu::POLARITY_CHANGE_TARGET_ITEMS, module_state::ModuleState},
+    control_panel::menu::POLARITY_CHANGE_TARGET_ITEMS,
     envelope_generator::{
         ConfigReader, EG_CHANNEL_SIZE, EG_PUBS, EG_SUBS, EgEvent, EgRequest, EngineType,
         Mode as EgOperationMode, OutputPolarity, get_eg_event_subscriber, get_eg_request_sender,
@@ -71,8 +70,6 @@ const ALL_PAGES: [&[OperationPage]; 4] =
 const _: () = {
     assert!(ALL_PAGES.len() == EngineType::Linear as u8 as usize + 1);
 };
-
-pub static STATE: ModuleState = ModuleState::new();
 
 pub async fn start(
     spawner: Spawner,
@@ -134,7 +131,6 @@ struct ControlPanel {
 
     // EG state
     eg_config: ConfigReader,
-    state: &'static ModuleState,
     engine_type_index: usize,
 
     // rotary encoder
@@ -168,7 +164,6 @@ impl ControlPanel {
             eg_request_sender: get_eg_request_sender(),
             eg_event_subscriber: get_eg_event_subscriber(),
             eg_config: ConfigReader::new(),
-            state: &STATE,
             engine_type_index: 0,
             encoder,
             button: encoder_button,

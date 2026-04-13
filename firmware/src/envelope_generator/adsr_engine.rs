@@ -20,6 +20,7 @@ use super::{
 enum EnginePhase {
     Released,
     Attack,
+    Peak,
     Decay,
 }
 
@@ -30,6 +31,8 @@ pub struct AdsrEngine {
     decay_ratio: u32,
     sustain_level: u32,
     release_ratio: u32,
+
+    peak_length: u64,
 
     // note scaling factor, represented in UQ8.24
     note_scale: u32,
@@ -53,6 +56,8 @@ pub struct AdsrEngine {
     // current value reaches the peak value during attack phase, the engine swithces its
     // phase to decay.
     peak_value: u32,
+
+    peak_count: u64,
 
     phase: EnginePhase,
 }
@@ -83,10 +88,13 @@ impl AdsrEngine {
                     calculate_discharging_ratio(config.release(voice_index), mod_amount);
             }
             PotKind::Extra1 => {
-                // TBD
+                let param = config.extra_1(voice_index) as u64;
+                self.peak_length = (param * param) >> 21;
             }
             PotKind::Extra2 => {
-                self.note_scale_depth = (config.extra_2(voice_index) as u32) << 16;
+                let value = config.extra_2(voice_index);
+                config.set_note_scaling_depth(voice_index, value);
+                self.note_scale_depth = (value as u32) << 16;
             }
             PotKind::CvDepthA => {
                 self.cv_depth_a = (config.cv_depth_a() as u32) << 16;
@@ -105,6 +113,7 @@ impl Engine for AdsrEngine {
             decay_ratio: 0,
             sustain_level: 0,
             release_ratio: 0,
+            peak_length: 0,
 
             note_scale: 0x1000000,
             note_scale_depth: 0,
@@ -115,6 +124,7 @@ impl Engine for AdsrEngine {
             current_value: 0,
             target_value: 0,
             peak_value: 0,
+            peak_count: 0,
             phase: EnginePhase::Released,
         }
     }
@@ -187,8 +197,19 @@ impl Engine for AdsrEngine {
                 let delta = mul_uq0_32(diff, ratio.min(0xffffffff) as u32);
                 self.current_value += delta;
                 if self.current_value >= self.peak_value {
-                    self.phase = EnginePhase::Decay;
                     self.current_value = self.peak_value;
+                    self.peak_count = 0;
+                    self.phase = if self.peak_length == 0 {
+                        EnginePhase::Decay
+                    } else {
+                        EnginePhase::Peak
+                    };
+                }
+            }
+            EnginePhase::Peak => {
+                self.peak_count += 1;
+                if self.peak_count >= self.peak_length {
+                    self.phase = EnginePhase::Decay;
                 }
             }
             EnginePhase::Decay => {
