@@ -8,7 +8,8 @@ use super::{
 pub async fn show_home_page<'a>(parent: &mut InOperationMode<'a>) {
     parent.display.clear(false, false).await;
 
-    let center: i32 = parent.extra_2;
+    // let center: i32 = parent.extra_2;
+    let center = BOTTOM;
 
     // helper closure to transform points
     let map = |(x, y): (i32, i32)| (x, remap_y(y, center));
@@ -59,12 +60,13 @@ pub async fn show_home_page<'a>(parent: &mut InOperationMode<'a>) {
         .draw_curve(map((parent.release, n_sustain)), map((RIGHT, BOTTOM)))
         .await;
 
-    parent.draw_line((LEFT, center), (RIGHT, center)).await;
+    // parent.draw_line((LEFT, center), (RIGHT, center)).await;
     parent.display.driver.flush().await;
 }
 
 pub async fn update_pot<'a>(parent: &mut InOperationMode<'a>, pot_info: PotInfo) {
-    let center: i32 = parent.extra_2;
+    // let center: i32 = parent.extra_2;
+    let center = BOTTOM;
 
     let map = |(x, y): (i32, i32)| (x, remap_y(y, center));
 
@@ -306,17 +308,19 @@ pub async fn update_pot<'a>(parent: &mut InOperationMode<'a>, pot_info: PotInfo)
         }
 
         PotKind::Extra2 => {
+            /*
             let new_center = parent.mirroring_pos(pot_info.value);
             if new_center == parent.extra_2 {
                 return;
             }
             parent.extra_2 = new_center;
             show_home_page(parent).await;
+            */
         }
         _ => {}
     }
 
-    parent.draw_line((LEFT, center), (RIGHT, center)).await;
+    // parent.draw_line((LEFT, center), (RIGHT, center)).await;
     parent.display.driver.flush().await;
 }
 
