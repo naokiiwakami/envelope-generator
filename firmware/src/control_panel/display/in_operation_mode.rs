@@ -13,7 +13,9 @@ use crate::{
     input_reader::PotInfo,
 };
 
-use super::{Display, ENGINE_TYPE_MENU_ITEMS, Mode, Request, adsr_home, linear_home};
+use super::{
+    Display, ENGINE_TYPE_MENU_ITEMS, Mode, Request, adsr_home, linear_home, para_decays_home,
+};
 
 // CV assignment display constants
 const POS_ATTACK: (i32, i32) = (7, 18);
@@ -46,6 +48,8 @@ pub struct InOperationMode<'a> {
     pub(super) decay: i32,
     pub(super) sustain: i32,
     pub(super) release: i32,
+    pub(super) extra_1: i32,
+    pub(super) extra_2: i32,
 
     cv_destination_a: PotKind,
     cv_destination_b: PotKind,
@@ -68,6 +72,8 @@ impl<'a> InOperationMode<'a> {
             decay: 0,
             sustain: 0,
             release: 0,
+            extra_1: 0,
+            extra_2: 0,
             cv_destination_a: PotKind::Decay,
             cv_destination_b: PotKind::Sustain,
             erase_area: PrimitiveStyleBuilder::new()
@@ -166,28 +172,21 @@ impl<'a> InOperationMode<'a> {
 
         self.display.current_engine_type = engine_type;
         match self.display.current_engine_type {
+            EngineType::ParaDecays => {
+                self.extra_1 = self.decay_pos(extra_1, self.attack);
+                para_decays_home::show_home_page(self).await;
+            }
             EngineType::Adsr => {
                 adsr_home::show_home_page(self).await;
             }
             EngineType::Linear => {
                 linear_home::show_home_page(self).await;
             }
-            _ => {
-                self.show_default_home_page(attack, decay, sustain, release, extra_1, extra_2)
-                    .await
-            }
+            _ => self.show_default_home_page().await,
         }
     }
 
-    async fn show_default_home_page(
-        &mut self,
-        _attack: u16,
-        _decay: u16,
-        _sustain: u16,
-        _release: u16,
-        _extra_1: u16,
-        _extra_2: u16,
-    ) {
+    async fn show_default_home_page(&mut self) {
         self.display.clear(false, false).await;
         let name = ENGINE_TYPE_MENU_ITEMS[(self.display.current_engine_type as u8) as usize].name;
         let text_box = TextBox::center().build();
@@ -200,6 +199,7 @@ impl<'a> InOperationMode<'a> {
 
     async fn update_pot(&mut self, pot_info: PotInfo) {
         match self.display.current_engine_type {
+            EngineType::ParaDecays => para_decays_home::update_pot(self, pot_info).await,
             EngineType::Adsr => adsr_home::update_pot(self, pot_info).await,
             EngineType::Linear => linear_home::update_pot(self, pot_info).await,
             _ => {}
@@ -229,12 +229,12 @@ impl<'a> InOperationMode<'a> {
         let triangle_top_y = triangle_base_y - triangle_height as i32;
 
         self.display
-            .driver
             .draw_rectangle(
                 (left, bottom_y - max_triangle_height as i32 + 1),
                 width + 1,
                 max_triangle_height,
                 self.erase_area,
+                false,
             )
             .await;
 
@@ -283,9 +283,7 @@ impl<'a> InOperationMode<'a> {
     async fn set_polarity_change_targets(&mut self, targets: u8) {
         let voice_1 = targets & 0x1 != 0;
         let voice_2 = targets & 0x2 != 0;
-        self.display
-            .clear_rectangle(Point::new(125, 0), Size::new(3, 64), false)
-            .await;
+        self.display.clear_rectangle((125, 0), 3, 64, false).await;
         let stroke = PrimitiveStyleBuilder::new()
             .stroke_alignment(StrokeAlignment::Center)
             .stroke_color(BinaryColor::On)
@@ -319,8 +317,9 @@ impl<'a> InOperationMode<'a> {
         if voice_1 {
             self.display
                 .clear_rectangle(
-                    Point::new(Self::POL_LEFT_EDGE, Self::POL_TOP_1),
-                    Size::new(Self::POL_DIAMETER, Self::POL_DIAMETER),
+                    (Self::POL_LEFT_EDGE, Self::POL_TOP_1),
+                    Self::POL_DIAMETER,
+                    Self::POL_DIAMETER,
                     false,
                 )
                 .await;
@@ -336,8 +335,9 @@ impl<'a> InOperationMode<'a> {
         if voice_2 {
             self.display
                 .clear_rectangle(
-                    Point::new(Self::POL_LEFT_EDGE, Self::POL_TOP_2),
-                    Size::new(Self::POL_DIAMETER, Self::POL_DIAMETER),
+                    (Self::POL_LEFT_EDGE, Self::POL_TOP_2),
+                    Self::POL_DIAMETER,
+                    Self::POL_DIAMETER,
                     false,
                 )
                 .await;
