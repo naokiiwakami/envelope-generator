@@ -1,3 +1,5 @@
+use embedded_graphics::{pixelcolor::BinaryColor, primitives::PrimitiveStyleBuilder};
+
 use crate::{definitions::PotKind, input_reader::PotInfo};
 
 use super::{
@@ -5,7 +7,24 @@ use super::{
     in_operation_mode::InOperationMode,
 };
 
+const LEFT_MARGIN: i32 = 8;
+
 pub async fn show_home_page<'a>(parent: &mut InOperationMode<'a>) {
+    // prepare parameters
+    let attack = parent.eg_config.attack(0);
+    let decay = parent.eg_config.decay(0);
+    let sustain = parent.eg_config.sustain(0);
+    let release = parent.eg_config.release(0);
+    let extra_1 = parent.eg_config.extra_1(0);
+    let extra_2 = parent.eg_config.extra_2(0);
+
+    parent.attack = parent.attack_pos(attack) + LEFT_MARGIN;
+    parent.decay = parent.decay_pos(decay, parent.attack);
+    parent.sustain = parent.sustain_pos(sustain);
+    parent.release = parent.release_pos(release);
+    parent.extra_1 = parent.decay_pos(extra_1, parent.attack);
+    parent.extra_2 = parent.mirroring_pos(extra_2);
+
     parent.display.clear(false, false).await;
 
     // let center: i32 = parent.extra_2;
@@ -16,10 +35,13 @@ pub async fn show_home_page<'a>(parent: &mut InOperationMode<'a>) {
 
     // attack curve
     parent
-        .draw_curve(map((LEFT, BOTTOM)), map((parent.attack, TOP)))
+        .draw_curve(map((LEFT + LEFT_MARGIN, BOTTOM)), map((parent.attack, TOP)))
         .await;
     parent
-        .draw_curve(map((LEFT, BOTTOM)), map((parent.attack, N_BOTTOM)))
+        .draw_curve(
+            map((LEFT + LEFT_MARGIN, BOTTOM)),
+            map((parent.attack, N_BOTTOM)),
+        )
         .await;
 
     // decay curve
@@ -60,7 +82,19 @@ pub async fn show_home_page<'a>(parent: &mut InOperationMode<'a>) {
         .draw_curve(map((parent.release, n_sustain)), map((RIGHT, BOTTOM)))
         .await;
 
-    // parent.draw_line((LEFT, center), (RIGHT, center)).await;
+    parent
+        .display
+        .driver
+        .draw_line(
+            (LEFT + 1, parent.extra_2),
+            (LEFT + 1, parent.extra_2 + BOTTOM),
+            PrimitiveStyleBuilder::new()
+                .stroke_width(3)
+                .stroke_color(BinaryColor::On)
+                .build(),
+        )
+        .await;
+
     parent.display.driver.flush().await;
 }
 
@@ -75,7 +109,7 @@ pub async fn update_pot<'a>(parent: &mut InOperationMode<'a>, pot_info: PotInfo)
 
     match pot_info.kind {
         PotKind::Attack => {
-            let next_attack = parent.attack_pos(pot_info.value);
+            let next_attack = parent.attack_pos(pot_info.value) + LEFT_MARGIN;
             if next_attack == parent.attack {
                 return;
             }
@@ -85,8 +119,8 @@ pub async fn update_pot<'a>(parent: &mut InOperationMode<'a>, pot_info: PotInfo)
             parent
                 .display
                 .clear_rectangle(
-                    (LEFT, map_y(TOP)),
-                    (parent.release + 1) as u32,
+                    (LEFT + LEFT_MARGIN, map_y(TOP)),
+                    (parent.release + 1 - LEFT_MARGIN) as u32,
                     (map_y(N_BOTTOM) - map_y(TOP) + 1) as u32,
                     false,
                 )
@@ -98,10 +132,13 @@ pub async fn update_pot<'a>(parent: &mut InOperationMode<'a>, pot_info: PotInfo)
             parent.attack = next_attack;
 
             parent
-                .draw_curve(map((LEFT, BOTTOM)), map((parent.attack, TOP)))
+                .draw_curve(map((LEFT + LEFT_MARGIN, BOTTOM)), map((parent.attack, TOP)))
                 .await;
             parent
-                .draw_curve(map((LEFT, BOTTOM)), map((parent.attack, N_BOTTOM)))
+                .draw_curve(
+                    map((LEFT + LEFT_MARGIN, BOTTOM)),
+                    map((parent.attack, N_BOTTOM)),
+                )
                 .await;
             parent
                 .draw_curve(
@@ -160,9 +197,9 @@ pub async fn update_pot<'a>(parent: &mut InOperationMode<'a>, pot_info: PotInfo)
                 )
                 .await;
 
-            if parent.attack < LEFT + 3 {
+            if parent.attack < LEFT + LEFT_MARGIN + 3 {
                 parent
-                    .draw_curve(map((LEFT, BOTTOM)), map((parent.attack, TOP)))
+                    .draw_curve(map((LEFT + LEFT_MARGIN, BOTTOM)), map((parent.attack, TOP)))
                     .await;
             }
         }
@@ -219,12 +256,15 @@ pub async fn update_pot<'a>(parent: &mut InOperationMode<'a>, pot_info: PotInfo)
                 .draw_curve(map((parent.release, n_sustain)), map((RIGHT, BOTTOM)))
                 .await;
 
-            if parent.attack < LEFT + 3 {
+            if parent.attack < LEFT + LEFT_MARGIN + 3 {
                 parent
-                    .draw_curve(map((LEFT, BOTTOM)), map((parent.attack, TOP)))
+                    .draw_curve(map((LEFT + LEFT_MARGIN, BOTTOM)), map((parent.attack, TOP)))
                     .await;
                 parent
-                    .draw_curve(map((LEFT, BOTTOM)), map((parent.attack, N_BOTTOM)))
+                    .draw_curve(
+                        map((LEFT + LEFT_MARGIN, BOTTOM)),
+                        map((parent.attack, N_BOTTOM)),
+                    )
                     .await;
             }
         }
@@ -300,22 +340,48 @@ pub async fn update_pot<'a>(parent: &mut InOperationMode<'a>, pot_info: PotInfo)
                 )
                 .await;
 
-            if parent.attack < LEFT + 3 {
+            if parent.attack < LEFT + LEFT_MARGIN + 3 {
                 parent
-                    .draw_curve(map((LEFT, BOTTOM)), map((parent.attack, N_BOTTOM)))
+                    .draw_curve(
+                        map((LEFT + LEFT_MARGIN, BOTTOM)),
+                        map((parent.attack, N_BOTTOM)),
+                    )
                     .await;
             }
         }
 
         PotKind::Extra2 => {
-            /*
-            let new_center = parent.mirroring_pos(pot_info.value);
-            if new_center == parent.extra_2 {
+            let next_balance_pos = parent.mirroring_pos(pot_info.value);
+            if next_balance_pos == parent.extra_2 {
                 return;
             }
-            parent.extra_2 = new_center;
-            show_home_page(parent).await;
-            */
+            parent
+                .display
+                .driver
+                .draw_line(
+                    (LEFT + 1, parent.extra_2),
+                    (LEFT + 1, parent.extra_2 + BOTTOM),
+                    PrimitiveStyleBuilder::new()
+                        .stroke_width(3)
+                        .stroke_color(BinaryColor::Off)
+                        .build(),
+                )
+                .await;
+
+            parent.extra_2 = next_balance_pos;
+
+            parent
+                .display
+                .driver
+                .draw_line(
+                    (LEFT + 1, parent.extra_2),
+                    (LEFT + 1, parent.extra_2 + BOTTOM),
+                    PrimitiveStyleBuilder::new()
+                        .stroke_width(3)
+                        .stroke_color(BinaryColor::On)
+                        .build(),
+                )
+                .await;
         }
         _ => {}
     }

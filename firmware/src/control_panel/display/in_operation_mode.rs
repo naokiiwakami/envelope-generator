@@ -158,29 +158,14 @@ impl<'a> InOperationMode<'a> {
 
     pub async fn show_home_page(&mut self) {
         let engine_type = self.eg_config.engine_type(0);
-        let attack = self.eg_config.attack(0);
-        let decay = self.eg_config.decay(0);
-        let sustain = self.eg_config.sustain(0);
-        let release = self.eg_config.release(0);
-        let extra_1 = self.eg_config.extra_1(0);
-        let extra_2 = self.eg_config.extra_2(0);
-
         debug!("showing {} home page", engine_type);
-
-        self.attack = self.attack_pos(attack);
-        self.decay = self.decay_pos(decay, self.attack);
-        self.sustain = self.sustain_pos(sustain);
-        self.release = self.release_pos(release);
 
         self.display.current_engine_type = engine_type;
         match self.display.current_engine_type {
             EngineType::ParaDecays => {
-                self.extra_1 = self.decay_pos(extra_1, self.attack);
-                self.extra_2 = self.mirroring_pos(extra_2);
                 para_decays_home::show_home_page(self).await;
             }
             EngineType::Adsr => {
-                self.extra_1 = extra_1 as i32;
                 adsr_home::show_home_page(self).await;
             }
             EngineType::Linear => {
@@ -677,7 +662,7 @@ impl<'a> InOperationMode<'a> {
     #[inline]
     pub(super) fn mirroring_pos(&self, param: u16) -> i32 {
         let param = !param as u32;
-        let pos = N_BOTTOM as u32 - (param * 56) / 65535;
+        let pos = (param * 28) >> 16;
         pos as i32
     }
 

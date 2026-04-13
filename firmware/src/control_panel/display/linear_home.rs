@@ -6,6 +6,20 @@ use super::{
 };
 
 pub async fn show_home_page<'a>(parent: &mut InOperationMode<'a>) {
+    // prepare parameters
+    let attack = parent.eg_config.attack(0);
+    let decay = parent.eg_config.decay(0);
+    let sustain = parent.eg_config.sustain(0);
+    let release = parent.eg_config.release(0);
+    let punch = parent.eg_config.extra_1(0);
+
+    parent.attack = parent.attack_pos(attack);
+    parent.decay = parent.decay_pos(decay, parent.attack);
+    parent.sustain = parent.sustain_pos(sustain);
+    parent.release = parent.release_pos(release);
+    parent.extra_1 = punch as i32;
+    parent.extra_2 = parent.eg_config.note_scaling_depth(0) as i32;
+
     parent.display.clear(false, false).await;
 
     parent.draw_line((LEFT, BOTTOM), (parent.attack, TOP)).await;
@@ -22,9 +36,7 @@ pub async fn show_home_page<'a>(parent: &mut InOperationMode<'a>) {
         .draw_line((parent.release, parent.sustain), (RIGHT, BOTTOM))
         .await;
 
-    parent
-        .draw_note_scaling_bar(parent.eg_config.note_scaling_depth(0))
-        .await;
+    parent.draw_note_scaling_bar(parent.extra_2 as u16).await;
 
     parent.display.driver.flush().await;
 }
