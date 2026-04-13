@@ -95,6 +95,9 @@ pub async fn show_home_page<'a>(parent: &mut InOperationMode<'a>) {
         )
         .await;
 
+    parent
+        .draw_line((LEFT, center), (LEFT + LEFT_MARGIN + 7, center))
+        .await;
     parent.display.driver.flush().await;
 }
 
@@ -387,6 +390,9 @@ pub async fn update_pot<'a>(parent: &mut InOperationMode<'a>, pot_info: PotInfo)
     }
 
     // parent.draw_line((LEFT, center), (RIGHT, center)).await;
+    parent
+        .draw_line((LEFT, center), (LEFT + LEFT_MARGIN + 7, center))
+        .await;
     parent.display.driver.flush().await;
 }
 
