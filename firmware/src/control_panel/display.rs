@@ -1,5 +1,9 @@
+mod adsr_home;
+mod definitions;
 mod in_operation_mode;
+mod linear_home;
 mod menu_mode;
+mod para_decays_home;
 
 use analog3::{
     IndicatorRequest,
@@ -356,7 +360,16 @@ impl Display {
                 size,
                 style,
                 flush,
-            } => self.draw_rectangle(top_left, size, style, flush).await,
+            } => {
+                self.draw_rectangle(
+                    (top_left.x, top_left.y),
+                    size.width,
+                    size.height,
+                    style,
+                    flush,
+                )
+                .await
+            }
             Request::DrawTriangle {
                 vertex1,
                 vertex2,
@@ -689,13 +702,14 @@ impl Display {
 
     async fn draw_rectangle(
         &mut self,
-        top_left: Point,
-        size: Size,
+        top_left: (i32, i32),
+        width: u32,
+        height: u32,
         style: PrimitiveStyle<BinaryColor>,
         flush: bool,
     ) {
         self.driver
-            .draw_rectangle((top_left.x, top_left.y), size.width, size.height, style)
+            .draw_rectangle(top_left, width, height, style)
             .await;
         if flush {
             self.driver.flush().await;
@@ -703,11 +717,18 @@ impl Display {
     }
 
     #[inline]
-    async fn clear_rectangle(&mut self, top_left: Point, size: Size, flush: bool) {
+    async fn clear_rectangle(
+        &mut self,
+        top_left: (i32, i32),
+        width: u32,
+        height: u32,
+        flush: bool,
+    ) {
         let erase = PrimitiveStyleBuilder::new()
             .fill_color(BinaryColor::Off)
             .build();
-        self.draw_rectangle(top_left, size, erase, flush).await;
+        self.draw_rectangle(top_left, width, height, erase, flush)
+            .await;
     }
 
     async fn draw_triangle(

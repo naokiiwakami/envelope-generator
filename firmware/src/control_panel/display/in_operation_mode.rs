@@ -7,12 +7,15 @@ use embedded_graphics::{
 use ssd1306_lite::{FontSize, TextBox};
 
 use crate::{
+    control_panel::display::definitions::{BOTTOM, LEFT, N_BOTTOM, TOP},
     definitions::{CvKind, PotKind},
     envelope_generator::{ConfigReader, EngineType, OutputPolarity},
     input_reader::PotInfo,
 };
 
-use super::{Display, ENGINE_TYPE_MENU_ITEMS, Mode, Request};
+use super::{
+    Display, ENGINE_TYPE_MENU_ITEMS, Mode, Request, adsr_home, linear_home, para_decays_home,
+};
 
 // CV assignment display constants
 const POS_ATTACK: (i32, i32) = (7, 18);
@@ -36,15 +39,17 @@ const CV_KNOB_DIAMETER: u32 = 13;
 const CV_JACK_DIAMETER: u32 = 9;
 
 pub struct InOperationMode<'a> {
-    display: &'a mut Display,
+    pub(super) display: &'a mut Display,
 
-    eg_config: ConfigReader,
+    pub(super) eg_config: ConfigReader,
 
     // current displaying parameters
-    attack: i32,
-    decay: i32,
-    sustain: i32,
-    release: i32,
+    pub(super) attack: i32,
+    pub(super) decay: i32,
+    pub(super) sustain: i32,
+    pub(super) release: i32,
+    pub(super) extra_1: i32,
+    pub(super) extra_2: i32,
 
     cv_destination_a: PotKind,
     cv_destination_b: PotKind,
@@ -58,12 +63,6 @@ pub struct InOperationMode<'a> {
 
 const _NODE_SIZE: u32 = 3;
 
-// window edges
-const LEFT: i32 = 0;
-const RIGHT: i32 = 127;
-const TOP: i32 = 0;
-const BOTTOM: i32 = 28;
-
 impl<'a> InOperationMode<'a> {
     pub fn new(display: &'a mut Display) -> Self {
         Self {
@@ -73,6 +72,8 @@ impl<'a> InOperationMode<'a> {
             decay: 0,
             sustain: 0,
             release: 0,
+            extra_1: 0,
+            extra_2: 0,
             cv_destination_a: PotKind::Decay,
             cv_destination_b: PotKind::Sustain,
             erase_area: PrimitiveStyleBuilder::new()
@@ -164,32 +165,29 @@ impl<'a> InOperationMode<'a> {
 
         debug!("showing {} home page", engine_type);
 
+        self.attack = self.attack_pos(attack);
+        self.decay = self.decay_pos(decay, self.attack);
+        self.sustain = self.sustain_pos(sustain);
+        self.release = self.release_pos(release);
+
         self.display.current_engine_type = engine_type;
         match self.display.current_engine_type {
+            EngineType::ParaDecays => {
+                self.extra_1 = self.decay_pos(extra_1, self.attack);
+                self.extra_2 = self.mirroring_pos(extra_2);
+                para_decays_home::show_home_page(self).await;
+            }
             EngineType::Adsr => {
-                self.show_home_page_adsr(attack, decay, sustain, release, extra_1, extra_2)
-                    .await
+                adsr_home::show_home_page(self).await;
             }
             EngineType::Linear => {
-                self.show_home_page_linear(attack, decay, sustain, release, extra_1, extra_2)
-                    .await
+                linear_home::show_home_page(self).await;
             }
-            _ => {
-                self.show_default_home_page(attack, decay, sustain, release, extra_1, extra_2)
-                    .await
-            }
+            _ => self.show_default_home_page().await,
         }
     }
 
-    async fn show_default_home_page(
-        &mut self,
-        _attack: u16,
-        _decay: u16,
-        _sustain: u16,
-        _release: u16,
-        _extra_1: u16,
-        _extra_2: u16,
-    ) {
+    async fn show_default_home_page(&mut self) {
         self.display.clear(false, false).await;
         let name = ENGINE_TYPE_MENU_ITEMS[(self.display.current_engine_type as u8) as usize].name;
         let text_box = TextBox::center().build();
@@ -202,242 +200,17 @@ impl<'a> InOperationMode<'a> {
 
     async fn update_pot(&mut self, pot_info: PotInfo) {
         match self.display.current_engine_type {
-            EngineType::Adsr => self.update_pot_adsr(pot_info).await,
-            EngineType::Linear => self.update_pot_linear(pot_info).await,
+            EngineType::ParaDecays => para_decays_home::update_pot(self, pot_info).await,
+            EngineType::Adsr => adsr_home::update_pot(self, pot_info).await,
+            EngineType::Linear => linear_home::update_pot(self, pot_info).await,
             _ => {}
         }
-    }
-
-    // ADSR ///////////////////////////////////////////////////////////////////////////////////
-
-    async fn show_home_page_adsr(
-        &mut self,
-        attack: u16,
-        decay: u16,
-        sustain: u16,
-        release: u16,
-        _extra_1: u16,
-        _extra_2: u16,
-    ) {
-        self.display.clear(false, false).await;
-
-        self.attack = self.attack_pos(attack);
-        self.decay = self.decay_pos(decay);
-        self.sustain = self.sustain_pos(sustain);
-        self.release = self.release_pos(release);
-
-        self.draw_curve((LEFT, BOTTOM), (self.attack, TOP)).await;
-        self.draw_curve((self.attack, TOP), (self.decay, self.sustain))
-            .await;
-        self.draw_line((self.decay, self.sustain), (self.release, self.sustain))
-            .await;
-        self.draw_curve((self.release, self.sustain), (RIGHT, BOTTOM))
-            .await;
-
-        self.draw_note_scaling_bar(self.eg_config.note_scaling_depth(0))
-            .await;
-
-        self.display.driver.flush().await;
-    }
-
-    async fn update_pot_adsr(&mut self, pot_info: PotInfo) {
-        match pot_info.kind {
-            PotKind::Attack => {
-                let next_attack = self.attack_pos(pot_info.value);
-                if next_attack == self.attack {
-                    return;
-                }
-
-                self.attack = next_attack;
-
-                self.erase_x_range(LEFT, self.attack).await;
-                self.draw_curve((LEFT, BOTTOM), (self.attack, TOP)).await;
-            }
-            PotKind::Decay => {
-                let next_decay = self.decay_pos(pot_info.value);
-                if next_decay == self.decay {
-                    return;
-                }
-
-                self.decay = next_decay;
-
-                self.erase_x_range(self.attack, self.release).await;
-
-                self.draw_curve((self.attack, TOP), (self.decay, self.sustain))
-                    .await;
-                self.draw_line((self.decay, self.sustain), (self.release, self.sustain))
-                    .await;
-                if self.attack < LEFT + 2 {
-                    self.draw_curve((LEFT, BOTTOM), (self.attack, TOP)).await;
-                }
-            }
-            PotKind::Sustain => {
-                let next_sustain = self.sustain_pos(pot_info.value);
-                if next_sustain == self.sustain {
-                    return;
-                }
-
-                self.sustain = next_sustain;
-
-                self.erase_x_range(self.attack, RIGHT).await;
-
-                self.draw_curve((self.attack, TOP), (self.decay, self.sustain))
-                    .await;
-                self.draw_line((self.decay, self.sustain), (self.release, self.sustain))
-                    .await;
-                self.draw_curve((self.release, self.sustain), (RIGHT, BOTTOM))
-                    .await;
-                if self.attack < LEFT + 2 {
-                    self.draw_curve((LEFT, BOTTOM), (self.attack, TOP)).await;
-                }
-            }
-            PotKind::Release => {
-                let next_release = self.release_pos(pot_info.value);
-                if next_release == self.release {
-                    return;
-                }
-
-                self.release = next_release;
-
-                self.erase_x_range(self.decay, RIGHT).await;
-
-                self.draw_line((self.decay, self.sustain), (self.release, self.sustain))
-                    .await;
-                self.draw_curve((self.release, self.sustain), (RIGHT, BOTTOM))
-                    .await;
-            }
-            PotKind::Extra2 => {
-                self.draw_note_scaling_bar(self.eg_config.note_scaling_depth(0))
-                    .await;
-            }
-            _ => {}
-        }
-        self.display.driver.flush().await;
-    }
-
-    // Linear ///////////////////////////////////////////////////////////////////////
-
-    async fn show_home_page_linear(
-        &mut self,
-        attack: u16,
-        decay: u16,
-        sustain: u16,
-        release: u16,
-        _extra_1: u16,
-        _extra_2: u16,
-    ) {
-        self.display.clear(false, false).await;
-
-        self.attack = self.attack_pos(attack);
-        self.decay = self.decay_pos(decay);
-        self.sustain = self.sustain_pos(sustain);
-        self.release = self.release_pos(release);
-
-        self.draw_line((LEFT, BOTTOM), (self.attack, TOP)).await;
-        self.draw_line((self.attack, TOP), (self.decay, self.sustain))
-            .await;
-        self.draw_line((self.decay, self.sustain), (self.release, self.sustain))
-            .await;
-        self.draw_line((self.release, self.sustain), (RIGHT, BOTTOM))
-            .await;
-
-        self.draw_note_scaling_bar(self.eg_config.note_scaling_depth(0))
-            .await;
-
-        self.display.driver.flush().await;
-    }
-
-    async fn update_pot_linear(&mut self, pot_info: PotInfo) {
-        match pot_info.kind {
-            PotKind::Attack => {
-                let next_attack = self.attack_pos(pot_info.value);
-                if next_attack == self.attack {
-                    return;
-                }
-                self.erase_line((LEFT, BOTTOM), (self.attack, TOP)).await;
-                self.erase_line((self.attack, TOP), (self.decay, self.sustain))
-                    .await;
-
-                self.attack = next_attack;
-
-                self.draw_line((LEFT, BOTTOM), (self.attack, TOP)).await;
-                self.draw_line((self.attack, TOP), (self.decay, self.sustain))
-                    .await;
-            }
-            PotKind::Decay => {
-                let next_decay = self.decay_pos(pot_info.value);
-                if next_decay == self.decay {
-                    return;
-                }
-
-                self.erase_line((self.attack, TOP), (self.decay, self.sustain))
-                    .await;
-                self.erase_line((self.decay, self.sustain), (self.release, self.sustain))
-                    .await;
-                self.erase_line((self.release, self.sustain), (RIGHT, BOTTOM))
-                    .await;
-
-                self.decay = next_decay;
-
-                self.draw_line((LEFT, BOTTOM), (self.attack, TOP)).await;
-                self.draw_line((self.attack, TOP), (self.decay, self.sustain))
-                    .await;
-                self.draw_line((self.decay, self.sustain), (self.release, self.sustain))
-                    .await;
-                self.draw_line((self.release, self.sustain), (RIGHT, BOTTOM))
-                    .await;
-            }
-            PotKind::Sustain => {
-                let next_sustain = self.sustain_pos(pot_info.value);
-                if next_sustain == self.sustain {
-                    return;
-                }
-                self.erase_line((self.attack, TOP), (self.decay, self.sustain))
-                    .await;
-                self.erase_line((self.decay, self.sustain), (self.release, self.sustain))
-                    .await;
-                self.erase_line((self.release, self.sustain), (RIGHT, BOTTOM))
-                    .await;
-
-                self.sustain = next_sustain;
-
-                self.draw_line((self.attack, TOP), (self.decay, self.sustain))
-                    .await;
-                self.draw_line((self.decay, self.sustain), (self.release, self.sustain))
-                    .await;
-                self.draw_line((self.release, self.sustain), (RIGHT, BOTTOM))
-                    .await;
-            }
-            PotKind::Release => {
-                let next_release = self.release_pos(pot_info.value);
-                if next_release == self.release {
-                    return;
-                }
-                self.erase_line((self.decay, self.sustain), (self.release, self.sustain))
-                    .await;
-                self.erase_line((self.release, self.sustain), (RIGHT, BOTTOM))
-                    .await;
-
-                self.release = next_release;
-
-                self.draw_line((self.decay, self.sustain), (self.release, self.sustain))
-                    .await;
-                self.draw_line((self.release, self.sustain), (RIGHT, BOTTOM))
-                    .await;
-            }
-            PotKind::Extra2 => {
-                self.draw_note_scaling_bar(self.eg_config.note_scaling_depth(0))
-                    .await;
-            }
-            _ => {}
-        }
-        self.display.driver.flush().await;
     }
 
     // Note scaling //////////////////////////////////////////////////////////////////////////////
 
     /// Draws a note scaling bar
-    async fn draw_note_scaling_bar(&mut self, depth: u16) {
+    pub(super) async fn draw_note_scaling_bar(&mut self, depth: u16) {
         let left: i32 = 80;
         let width: u32 = 40;
         let right: i32 = left + width as i32;
@@ -457,12 +230,12 @@ impl<'a> InOperationMode<'a> {
         let triangle_top_y = triangle_base_y - triangle_height as i32;
 
         self.display
-            .driver
             .draw_rectangle(
                 (left, bottom_y - max_triangle_height as i32 + 1),
                 width + 1,
                 max_triangle_height,
                 self.erase_area,
+                false,
             )
             .await;
 
@@ -511,9 +284,7 @@ impl<'a> InOperationMode<'a> {
     async fn set_polarity_change_targets(&mut self, targets: u8) {
         let voice_1 = targets & 0x1 != 0;
         let voice_2 = targets & 0x2 != 0;
-        self.display
-            .clear_rectangle(Point::new(125, 0), Size::new(3, 64), false)
-            .await;
+        self.display.clear_rectangle((125, 0), 3, 64, false).await;
         let stroke = PrimitiveStyleBuilder::new()
             .stroke_alignment(StrokeAlignment::Center)
             .stroke_color(BinaryColor::On)
@@ -547,8 +318,9 @@ impl<'a> InOperationMode<'a> {
         if voice_1 {
             self.display
                 .clear_rectangle(
-                    Point::new(Self::POL_LEFT_EDGE, Self::POL_TOP_1),
-                    Size::new(Self::POL_DIAMETER, Self::POL_DIAMETER),
+                    (Self::POL_LEFT_EDGE, Self::POL_TOP_1),
+                    Self::POL_DIAMETER,
+                    Self::POL_DIAMETER,
                     false,
                 )
                 .await;
@@ -564,8 +336,9 @@ impl<'a> InOperationMode<'a> {
         if voice_2 {
             self.display
                 .clear_rectangle(
-                    Point::new(Self::POL_LEFT_EDGE, Self::POL_TOP_2),
-                    Size::new(Self::POL_DIAMETER, Self::POL_DIAMETER),
+                    (Self::POL_LEFT_EDGE, Self::POL_TOP_2),
+                    Self::POL_DIAMETER,
+                    Self::POL_DIAMETER,
                     false,
                 )
                 .await;
@@ -825,34 +598,41 @@ impl<'a> InOperationMode<'a> {
     // Utils /////////////////////////////////////////////////////////////////////////////////////
 
     #[inline]
-    fn attack_pos(&self, attack: u16) -> i32 {
+    pub(super) fn attack_pos(&self, attack: u16) -> i32 {
         ((35 * (distort(attack) as i32 + 1)) >> 16) + LEFT
     }
 
     #[inline]
-    fn decay_pos(&self, decay: u16) -> i32 {
-        ((35 * (distort(decay) as i32 + 1)) >> 16) + self.attack
+    pub(super) fn decay_pos(&self, decay: u16, attack: i32) -> i32 {
+        ((35 * (distort(decay) as i32 + 1)) >> 16) + attack
     }
 
     #[inline]
-    fn sustain_pos(&self, sustain: u16) -> i32 {
+    pub(super) fn sustain_pos(&self, sustain: u16) -> i32 {
         // sustain should not drop to the bottom as we want to show the release curve
         // even at sustain = 0
         BOTTOM - ((BOTTOM * ((sustain as i32 * 3) / 4 + 16384)) >> 16)
     }
 
     #[inline]
-    fn release_pos(&self, release: u16) -> i32 {
+    pub(super) fn release_pos(&self, release: u16) -> i32 {
         125 - ((35 * (distort(release) as i32 + 1)) >> 16)
     }
 
+    #[inline]
+    pub(super) fn mirroring_pos(&self, param: u16) -> i32 {
+        let param = !param as u32;
+        let pos = N_BOTTOM as u32 - (param * 56) / 65535;
+        pos as i32
+    }
+
     #[inline(always)]
-    async fn draw_line(&mut self, start: (i32, i32), end: (i32, i32)) {
+    pub(super) async fn draw_line(&mut self, start: (i32, i32), end: (i32, i32)) {
         self.display.driver.draw_line(start, end, self.stroke).await;
     }
 
     #[inline(always)]
-    async fn erase_line(&mut self, start: (i32, i32), end: (i32, i32)) {
+    pub(super) async fn erase_line(&mut self, start: (i32, i32), end: (i32, i32)) {
         self.display
             .driver
             .draw_line(start, end, self.erase_stroke)
@@ -860,7 +640,7 @@ impl<'a> InOperationMode<'a> {
     }
 
     #[inline(always)]
-    async fn erase_x_range(&mut self, left: i32, right: i32) {
+    pub(super) async fn erase_x_range(&mut self, left: i32, right: i32) {
         self.display
             .driver
             .draw_rectangle(
@@ -873,7 +653,7 @@ impl<'a> InOperationMode<'a> {
     }
 
     #[inline(always)]
-    async fn draw_curve(&mut self, start: (i32, i32), end: (i32, i32)) {
+    pub(super) async fn draw_curve(&mut self, start: (i32, i32), end: (i32, i32)) {
         let p2_x = (start.0 + end.0) / 2;
         let p2_y = (end.1 * 2 + start.1) / 3;
         self.display
@@ -886,7 +666,7 @@ impl<'a> InOperationMode<'a> {
 #[inline]
 fn distort(input: u16) -> u16 {
     let reverse = (!input) as u32;
-    !(((((reverse * reverse) >> 16) * reverse) >> 16) as u16)
+    !(((((((reverse * reverse) >> 16) * reverse) >> 16) * reverse) >> 16) as u16)
 }
 
 fn path_from_a_to_dest(destination: PotKind) -> Option<&'static [(i32, i32)]> {
