@@ -658,7 +658,7 @@ impl<'a> InOperationMode<'a> {
 #[inline]
 fn distort(input: u16) -> u16 {
     let reverse = (!input) as u32;
-    !(((((reverse * reverse) >> 16) * reverse) >> 16) as u16)
+    !(((((((reverse * reverse) >> 16) * reverse) >> 16) * reverse) >> 16) as u16)
 }
 
 fn path_from_a_to_dest(destination: PotKind) -> Option<&'static [(i32, i32)]> {

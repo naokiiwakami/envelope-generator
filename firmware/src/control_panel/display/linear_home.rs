@@ -1,6 +1,9 @@
 use crate::{definitions::PotKind, input_reader::PotInfo};
 
-use super::{definitions::{BOTTOM, LEFT, RIGHT, TOP}, in_operation_mode::InOperationMode};
+use super::{
+    definitions::{BOTTOM, LEFT, RIGHT, TOP},
+    in_operation_mode::InOperationMode,
+};
 
 pub async fn show_home_page<'a>(parent: &mut InOperationMode<'a>) {
     parent.display.clear(false, false).await;
@@ -10,7 +13,10 @@ pub async fn show_home_page<'a>(parent: &mut InOperationMode<'a>) {
         .draw_line((parent.attack, TOP), (parent.decay, parent.sustain))
         .await;
     parent
-        .draw_line((parent.decay, parent.sustain), (parent.release, parent.sustain))
+        .draw_line(
+            (parent.decay, parent.sustain),
+            (parent.release, parent.sustain),
+        )
         .await;
     parent
         .draw_line((parent.release, parent.sustain), (RIGHT, BOTTOM))
@@ -31,7 +37,9 @@ pub async fn update_pot<'a>(parent: &mut InOperationMode<'a>, pot_info: PotInfo)
                 return;
             }
 
-            parent.erase_line((LEFT, BOTTOM), (parent.attack, TOP)).await;
+            parent
+                .erase_line((LEFT, BOTTOM), (parent.attack, TOP))
+                .await;
             parent
                 .erase_line((parent.attack, TOP), (parent.decay, parent.sustain))
                 .await;
@@ -53,7 +61,10 @@ pub async fn update_pot<'a>(parent: &mut InOperationMode<'a>, pot_info: PotInfo)
                 .erase_line((parent.attack, TOP), (parent.decay, parent.sustain))
                 .await;
             parent
-                .erase_line((parent.decay, parent.sustain), (parent.release, parent.sustain))
+                .erase_line(
+                    (parent.decay, parent.sustain),
+                    (parent.release, parent.sustain),
+                )
                 .await;
             parent
                 .erase_line((parent.release, parent.sustain), (RIGHT, BOTTOM))
@@ -66,7 +77,10 @@ pub async fn update_pot<'a>(parent: &mut InOperationMode<'a>, pot_info: PotInfo)
                 .draw_line((parent.attack, TOP), (parent.decay, parent.sustain))
                 .await;
             parent
-                .draw_line((parent.decay, parent.sustain), (parent.release, parent.sustain))
+                .draw_line(
+                    (parent.decay, parent.sustain),
+                    (parent.release, parent.sustain),
+                )
                 .await;
             parent
                 .draw_line((parent.release, parent.sustain), (RIGHT, BOTTOM))
@@ -82,7 +96,10 @@ pub async fn update_pot<'a>(parent: &mut InOperationMode<'a>, pot_info: PotInfo)
                 .erase_line((parent.attack, TOP), (parent.decay, parent.sustain))
                 .await;
             parent
-                .erase_line((parent.decay, parent.sustain), (parent.release, parent.sustain))
+                .erase_line(
+                    (parent.decay, parent.sustain),
+                    (parent.release, parent.sustain),
+                )
                 .await;
             parent
                 .erase_line((parent.release, parent.sustain), (RIGHT, BOTTOM))
@@ -94,7 +111,10 @@ pub async fn update_pot<'a>(parent: &mut InOperationMode<'a>, pot_info: PotInfo)
                 .draw_line((parent.attack, TOP), (parent.decay, parent.sustain))
                 .await;
             parent
-                .draw_line((parent.decay, parent.sustain), (parent.release, parent.sustain))
+                .draw_line(
+                    (parent.decay, parent.sustain),
+                    (parent.release, parent.sustain),
+                )
                 .await;
             parent
                 .draw_line((parent.release, parent.sustain), (RIGHT, BOTTOM))
@@ -107,7 +127,10 @@ pub async fn update_pot<'a>(parent: &mut InOperationMode<'a>, pot_info: PotInfo)
             }
 
             parent
-                .erase_line((parent.decay, parent.sustain), (parent.release, parent.sustain))
+                .erase_line(
+                    (parent.decay, parent.sustain),
+                    (parent.release, parent.sustain),
+                )
                 .await;
             parent
                 .erase_line((parent.release, parent.sustain), (RIGHT, BOTTOM))
@@ -116,7 +139,10 @@ pub async fn update_pot<'a>(parent: &mut InOperationMode<'a>, pot_info: PotInfo)
             parent.release = next_release;
 
             parent
-                .draw_line((parent.decay, parent.sustain), (parent.release, parent.sustain))
+                .draw_line(
+                    (parent.decay, parent.sustain),
+                    (parent.release, parent.sustain),
+                )
                 .await;
             parent
                 .draw_line((parent.release, parent.sustain), (RIGHT, BOTTOM))
