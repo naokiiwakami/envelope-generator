@@ -276,8 +276,9 @@ impl<'a> InOperationMode<'a> {
     }
 
     async fn update_note_scaling(&mut self, depth: u16, current_depth: &mut u16) {
-        defmt::debug!("update_note_scaling()");
-        self.display.clear_rectangle((0, 0), 44, 60, false).await;
+        defmt::debug!("update_note_scaling() depth={}", depth);
+        // self.display.clear_rectangle((0, 0), 44, 60, false).await;
+        self.display.clear(false, false).await;
         self.display
             .display_text(
                 "SET",
@@ -287,6 +288,7 @@ impl<'a> InOperationMode<'a> {
             )
             .await;
 
+        /*
         self.display
             .draw_line(
                 Point::new(LEFT, EDGE_BOTTOM - 1),
@@ -298,6 +300,17 @@ impl<'a> InOperationMode<'a> {
                 false,
             )
             .await;
+        */
+
+        let params = NoteScalingBarParams {
+            left: 44,
+            width: 80,
+            center_y: 28,
+            max_bar_thickness: 12,
+            min_bar_thickness: 3,
+            max_triangle_height: 24,
+        };
+        self.draw_note_scaling_bar_core(depth, params).await;
 
         let bar_length = (depth as i32 + 127) >> 8;
         self.display
