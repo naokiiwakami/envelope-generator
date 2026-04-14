@@ -611,14 +611,9 @@ impl ControlPanel {
     }
 
     async fn show_note_scaling(&mut self) {
-        self.clear_screen(false, false).await;
-        self.display_text(
-            "note scaling",
-            TextBox::center().build(),
-            FontSize::Large,
-            true,
-        )
-        .await;
+        self.display_request_sender
+            .send(DisplayRequest::ShowNoteScaling)
+            .await;
     }
 }
 

@@ -143,6 +143,8 @@ impl<'a> InOperationMode<'a> {
                     source,
                     destination,
                 } => self.update_cv_assignment(source, destination).await,
+                Request::ShowNoteScaling => self.draw_note_scaling_page().await,
+                Request::UpdateNoteScaling { depth } => {}
                 Request::BlinkCvSource { source, turn_on } => {
                     self.blink_cv_source(source, turn_on).await
                 }
@@ -199,13 +201,70 @@ impl<'a> InOperationMode<'a> {
 
     /// Draws a note scaling bar
     pub(super) async fn draw_note_scaling_bar(&mut self, depth: u16) {
-        let left: i32 = 78;
-        let width: u32 = 44;
-        let right: i32 = left + width as i32;
-        let center_y: i32 = LOWER_BASELINE;
-        let max_bar_thickness: u32 = 7;
-        let min_bar_thickness: u32 = 1;
-        let max_triangle_height: u32 = 12;
+        let params = NoteScalingBarParams {
+            left: 78,
+            width: 44,
+            center_y: LOWER_BASELINE,
+            max_bar_thickness: 7,
+            min_bar_thickness: 1,
+            max_triangle_height: 12,
+        };
+        self.draw_note_scaling_bar_core(depth, params).await;
+    }
+
+    async fn draw_note_scaling_page(&mut self) {
+        let depth = self.eg_config.note_scaling_depth(0);
+        self.display.clear(false, false).await;
+        self.display
+            .display_text(
+                "NOTE",
+                TextBox::simple(0, 0, BinaryColor::On),
+                FontSize::Medium,
+                false,
+            )
+            .await;
+        self.display
+            .display_text(
+                "SCAL.",
+                TextBox::simple(0, 15, BinaryColor::On),
+                FontSize::Medium,
+                false,
+            )
+            .await;
+        let params = NoteScalingBarParams {
+            left: 44,
+            width: 80,
+            center_y: 28,
+            max_bar_thickness: 12,
+            min_bar_thickness: 3,
+            max_triangle_height: 24,
+        };
+        self.draw_note_scaling_bar_core(depth, params).await;
+        let bar_length = (depth as i32 + 127) >> 8;
+        self.display
+            .draw_line(
+                Point::new(LEFT, EDGE_BOTTOM - 1),
+                Point::new(LEFT + bar_length, EDGE_BOTTOM - 1),
+                PrimitiveStyleBuilder::new()
+                    .stroke_width(3)
+                    .stroke_color(BinaryColor::On)
+                    .build(),
+                false,
+            )
+            .await;
+        self.display.driver.flush().await;
+    }
+
+    async fn draw_note_scaling_bar_core(&mut self, depth: u16, params: NoteScalingBarParams) {
+        let NoteScalingBarParams {
+            left,
+            width,
+            center_y,
+            max_bar_thickness,
+            min_bar_thickness,
+            max_triangle_height,
+        } = params;
+        let right = left + width as i32;
 
         let depth = distort(depth);
 
@@ -703,6 +762,8 @@ impl<'a> InOperationMode<'a> {
     }
 }
 
+// Helpers /////////////////////////////////////////////////////////////////////
+
 #[inline]
 fn distort(input: u16) -> u16 {
     let reverse = (!input) as u32;
@@ -757,4 +818,13 @@ fn path_from_b_to_dest(destination: PotKind) -> Option<&'static [(i32, i32)]> {
         PotKind::Extra2 => Some(&CV_A_TO_EXTRA_1),
         _ => None,
     }
+}
+
+struct NoteScalingBarParams {
+    pub left: i32,
+    pub width: u32,
+    pub center_y: i32,
+    pub max_bar_thickness: u32,
+    pub min_bar_thickness: u32,
+    pub max_triangle_height: u32,
 }
