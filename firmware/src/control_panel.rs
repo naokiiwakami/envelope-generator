@@ -278,15 +278,15 @@ impl ControlPanel {
     async fn update(&mut self) {
         let next_level = self.button.get_level();
         let was_pressed = self.button_pressed_at.is_some();
-        if next_level == Level::Low && !was_pressed {
-            self.button_pressed_at = Some(Instant::now());
-            match self.mode {
-                ControlPanelMode::Normal
-                | ControlPanelMode::EngineTypeMenu
-                | ControlPanelMode::AdminMenu => {
-                    self.on_button_pressed();
+        if next_level == Level::Low {
+            // button is pressed
+            match self.button_pressed_at {
+                Some(button_pressed_at) => {
+                    if button_pressed_at.elapsed().as_millis() > 2000 {
+                        self.into_admin_menu_mode().await;
+                    }
                 }
-                _ => {}
+                None => self.on_button_pressed(),
             }
         }
 
@@ -298,7 +298,6 @@ impl ControlPanel {
             }
             ControlPanelMode::EngineTypeMenu => self.update_engine_type_menu().await,
             ControlPanelMode::AdminMenu => self.update_admin_menu().await,
-            ControlPanelMode::ActionSelected => {}
             ControlPanelMode::PolarityTargetSelect
             | ControlPanelMode::PolarityChange
             | ControlPanelMode::CvAssignment
@@ -308,16 +307,9 @@ impl ControlPanel {
             _ => {}
         }
 
-        if next_level != Level::Low && was_pressed {
+        if next_level == Level::High && was_pressed {
             self.button_pressed_at = None;
-            match self.mode {
-                ControlPanelMode::ActionSelected
-                | ControlPanelMode::EngineTypeSelected
-                | ControlPanelMode::AdminActionSelected => {
-                    self.on_button_released().await;
-                }
-                _ => {}
-            }
+            self.on_button_released().await;
         }
     }
 
@@ -347,10 +339,6 @@ impl ControlPanel {
 
     async fn on_button_released(&mut self) {
         match self.mode {
-            ControlPanelMode::Normal => {
-                self.ind_red.set_low();
-                self.ind_green.set_low();
-            }
             ControlPanelMode::ActionSelected => match &self.next_action {
                 Some(action) => self.execute_action(*action).await,
                 None => error!("No action set up -- shouldn't happen"),
