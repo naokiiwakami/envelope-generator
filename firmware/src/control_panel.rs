@@ -98,9 +98,10 @@ enum ControlPanelActionState {
         candidates: Vec<PotKind, 5>,
         original_index: usize,
         current_index: usize,
-        blink_remaining: i32,
         iteration_count: usize,
         turn_on: bool,
+        blink_remaining: i32,
+        ready_to_exit: bool,
     },
     NoteScaler {
         current_depth: u16,
@@ -109,8 +110,8 @@ enum ControlPanelActionState {
         velocity_history_index: usize,
         velocity_history_len: usize,
         charge: usize,
+        blink_remaining: i32,
         ready_to_exit: bool,
-        blink_count: usize,
     },
 }
 
@@ -437,9 +438,10 @@ impl ControlPanel {
             candidates,
             original_index,
             current_index: original_index,
-            blink_remaining: if cv_kind == CvKind::A { 0 } else { 14 },
             iteration_count: 0,
             turn_on: false,
+            blink_remaining: if cv_kind == CvKind::A { 0 } else { 14 },
+            ready_to_exit: false,
         });
         self.ind_red.set_low();
         self.ind_green.set_low();
@@ -458,8 +460,8 @@ impl ControlPanel {
             velocity_history_index: 0,
             velocity_history_len: 0,
             charge: 0,
+            blink_remaining: 0,
             ready_to_exit: false,
-            blink_count: 0,
         });
         self.display_request_sender
             .send(DisplayRequest::UpdateNoteScaling {
@@ -717,15 +719,17 @@ impl ControlPanel {
             blink_remaining,
             iteration_count,
             turn_on,
+            ready_to_exit,
         ) = match self.action_state.as_mut() {
             Some(ControlPanelActionState::CvAssigner {
                 cv_kind,
                 candidates,
                 original_index,
                 current_index,
-                blink_remaining,
                 iteration_count,
                 turn_on,
+                blink_remaining,
+                ready_to_exit,
             }) => (
                 *cv_kind,
                 candidates,
@@ -734,6 +738,7 @@ impl ControlPanel {
                 blink_remaining,
                 iteration_count,
                 turn_on,
+                ready_to_exit,
             ),
             _ => return,
         };
@@ -778,9 +783,17 @@ impl ControlPanel {
                 self.start_cv_assigner(CvKind::B).await;
                 return;
             }
+            *ready_to_exit = true;
+            *blink_remaining = 14;
+            *iteration_count = 0;
+            return;
+        }
+
+        if *ready_to_exit && *blink_remaining == 0 {
             self.action_state = None;
             self.mode = ControlPanelMode::Normal;
             self.show_cv_assignment().await;
+            self.smash_counter();
             return;
         }
 
@@ -801,7 +814,6 @@ impl ControlPanel {
                     destination: next_destination,
                 })
                 .await;
-            self.encoder_last_raw = raw;
         }
 
         if *iteration_count % 25 == 0 {
@@ -827,8 +839,8 @@ impl ControlPanel {
             velocity_history_index,
             velocity_history_len,
             charge,
+            blink_remaining: blink_count,
             ready_to_exit,
-            blink_count,
         } = state
         {
             let button_level = self.button.get_level();
