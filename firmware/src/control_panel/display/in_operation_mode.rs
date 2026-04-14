@@ -203,12 +203,18 @@ impl<'a> InOperationMode<'a> {
     async fn note_scaling(&mut self, pending_request: Request) {
         self.display.pending_request = Some(pending_request);
         let mut current_depth = self.eg_config.note_scaling_depth(0);
+        let mut first_time = true;
         loop {
             let request = self.display.fetch_request().await;
             match request {
-                Request::ShowNoteScaling => self.draw_note_scaling_page(&current_depth).await,
+                Request::ShowNoteScaling => {
+                    self.draw_note_scaling_page(&current_depth).await;
+                    first_time = true;
+                }
                 Request::UpdateNoteScaling { depth } => {
-                    self.update_note_scaling(depth, &mut current_depth).await
+                    self.update_note_scaling(depth, &mut current_depth, first_time)
+                        .await;
+                    first_time = false;
                 }
                 _ => {
                     self.display
@@ -275,30 +281,44 @@ impl<'a> InOperationMode<'a> {
         self.display.driver.flush().await;
     }
 
-    async fn update_note_scaling(&mut self, depth: u16, current_depth: &mut u16) {
-        defmt::debug!("update_note_scaling()");
-        self.display.clear_rectangle((0, 0), 44, 60, false).await;
-        self.display
-            .display_text(
-                "SET",
-                TextBox::simple(0, 0, BinaryColor::On),
-                FontSize::Medium,
-                false,
-            )
-            .await;
+    async fn update_note_scaling(&mut self, depth: u16, current_depth: &mut u16, first_time: bool) {
+        defmt::debug!("update_note_scaling() depth={}", depth);
+        let params = NoteScalingBarParams {
+            left: 44,
+            width: 80,
+            center_y: 28,
+            max_bar_thickness: 12,
+            min_bar_thickness: 3,
+            max_triangle_height: 24,
+        };
+        if first_time {
+            self.display.clear(false, false).await;
+            self.display
+                .display_text(
+                    "SET",
+                    TextBox::simple(0, 0, BinaryColor::On),
+                    FontSize::Medium,
+                    false,
+                )
+                .await;
+        } else {
+            self.display
+                .clear_rectangle((params.left, 0), params.width + 1, 64, false)
+                .await;
+            self.display
+                .draw_line(
+                    Point::new(LEFT, EDGE_BOTTOM - 1),
+                    Point::new(RIGHT, EDGE_BOTTOM - 1),
+                    PrimitiveStyleBuilder::new()
+                        .stroke_width(3)
+                        .stroke_color(BinaryColor::Off)
+                        .build(),
+                    false,
+                )
+                .await;
+        }
 
-        self.display
-            .draw_line(
-                Point::new(LEFT, EDGE_BOTTOM - 1),
-                Point::new(RIGHT, EDGE_BOTTOM - 1),
-                PrimitiveStyleBuilder::new()
-                    .stroke_width(3)
-                    .stroke_color(BinaryColor::Off)
-                    .build(),
-                false,
-            )
-            .await;
-
+        self.draw_note_scaling_bar_core(depth, params).await;
         let bar_length = (depth as i32 + 127) >> 8;
         self.display
             .draw_line(
@@ -313,6 +333,7 @@ impl<'a> InOperationMode<'a> {
             .await;
 
         self.display.driver.flush().await;
+        *current_depth = depth;
     }
 
     async fn draw_note_scaling_bar_core(&mut self, depth: u16, params: NoteScalingBarParams) {

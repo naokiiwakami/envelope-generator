@@ -1,14 +1,13 @@
 use defmt;
 use embassy_stm32::gpio::Level;
 use embassy_time::{Instant, Timer};
-use heapless::Vec;
 
-use crate::{
-    definitions::{CvKind, PotKind},
-    envelope_generator::{EgRequest, EngineType},
-};
+use crate::envelope_generator::EgRequest;
 
 use super::{ControlPanel, DisplayRequest};
+
+const NOTE_SCALER_SAMPLE_PERIOD_MS: u64 = 10;
+const NOTE_SCALER_VELOCITY_HISTORY_LEN: usize = 4;
 
 pub struct NoteScaler<'a> {
     control_panel: &'a mut ControlPanel,
@@ -38,9 +37,76 @@ impl<'a> NoteScaler<'a> {
             })
             .await;
 
-        let mut last = self.control_panel.encoder_last_raw;
+        let mut last_raw = self.control_panel.encoder_last_raw;
+        let mut velocity_history = [0i16; NOTE_SCALER_VELOCITY_HISTORY_LEN];
+        let mut velocity_history_index = 0;
+        let mut velocity_history_len = 0;
+
+        let mut charge = 0usize;
+
         loop {
-            Timer::after_millis(10).await;
+            Timer::after_millis(NOTE_SCALER_SAMPLE_PERIOD_MS).await;
+
+            let button_level = self.control_panel.button.get_level();
+            if button_level == Level::Low {
+                if self.control_panel.button_pressed_at.is_none() {
+                    self.control_panel.button_pressed_at = Some(Instant::now());
+                }
+                continue;
+            }
+
+            if self.control_panel.button_pressed_at.is_some() {
+                self.control_panel.button_pressed_at = None;
+                break;
+            }
+
+            let raw = self.control_panel.encoder.count() as i16;
+            let delta = (raw - last_raw) / 4;
+
+            velocity_history[velocity_history_index] = delta;
+            velocity_history_index =
+                (velocity_history_index + 1) % NOTE_SCALER_VELOCITY_HISTORY_LEN;
+            if velocity_history_len < NOTE_SCALER_VELOCITY_HISTORY_LEN {
+                velocity_history_len += 1;
+            }
+            if charge > 0 {
+                charge -= 1;
+            }
+            if delta == 0 || charge > 0 {
+                continue;
+            }
+            last_raw = raw;
+            charge = 4;
+
+            let total_velocity: i32 = velocity_history[..velocity_history_len]
+                .iter()
+                .map(|&v| v as i32)
+                .sum();
+            let avg_velocity = total_velocity;
+
+            let depth_step = 0x1 << (avg_velocity.abs().min(9) + 3);
+
+            let depth_delta = depth_step as i32 * avg_velocity.signum() as i32;
+            let new_depth =
+                (self.current_depth as i32 + depth_delta).clamp(0, u16::MAX as i32) as u16;
+            if new_depth != self.current_depth {
+                self.current_depth = new_depth;
+                /*
+                self.control_panel
+                    .eg_request_sender
+                    .send(EgRequest::ChangeNoteScalingDepth {
+                        depth: self.current_depth,
+                        save: false,
+                    })
+                    .await;
+                */
+                self.control_panel
+                    .display_request_sender
+                    .send(DisplayRequest::UpdateNoteScaling {
+                        depth: self.current_depth,
+                    })
+                    .await;
+            }
         }
 
         self.control_panel.ind_red.set_low();

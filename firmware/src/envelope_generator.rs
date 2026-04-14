@@ -36,10 +36,12 @@ use {defmt_rtt as _, panic_probe as _};
 use crate::{
     addresses::{
         ADDR_CV_DEST_A_ADSR, ADDR_CV_DEST_A_LINEAR, ADDR_CV_DEST_A_PARA_DECAYS,
-        ADDR_CV_DEST_A_TWO_DECAYS, ADDR_EG_TYPE_1, ADDR_OUT_ZERO_POINT_1, ADDR_OUT_ZERO_POINT_2,
+        ADDR_CV_DEST_A_TWO_DECAYS, ADDR_EG_TYPE_1, ADDR_NOTE_SCALING_DEPTH_1,
+        ADDR_NOTE_SCALING_DEPTH_2, ADDR_OUT_ZERO_POINT_1, ADDR_OUT_ZERO_POINT_2,
         ADDR_OUTPUT_POLARITY_1, ADDR_VOICE_ID_1,
     },
     definitions::{CvKind, PotKind},
+    envelope_generator::definitions::DEFAULT_NOTE_SCALING_DEPTH,
     input_reader::{InputReaderInfo, get_reader_info_receiver},
 };
 
@@ -133,6 +135,9 @@ async fn retrieve_stored_config(eg_resources: &mut EgResources) {
             eg_resources.config.set_cv_destination_a(cv_destination_a);
             eg_resources.config.set_cv_destination_b(cv_destination_b);
         }
+        eg_resources
+            .config
+            .set_note_scaling_depth(index, load_note_scaling_depth(index).await);
     }
 }
 
@@ -236,6 +241,33 @@ async fn save_cv_destination(engine_type: EngineType, cv_kind: CvKind, destinati
     storage::save(address, Value::U8(destination as u8), &SIGNAL_STORAGE)
         .await
         .unwrap();
+}
+
+async fn load_note_scaling_depth(voice_index: usize) -> u16 {
+    let value = load_u16_or_default(
+        ADDR_NOTE_SCALING_DEPTH_1 + 2 * voice_index as u16,
+        &SIGNAL_STORAGE,
+        DEFAULT_NOTE_SCALING_DEPTH,
+    )
+    .await;
+    value
+}
+
+async fn save_note_scaling_depths(depth_1: u16, depth_2: u16) {
+    storage::save(
+        ADDR_NOTE_SCALING_DEPTH_1,
+        Value::U16(depth_1),
+        &SIGNAL_STORAGE,
+    )
+    .await
+    .unwrap();
+    storage::save(
+        ADDR_NOTE_SCALING_DEPTH_2,
+        Value::U16(depth_2),
+        &SIGNAL_STORAGE,
+    )
+    .await
+    .unwrap();
 }
 
 async fn load_out_zero_point(voice_index: usize) -> u16 {
@@ -533,6 +565,14 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
                                 .await;
                         }
                     }
+                }
+                false
+            }
+            EgRequest::ChangeNoteScalingDepth { depth, save } => {
+                self.config.set_note_scaling_depth(0, depth);
+                self.config.set_note_scaling_depth(1, depth);
+                if save {
+                    save_note_scaling_depths(depth, depth).await;
                 }
                 false
             }
