@@ -3,6 +3,7 @@ mod cv_assigner;
 mod diagnoser;
 mod display;
 mod menu;
+mod note_scaler;
 mod polarity_changer;
 
 use analog3::rng::make_local_rng;
@@ -22,7 +23,7 @@ use heapless::String;
 use ssd1306_lite::{FontSize, TextBox};
 
 use crate::{
-    control_panel::menu::POLARITY_CHANGE_TARGET_ITEMS,
+    control_panel::{menu::POLARITY_CHANGE_TARGET_ITEMS, note_scaler::NoteScaler},
     envelope_generator::{
         ConfigReader, EG_CHANNEL_SIZE, EG_PUBS, EG_SUBS, EgEvent, EgRequest, EngineType,
         Mode as EgOperationMode, OutputPolarity, get_eg_event_subscriber, get_eg_request_sender,
@@ -204,6 +205,7 @@ impl ControlPanel {
         }
     }
 
+    /// Put current counter to self.
     fn smash_counter(&mut self) {
         self.encoder_last_raw = self.encoder.count() as i16;
     }
@@ -317,10 +319,22 @@ impl ControlPanel {
             Action::SetupPolarity => {
                 let mut polarity_changer = PolarityChanger::new(self);
                 polarity_changer.execute().await;
+                self.smash_counter(); // reset the counter, otherwise the page may move
                 self.mode = ControlPanelMode::Normal;
             }
-            Action::AssignCv => self.assign_cv().await,
-            Action::SetNoteScaling => {}
+            Action::AssignCv => {
+                let mut cv_assigner = CvAssigner::new(self);
+                cv_assigner.execute().await;
+                self.show_cv_assignment().await;
+                self.smash_counter(); // reset the counter, otherwise the page may move
+                self.mode = ControlPanelMode::Normal;
+            }
+            Action::SetNoteScaling => {
+                let mut note_scaler = NoteScaler::new(self);
+                note_scaler.execute().await;
+                self.smash_counter(); // reset the counter, otherwise the page may move
+                self.mode = ControlPanelMode::Normal;
+            }
         }
     }
 
@@ -388,16 +402,6 @@ impl ControlPanel {
             index: self.menu_item_index,
         };
         self.display_request_sender.send(request).await;
-    }
-
-    // CV Assignment mode /////////////////////////////////////////////////////
-
-    async fn assign_cv(&mut self) {
-        let mut cv_assigner = CvAssigner::new(self);
-        cv_assigner.execute().await;
-        self.show_cv_assignment().await;
-        self.smash_counter(); // reset the counter, otherwise the page may move
-        self.mode = ControlPanelMode::Normal;
     }
 
     // Admin mode ////////////////////////////////////////////////////////////

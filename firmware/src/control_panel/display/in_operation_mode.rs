@@ -8,7 +8,7 @@ use ssd1306_lite::{FontSize, TextBox};
 
 use crate::{
     control_panel::display::definitions::{
-        BOTTOM, EDGE_BOTTOM, LEFT, LOWER_BASELINE, N_BOTTOM, TOP,
+        BOTTOM, EDGE_BOTTOM, LEFT, LOWER_BASELINE, N_BOTTOM, RIGHT, TOP,
     },
     definitions::{CvKind, PotKind},
     envelope_generator::{ConfigReader, EngineType, OutputPolarity},
@@ -143,8 +143,9 @@ impl<'a> InOperationMode<'a> {
                     source,
                     destination,
                 } => self.update_cv_assignment(source, destination).await,
-                Request::ShowNoteScaling => self.draw_note_scaling_page().await,
-                Request::UpdateNoteScaling { depth } => {}
+                Request::ShowNoteScaling | Request::UpdateNoteScaling { .. } => {
+                    self.note_scaling(request).await
+                }
                 Request::BlinkCvSource { source, turn_on } => {
                     self.blink_cv_source(source, turn_on).await
                 }
@@ -199,6 +200,26 @@ impl<'a> InOperationMode<'a> {
 
     // Note scaling //////////////////////////////////////////////////////////////////////////////
 
+    async fn note_scaling(&mut self, pending_request: Request) {
+        self.display.pending_request = Some(pending_request);
+        let mut current_depth = self.eg_config.note_scaling_depth(0);
+        loop {
+            let request = self.display.fetch_request().await;
+            match request {
+                Request::ShowNoteScaling => self.draw_note_scaling_page(&current_depth).await,
+                Request::UpdateNoteScaling { depth } => {
+                    self.update_note_scaling(depth, &mut current_depth).await
+                }
+                _ => {
+                    self.display
+                        .switch_mode(request.mode(), Some(request))
+                        .await;
+                    return;
+                }
+            }
+        }
+    }
+
     /// Draws a note scaling bar
     pub(super) async fn draw_note_scaling_bar(&mut self, depth: u16) {
         let params = NoteScalingBarParams {
@@ -212,8 +233,7 @@ impl<'a> InOperationMode<'a> {
         self.draw_note_scaling_bar_core(depth, params).await;
     }
 
-    async fn draw_note_scaling_page(&mut self) {
-        let depth = self.eg_config.note_scaling_depth(0);
+    async fn draw_note_scaling_page(&mut self, depth: &u16) {
         self.display.clear(false, false).await;
         self.display
             .display_text(
@@ -239,7 +259,46 @@ impl<'a> InOperationMode<'a> {
             min_bar_thickness: 3,
             max_triangle_height: 24,
         };
-        self.draw_note_scaling_bar_core(depth, params).await;
+        self.draw_note_scaling_bar_core(*depth, params).await;
+        let bar_length = (*depth as i32 + 127) >> 8;
+        self.display
+            .draw_line(
+                Point::new(LEFT, EDGE_BOTTOM - 1),
+                Point::new(LEFT + bar_length, EDGE_BOTTOM - 1),
+                PrimitiveStyleBuilder::new()
+                    .stroke_width(3)
+                    .stroke_color(BinaryColor::On)
+                    .build(),
+                false,
+            )
+            .await;
+        self.display.driver.flush().await;
+    }
+
+    async fn update_note_scaling(&mut self, depth: u16, current_depth: &mut u16) {
+        defmt::debug!("update_note_scaling()");
+        self.display.clear_rectangle((0, 0), 44, 60, false).await;
+        self.display
+            .display_text(
+                "SET",
+                TextBox::simple(0, 0, BinaryColor::On),
+                FontSize::Medium,
+                false,
+            )
+            .await;
+
+        self.display
+            .draw_line(
+                Point::new(LEFT, EDGE_BOTTOM - 1),
+                Point::new(RIGHT, EDGE_BOTTOM - 1),
+                PrimitiveStyleBuilder::new()
+                    .stroke_width(3)
+                    .stroke_color(BinaryColor::Off)
+                    .build(),
+                false,
+            )
+            .await;
+
         let bar_length = (depth as i32 + 127) >> 8;
         self.display
             .draw_line(
@@ -252,6 +311,7 @@ impl<'a> InOperationMode<'a> {
                 false,
             )
             .await;
+
         self.display.driver.flush().await;
     }
 
