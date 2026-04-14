@@ -109,6 +109,8 @@ enum ControlPanelActionState {
         velocity_history_index: usize,
         velocity_history_len: usize,
         charge: usize,
+        ready_to_exit: bool,
+        blink_count: usize,
     },
 }
 
@@ -468,6 +470,8 @@ impl ControlPanel {
             velocity_history_index: 0,
             velocity_history_len: 0,
             charge: 0,
+            ready_to_exit: false,
+            blink_count: 0,
         });
         self.display_request_sender
             .send(DisplayRequest::UpdateNoteScaling {
@@ -835,6 +839,8 @@ impl ControlPanel {
             velocity_history_index,
             velocity_history_len,
             charge,
+            ready_to_exit,
+            blink_count,
         } = state
         {
             let button_level = self.button.get_level();
@@ -842,14 +848,37 @@ impl ControlPanel {
                 if self.button_pressed_at.is_none() {
                     self.button_pressed_at = Some(Instant::now());
                 }
+                if !*ready_to_exit {
+                    *blink_count = 14;
+                    self.ind_red.set_low();
+                    self.ind_green.set_low();
+                    *ready_to_exit = true;
+                    self.eg_request_sender
+                        .send(EgRequest::ChangeNoteScalingDepth {
+                            depth: *current_depth,
+                            save: true,
+                        })
+                        .await;
+                    self.show_note_scaling().await;
+                }
                 return;
             }
-            if self.button_pressed_at.is_some() {
-                self.button_pressed_at = None;
-                self.action_state = None;
-                self.mode = ControlPanelMode::Normal;
-                self.ind_red.set_low();
-                self.ind_green.set_low();
+            if *ready_to_exit {
+                if *blink_count > 0 {
+                    if *charge == 0 {
+                        self.ind_green.toggle();
+                        *blink_count -= 1;
+                        *charge = 3;
+                    } else {
+                        *charge -= 1;
+                    }
+                } else {
+                    self.button_pressed_at = None;
+                    self.action_state = None;
+                    self.mode = ControlPanelMode::Normal;
+                    self.ind_red.set_low();
+                    self.ind_green.set_low();
+                }
                 return;
             }
 
@@ -879,7 +908,7 @@ impl ControlPanel {
                 .map(|&v| v as i32)
                 .sum();
 
-            let depth_step = 0x1 << (avg_velocity.abs().min(9) + 3);
+            let depth_step = 0x1 << ((avg_velocity.abs() / 2).min(8) + 4);
 
             let depth_delta = depth_step as i32 * avg_velocity.signum() as i32;
             let new_depth = (*current_depth as i32 + depth_delta).clamp(0, u16::MAX as i32) as u16;
