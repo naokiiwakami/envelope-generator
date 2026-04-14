@@ -226,14 +226,7 @@ impl<'a> InOperationMode<'a> {
 
     /// Draws a note scaling bar
     pub(super) async fn draw_note_scaling_bar(&mut self, depth: u16) {
-        let params = NoteScalingBarParams {
-            left: 78,
-            width: 44,
-            center_y: LOWER_BASELINE,
-            max_bar_thickness: 7,
-            min_bar_thickness: 1,
-            max_triangle_height: 12,
-        };
+        let params = NoteScalingBarParams::small();
         self.draw_note_scaling_bar_core(depth, params).await;
     }
 
@@ -255,14 +248,7 @@ impl<'a> InOperationMode<'a> {
                 false,
             )
             .await;
-        let params = NoteScalingBarParams {
-            left: 44,
-            width: 80,
-            center_y: 28,
-            max_bar_thickness: 12,
-            min_bar_thickness: 3,
-            max_triangle_height: 24,
-        };
+        let params = NoteScalingBarParams::large();
         self.draw_note_scaling_bar_core(*depth, params).await;
         let bar_length = (*depth as i32 + 127) >> 8;
         self.display
@@ -281,14 +267,7 @@ impl<'a> InOperationMode<'a> {
 
     async fn update_note_scaling(&mut self, depth: u16, current_depth: &mut u16, first_time: bool) {
         defmt::debug!("update_note_scaling() depth={}", depth);
-        let params = NoteScalingBarParams {
-            left: 44,
-            width: 80,
-            center_y: 28,
-            max_bar_thickness: 12,
-            min_bar_thickness: 3,
-            max_triangle_height: 24,
-        };
+        let params = NoteScalingBarParams::large();
         if first_time {
             self.display.clear(false, false).await;
             self.display
@@ -906,4 +885,27 @@ struct NoteScalingBarParams {
     pub max_bar_thickness: u32,
     pub min_bar_thickness: u32,
     pub max_triangle_height: u32,
+}
+
+impl NoteScalingBarParams {
+    pub fn small() -> Self {
+        Self {
+            left: 78,
+            width: 44,
+            center_y: LOWER_BASELINE,
+            max_bar_thickness: 7,
+            min_bar_thickness: 1,
+            max_triangle_height: 12,
+        }
+    }
+    pub fn large() -> Self {
+        Self {
+            left: 44,
+            width: 80,
+            center_y: 28,
+            max_bar_thickness: 12,
+            min_bar_thickness: 3,
+            max_triangle_height: 24,
+        }
+    }
 }
