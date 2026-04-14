@@ -7,7 +7,9 @@ use embedded_graphics::{
 use ssd1306_lite::{FontSize, TextBox};
 
 use crate::{
-    control_panel::display::definitions::{BOTTOM, EDGE_BOTTOM, LEFT, N_BOTTOM, TOP},
+    control_panel::display::definitions::{
+        BOTTOM, EDGE_BOTTOM, LEFT, LOWER_BASELINE, N_BOTTOM, TOP,
+    },
     definitions::{CvKind, PotKind},
     envelope_generator::{ConfigReader, EngineType, OutputPolarity},
     input_reader::PotInfo,
@@ -156,29 +158,14 @@ impl<'a> InOperationMode<'a> {
 
     pub async fn show_home_page(&mut self) {
         let engine_type = self.eg_config.engine_type(0);
-        let attack = self.eg_config.attack(0);
-        let decay = self.eg_config.decay(0);
-        let sustain = self.eg_config.sustain(0);
-        let release = self.eg_config.release(0);
-        let extra_1 = self.eg_config.extra_1(0);
-        let extra_2 = self.eg_config.extra_2(0);
-
         debug!("showing {} home page", engine_type);
-
-        self.attack = self.attack_pos(attack);
-        self.decay = self.decay_pos(decay, self.attack);
-        self.sustain = self.sustain_pos(sustain);
-        self.release = self.release_pos(release);
 
         self.display.current_engine_type = engine_type;
         match self.display.current_engine_type {
             EngineType::ParaDecays => {
-                self.extra_1 = self.decay_pos(extra_1, self.attack);
-                self.extra_2 = self.mirroring_pos(extra_2);
                 para_decays_home::show_home_page(self).await;
             }
             EngineType::Adsr => {
-                self.extra_1 = extra_1 as i32;
                 adsr_home::show_home_page(self).await;
             }
             EngineType::Linear => {
@@ -212,39 +199,43 @@ impl<'a> InOperationMode<'a> {
 
     /// Draws a note scaling bar
     pub(super) async fn draw_note_scaling_bar(&mut self, depth: u16) {
-        let left: i32 = 80;
-        let width: u32 = 40;
+        let left: i32 = 78;
+        let width: u32 = 44;
         let right: i32 = left + width as i32;
-        let bottom_y: i32 = 63;
-        let max_bar_thickness: u32 = 11;
-        let min_bar_thickness: u32 = 2;
-        let max_triangle_height: u32 = 20;
+        let center_y: i32 = LOWER_BASELINE;
+        let max_bar_thickness: u32 = 7;
+        let min_bar_thickness: u32 = 1;
+        let max_triangle_height: u32 = 12;
 
-        let degree = distort(depth);
+        let depth = distort(depth);
 
         let thickness =
-            max_bar_thickness - ((degree as u32 * (max_bar_thickness - min_bar_thickness)) >> 16);
-        let triangle_height = (degree as u32 * (max_triangle_height - min_bar_thickness)) >> 16;
+            max_bar_thickness - ((depth as u32 * (max_bar_thickness - min_bar_thickness)) >> 16);
+        let triangle_height = (depth as u32 * (max_triangle_height - min_bar_thickness)) >> 16;
 
-        let bar_top_y = bottom_y + 1 - thickness as i32;
-        let triangle_base_y = bar_top_y.min(bottom_y);
+        let bar_top_y = center_y - thickness as i32;
+        let bar_bottom_y = center_y + thickness as i32;
+        let triangle_base_y = bar_top_y.min(center_y);
         let triangle_top_y = triangle_base_y - triangle_height as i32;
+        let triangle_bottom_y = center_y * 2 - triangle_top_y;
 
         self.display
             .draw_rectangle(
-                (left, bottom_y - max_triangle_height as i32 + 1),
+                (left, center_y - max_triangle_height as i32),
                 width + 1,
-                max_triangle_height,
+                max_triangle_height * 2 + 1,
                 self.erase_area,
                 false,
             )
             .await;
 
-        self.draw_line((left, bottom_y), (right, bottom_y)).await;
-        self.draw_line((right, bottom_y), (right, bar_top_y)).await;
-        self.draw_line((right, bar_top_y), (left, triangle_top_y))
+        self.draw_line((left, triangle_top_y), (right, bar_top_y))
             .await;
-        self.draw_line((left, triangle_top_y), (left, bottom_y))
+        self.draw_line((right, bar_top_y), (right, bar_bottom_y))
+            .await;
+        self.draw_line((right, bar_bottom_y), (left, triangle_bottom_y))
+            .await;
+        self.draw_line((left, triangle_bottom_y), (left, triangle_top_y))
             .await;
     }
 
@@ -257,7 +248,7 @@ impl<'a> InOperationMode<'a> {
         let outer = (((((max_outer - 5) * distort2(depth) as i32) >> 16) + 1) & !1) + 5;
         let inner = (((((max_inner - 5) * depth as i32) >> 16) + 1) & !1) + 5;
 
-        let center = Point::new(LEFT + 30, EDGE_BOTTOM - 14);
+        let center = Point::new(LEFT + 28, LOWER_BASELINE);
 
         let stroke_width = if outer >= 23 { 2 } else { 1 };
         let style = PrimitiveStyleBuilder::new()
@@ -671,7 +662,7 @@ impl<'a> InOperationMode<'a> {
     #[inline]
     pub(super) fn mirroring_pos(&self, param: u16) -> i32 {
         let param = !param as u32;
-        let pos = N_BOTTOM as u32 - (param * 56) / 65535;
+        let pos = (param * 28) >> 16;
         pos as i32
     }
 
