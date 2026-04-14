@@ -1,10 +1,7 @@
 mod calibrator;
-mod cv_assigner;
 mod diagnoser;
 mod display;
 mod menu;
-mod note_scaler;
-mod polarity_changer;
 
 use analog3::rng::make_local_rng;
 use defmt::{self, debug, error};
@@ -71,7 +68,6 @@ const _: () = {
     assert!(ALL_PAGES.len() == EngineType::Linear as u8 as usize + 1);
 };
 
-const NOTE_SCALER_SAMPLE_PERIOD_MS: u64 = 10;
 const NOTE_SCALER_VELOCITY_HISTORY_LEN: usize = 4;
 
 #[derive(Clone, Copy)]

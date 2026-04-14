@@ -7,9 +7,7 @@ use embedded_graphics::{
 use ssd1306_lite::{FontSize, TextBox};
 
 use crate::{
-    control_panel::display::definitions::{
-        BOTTOM, EDGE_BOTTOM, LEFT, LOWER_BASELINE, N_BOTTOM, RIGHT, TOP,
-    },
+    control_panel::display::definitions::{BOTTOM, EDGE_BOTTOM, LEFT, LOWER_BASELINE, RIGHT, TOP},
     definitions::{CvKind, PotKind},
     envelope_generator::{ConfigReader, EngineType, OutputPolarity},
     input_reader::PotInfo,
