@@ -2,10 +2,7 @@ use crate::{definitions::PotKind, input_reader::PotInfo};
 
 use super::{
     definitions::{BOTTOM, LEFT, RIGHT, TOP},
-    home_page_helpers::{
-        CURVE_NARROW, attack_pos, decay_pos, draw_attack, draw_decay_and_sustain, draw_release,
-        release_pos, sustain_pos,
-    },
+    home_page_helpers::{CURVE_NARROW, attack_pos, decay_pos, release_pos, sustain_pos},
     in_operation_mode::InOperationMode,
 };
 
@@ -60,15 +57,36 @@ pub async fn update_pot<'a>(parent: &mut InOperationMode<'a>, pot_info: PotInfo)
             if next_attack == parent.attack {
                 return;
             }
+            let delta = next_attack - parent.attack;
+            parent.extra_1 += delta;
+            parent.decay += delta;
             parent.attack = next_attack;
-            draw_attack(parent, parent.attack).await;
+            parent.erase_x_range(LEFT, parent.release).await;
+            parent
+                .draw_curve((LEFT, BOTTOM), (parent.attack, TOP))
+                .await;
+            parent
+                .draw_curve((parent.attack, TOP), (parent.extra_1, parent.extra_2))
+                .await;
+            parent
+                .draw_curve(
+                    (parent.extra_1, parent.extra_2),
+                    (parent.decay, parent.sustain),
+                )
+                .await;
+            parent
+                .draw_line(
+                    (parent.decay, parent.sustain),
+                    (parent.release, parent.sustain),
+                )
+                .await;
         }
         PotKind::Extra1 => {
             let next_decay0 = decay_pos(pot_info.value, parent.attack, CURVE_NARROW);
             if next_decay0 == parent.extra_1 {
                 return;
             }
-            parent.decay = parent.decay + next_decay0 - parent.extra_1;
+            parent.decay += next_decay0 - parent.extra_1;
             parent.extra_1 = next_decay0;
             parent.erase_x_range(parent.attack, parent.decay).await;
             draw_decay_and_sustain(
@@ -173,4 +191,23 @@ pub async fn update_pot<'a>(parent: &mut InOperationMode<'a>, pot_info: PotInfo)
         _ => {}
     }
     parent.display.driver.flush().await;
+}
+
+pub async fn draw_decay_and_sustain<'a>(
+    parent: &mut InOperationMode<'a>,
+    start: (i32, i32),
+    decay: i32,
+    sustain_level: i32,
+    sustain_end: i32,
+) {
+    parent.erase_x_range(start.0, sustain_end).await;
+    parent.draw_curve(start, (decay, sustain_level)).await;
+    parent
+        .draw_line((decay, sustain_level), (sustain_end, sustain_level))
+        .await;
+}
+
+pub async fn draw_release<'a>(parent: &mut InOperationMode<'a>, start: (i32, i32)) {
+    parent.erase_x_range(start.0, RIGHT).await;
+    parent.draw_curve(start, (RIGHT, BOTTOM)).await;
 }

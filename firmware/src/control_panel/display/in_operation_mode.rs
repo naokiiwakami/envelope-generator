@@ -14,7 +14,7 @@ use crate::{
 };
 
 use super::{
-    Display, ENGINE_TYPE_MENU_ITEMS, Mode, Request, adsr_home, linear_home, para_decays_home,
+    Display, Mode, Request, adsr_home, home_page_helpers::distort2, linear_home, para_decays_home,
     two_decays_home,
 };
 
@@ -748,35 +748,6 @@ impl<'a> InOperationMode<'a> {
 
     // Utils /////////////////////////////////////////////////////////////////////////////////////
 
-    #[inline]
-    pub(super) fn attack_pos(&self, attack: u16) -> i32 {
-        ((35 * (distort(attack) as i32 + 1)) >> 16) + LEFT
-    }
-
-    #[inline]
-    pub(super) fn decay_pos(&self, decay: u16, attack: i32) -> i32 {
-        ((35 * (distort(decay) as i32 + 1)) >> 16) + attack
-    }
-
-    #[inline]
-    pub(super) fn sustain_pos(&self, sustain: u16) -> i32 {
-        // sustain should not drop to the bottom as we want to show the release curve
-        // even at sustain = 0
-        BOTTOM - ((BOTTOM * ((sustain as i32 * 3) / 4 + 16384)) >> 16)
-    }
-
-    #[inline]
-    pub(super) fn release_pos(&self, release: u16) -> i32 {
-        125 - ((35 * (distort(release) as i32 + 1)) >> 16)
-    }
-
-    #[inline]
-    pub(super) fn mirroring_pos(&self, param: u16) -> i32 {
-        let param = !param as u32;
-        let pos = (param * 28) >> 16;
-        pos as i32
-    }
-
     #[inline(always)]
     pub(super) async fn draw_line(&mut self, start: (i32, i32), end: (i32, i32)) {
         self.display.driver.draw_line(start, end, self.stroke).await;
@@ -815,26 +786,6 @@ impl<'a> InOperationMode<'a> {
 }
 
 // Helpers /////////////////////////////////////////////////////////////////////
-
-#[inline]
-fn distort(input: u16) -> u16 {
-    let reverse = (!input) as u32;
-    !(((((((reverse * reverse) >> 16) * reverse) >> 16) * reverse) >> 16) as u16)
-}
-
-/*
-#[inline]
-fn distort3(input: u16) -> u16 {
-    let reverse = (!input) as u32;
-    !(((((reverse * reverse) >> 16) * reverse) >> 16) as u16)
-}
-    */
-
-#[inline]
-fn distort2(input: u16) -> u16 {
-    let reverse = (!input) as u32;
-    !(((reverse * reverse) >> 16) as u16)
-}
 
 fn path_from_a_to_dest(destination: PotKind) -> Option<&'static [(i32, i32)]> {
     match destination {

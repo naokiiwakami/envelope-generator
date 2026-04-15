@@ -1,7 +1,4 @@
-use super::{
-    definitions::{BOTTOM, LEFT, RIGHT, TOP},
-    in_operation_mode::InOperationMode,
-};
+use super::definitions::{BOTTOM, LEFT};
 
 pub const CURVE_WIDE: i32 = 35;
 pub const CURVE_NARROW: i32 = 30;
@@ -29,31 +26,20 @@ pub(super) fn release_pos(release: u16, width: i32) -> i32 {
 }
 
 #[inline]
+pub(super) fn mirroring_pos(param: u16) -> i32 {
+    let param = !param as u32;
+    let pos = (param * 28) >> 16;
+    pos as i32
+}
+
+#[inline]
 fn distort(input: u16) -> u16 {
     let reverse = (!input) as u32;
     !(((((((reverse * reverse) >> 16) * reverse) >> 16) * reverse) >> 16) as u16)
 }
 
-pub async fn draw_attack<'a>(parent: &mut InOperationMode<'a>, attack: i32) {
-    parent.erase_x_range(LEFT, attack).await;
-    parent.draw_curve((LEFT, BOTTOM), (attack, TOP)).await;
-}
-
-pub async fn draw_decay_and_sustain<'a>(
-    parent: &mut InOperationMode<'a>,
-    start: (i32, i32),
-    decay: i32,
-    sustain_level: i32,
-    sustain_end: i32,
-) {
-    parent.erase_x_range(start.0, sustain_end).await;
-    parent.draw_curve(start, (decay, sustain_level)).await;
-    parent
-        .draw_line((decay, sustain_level), (sustain_end, sustain_level))
-        .await;
-}
-
-pub async fn draw_release<'a>(parent: &mut InOperationMode<'a>, start: (i32, i32)) {
-    parent.erase_x_range(start.0, RIGHT).await;
-    parent.draw_curve(start, (RIGHT, BOTTOM)).await;
+#[inline]
+pub fn distort2(input: u16) -> u16 {
+    let reverse = (!input) as u32;
+    !(((reverse * reverse) >> 16) as u16)
 }
