@@ -54,6 +54,8 @@ pub struct InOperationMode<'a> {
     cv_destination_a: PotKind,
     cv_destination_b: PotKind,
 
+    last_note_scaling_depth: u16,
+
     // frequently used styles
     erase_area: PrimitiveStyle<BinaryColor>,
     fill_area: PrimitiveStyle<BinaryColor>,
@@ -76,6 +78,7 @@ impl<'a> InOperationMode<'a> {
             extra_2: 0,
             cv_destination_a: PotKind::Decay,
             cv_destination_b: PotKind::Sustain,
+            last_note_scaling_depth: 0,
             erase_area: PrimitiveStyleBuilder::new()
                 .stroke_width(1)
                 .stroke_color(BinaryColor::Off)
@@ -141,8 +144,11 @@ impl<'a> InOperationMode<'a> {
                     source,
                     destination,
                 } => self.update_cv_assignment(source, destination).await,
-                Request::ShowNoteScaling | Request::UpdateNoteScaling { .. } => {
-                    self.note_scaling(request).await
+                Request::ShowNoteScaling => {
+                    self.draw_note_scaling_page().await;
+                }
+                Request::UpdateNoteScaling { depth } => {
+                    self.update_note_scaling(depth).await;
                 }
                 Request::BlinkCvSource { source, turn_on } => {
                     self.blink_cv_source(source, turn_on).await
@@ -198,39 +204,17 @@ impl<'a> InOperationMode<'a> {
 
     // Note scaling //////////////////////////////////////////////////////////////////////////////
 
-    async fn note_scaling(&mut self, pending_request: Request) {
-        self.display.pending_request = Some(pending_request);
-        let mut current_depth = self.eg_config.note_scaling_depth(0);
-        let mut first_time = true;
-        loop {
-            let request = self.display.fetch_request().await;
-            match request {
-                Request::ShowNoteScaling => {
-                    self.draw_note_scaling_page(&current_depth).await;
-                    first_time = true;
-                }
-                Request::UpdateNoteScaling { depth } => {
-                    self.update_note_scaling(depth, &mut current_depth, first_time)
-                        .await;
-                    first_time = false;
-                }
-                _ => {
-                    self.display
-                        .switch_mode(request.mode(), Some(request))
-                        .await;
-                    return;
-                }
-            }
-        }
-    }
-
     /// Draws a note scaling bar
     pub(super) async fn draw_note_scaling_bar(&mut self, depth: u16) {
         let params = NoteScalingBarParams::small();
-        self.draw_note_scaling_bar_core(depth, params).await;
+        self.draw_note_scaling_bar_core(self.last_note_scaling_depth, &params, true)
+            .await;
+        self.draw_note_scaling_bar_core(depth, &params, false).await;
+        self.last_note_scaling_depth = depth;
     }
 
-    async fn draw_note_scaling_page(&mut self, depth: &u16) {
+    async fn draw_note_scaling_page(&mut self) {
+        let depth = self.eg_config.note_scaling_depth(0);
         self.display.clear(false, false).await;
         self.display
             .display_text(
@@ -249,8 +233,10 @@ impl<'a> InOperationMode<'a> {
             )
             .await;
         let params = NoteScalingBarParams::large();
-        self.draw_note_scaling_bar_core(*depth, params).await;
-        let bar_length = (*depth as i32 + 127) >> 8;
+        self.draw_note_scaling_bar_core(depth, &params, false).await;
+        self.last_note_scaling_depth = depth;
+
+        let bar_length = (depth as i32 + 127) >> 8;
         self.display
             .draw_line(
                 Point::new(LEFT, EDGE_BOTTOM - 1),
@@ -265,37 +251,26 @@ impl<'a> InOperationMode<'a> {
         self.display.driver.flush().await;
     }
 
-    async fn update_note_scaling(&mut self, depth: u16, current_depth: &mut u16, first_time: bool) {
-        defmt::debug!("update_note_scaling() depth={}", depth);
+    async fn update_note_scaling(&mut self, depth: u16) {
+        defmt::debug!("update_note_scaling() depth={:#x}", depth);
         let params = NoteScalingBarParams::large();
-        if first_time {
-            self.display.clear(false, false).await;
-            self.display
-                .display_text(
-                    "SET",
-                    TextBox::simple(0, 0, BinaryColor::On),
-                    FontSize::Medium,
-                    false,
-                )
-                .await;
-        } else {
-            self.display
-                .clear_rectangle((params.left, 0), params.width + 1, 64, false)
-                .await;
-            self.display
-                .draw_line(
-                    Point::new(LEFT, EDGE_BOTTOM - 1),
-                    Point::new(RIGHT, EDGE_BOTTOM - 1),
-                    PrimitiveStyleBuilder::new()
-                        .stroke_width(3)
-                        .stroke_color(BinaryColor::Off)
-                        .build(),
-                    false,
-                )
-                .await;
-        }
 
-        self.draw_note_scaling_bar_core(depth, params).await;
+        self.draw_note_scaling_bar_core(self.last_note_scaling_depth, &params, true)
+            .await;
+        self.draw_note_scaling_bar_core(depth, &params, false).await;
+
+        self.display
+            .draw_line(
+                Point::new(LEFT, EDGE_BOTTOM - 1),
+                Point::new(RIGHT, EDGE_BOTTOM - 1),
+                PrimitiveStyleBuilder::new()
+                    .stroke_width(3)
+                    .stroke_color(BinaryColor::Off)
+                    .build(),
+                false,
+            )
+            .await;
+
         let bar_length = (depth as i32 + 127) >> 8;
         self.display
             .draw_line(
@@ -310,10 +285,15 @@ impl<'a> InOperationMode<'a> {
             .await;
 
         self.display.driver.flush().await;
-        *current_depth = depth;
+        self.last_note_scaling_depth = depth;
     }
 
-    async fn draw_note_scaling_bar_core(&mut self, depth: u16, params: NoteScalingBarParams) {
+    async fn draw_note_scaling_bar_core(
+        &mut self,
+        depth: u16,
+        params: &NoteScalingBarParams,
+        reverse: bool,
+    ) {
         let NoteScalingBarParams {
             left,
             width,
@@ -322,7 +302,7 @@ impl<'a> InOperationMode<'a> {
             min_bar_thickness,
             max_triangle_height,
         } = params;
-        let right = left + width as i32;
+        let right = left + *width as i32;
 
         let depth = distort(depth);
 
@@ -332,27 +312,46 @@ impl<'a> InOperationMode<'a> {
 
         let bar_top_y = center_y - thickness as i32;
         let bar_bottom_y = center_y + thickness as i32;
-        let triangle_base_y = bar_top_y.min(center_y);
+        let triangle_base_y = bar_top_y.min(*center_y);
         let triangle_top_y = triangle_base_y - triangle_height as i32;
         let triangle_bottom_y = center_y * 2 - triangle_top_y;
 
+        let style = if reverse {
+            self.erase_stroke
+        } else {
+            self.stroke
+        };
         self.display
-            .draw_rectangle(
-                (left, center_y - max_triangle_height as i32),
-                width + 1,
-                max_triangle_height * 2 + 1,
-                self.erase_area,
+            .draw_line(
+                Point::new(*left, triangle_top_y),
+                Point::new(right, bar_top_y),
+                style,
                 false,
             )
             .await;
-
-        self.draw_line((left, triangle_top_y), (right, bar_top_y))
+        self.display
+            .draw_line(
+                Point::new(right, bar_top_y),
+                Point::new(right, bar_bottom_y),
+                style,
+                false,
+            )
             .await;
-        self.draw_line((right, bar_top_y), (right, bar_bottom_y))
+        self.display
+            .draw_line(
+                Point::new(right, bar_bottom_y),
+                Point::new(*left, triangle_bottom_y),
+                style,
+                false,
+            )
             .await;
-        self.draw_line((right, bar_bottom_y), (left, triangle_bottom_y))
-            .await;
-        self.draw_line((left, triangle_bottom_y), (left, triangle_top_y))
+        self.display
+            .draw_line(
+                Point::new(*left, triangle_bottom_y),
+                Point::new(*left, triangle_top_y),
+                style,
+                false,
+            )
             .await;
     }
 

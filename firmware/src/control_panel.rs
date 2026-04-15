@@ -68,7 +68,7 @@ const _: () = {
     assert!(ALL_PAGES.len() == EngineType::Linear as u8 as usize + 1);
 };
 
-const NOTE_SCALER_VELOCITY_HISTORY_LEN: usize = 4;
+const NOTE_SCALER_VELOCITY_HISTORY_LEN: usize = 1;
 
 #[derive(Clone, Copy)]
 enum PolarityPhase {
@@ -451,7 +451,7 @@ impl ControlPanel {
 
         self.action_state = Some(ControlPanelActionState::NoteScaler {
             current_depth: self.eg_config.note_scaling_depth(0),
-            last_raw: self.encoder_last_raw,
+            last_raw: self.encoder.count() as i16,
             velocity_history: [0; NOTE_SCALER_VELOCITY_HISTORY_LEN],
             velocity_history_index: 0,
             velocity_history_len: 0,
@@ -879,7 +879,7 @@ impl ControlPanel {
             }
 
             let raw = self.encoder.count() as i16;
-            let delta = (raw - *last_raw) / 4;
+            let delta = raw - *last_raw;
 
             velocity_history[*velocity_history_index] = delta;
             *velocity_history_index =
@@ -888,21 +888,22 @@ impl ControlPanel {
                 *velocity_history_len += 1;
             }
 
-            if *charge > 0 {
-                *charge -= 1;
-            }
-
-            if delta == 0 || *charge > 0 {
+            if delta.abs() < 4 {
                 return;
             }
 
-            *last_raw = raw;
-            *charge = 4;
+            *last_raw = (raw / 4) * 4;
+            // *charge = 4;
 
+            /*
             let avg_velocity: i32 = velocity_history[..*velocity_history_len]
                 .iter()
                 .map(|&v| v as i32)
                 .sum();
+            */
+            let avg_velocity = delta;
+
+            debug!("velocity={}", avg_velocity);
 
             let depth_step = 0x1 << ((avg_velocity.abs() / 2).min(8) + 4);
 
@@ -918,6 +919,7 @@ impl ControlPanel {
                     })
                     .await;
 
+                debug!("send update, depth={:#x}", *current_depth);
                 self.display_request_sender
                     .send(DisplayRequest::UpdateNoteScaling {
                         depth: *current_depth,
