@@ -94,8 +94,8 @@ pub enum EgRequest {
 #[repr(u8)]
 pub enum EngineType {
     ParaDecays = 0,
-    TwoDecays = 1,
-    Adsr = 2,
+    Adsr = 1,
+    TwoDecays = 2,
     Linear = 3,
 }
 
@@ -121,8 +121,8 @@ impl TryFrom<u8> for EngineType {
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(Self::ParaDecays),
-            1 => Ok(Self::TwoDecays),
-            2 => Ok(Self::Adsr),
+            1 => Ok(Self::Adsr),
+            2 => Ok(Self::TwoDecays),
             3 => Ok(Self::Linear),
             _ => Err(()),
         }

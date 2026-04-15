@@ -15,6 +15,7 @@ use crate::{
 
 use super::{
     Display, ENGINE_TYPE_MENU_ITEMS, Mode, Request, adsr_home, linear_home, para_decays_home,
+    two_decays_home,
 };
 
 // CV assignment display constants
@@ -175,30 +176,21 @@ impl<'a> InOperationMode<'a> {
             EngineType::Adsr => {
                 adsr_home::show_home_page(self).await;
             }
+            EngineType::TwoDecays => {
+                two_decays_home::show_home_page(self).await;
+            }
             EngineType::Linear => {
                 linear_home::show_home_page(self).await;
             }
-            _ => self.show_default_home_page().await,
         }
-    }
-
-    async fn show_default_home_page(&mut self) {
-        self.display.clear(false, false).await;
-        let name = ENGINE_TYPE_MENU_ITEMS[(self.display.current_engine_type as u8) as usize].name;
-        let text_box = TextBox::center().build();
-        self.display
-            .driver
-            .draw_string(name, text_box, FontSize::Large)
-            .await;
-        self.display.driver.flush().await;
     }
 
     async fn update_pot(&mut self, pot_info: PotInfo) {
         match self.display.current_engine_type {
             EngineType::ParaDecays => para_decays_home::update_pot(self, pot_info).await,
             EngineType::Adsr => adsr_home::update_pot(self, pot_info).await,
+            EngineType::TwoDecays => two_decays_home::update_pot(self, pot_info).await,
             EngineType::Linear => linear_home::update_pot(self, pot_info).await,
-            _ => {}
         }
     }
 
@@ -206,6 +198,9 @@ impl<'a> InOperationMode<'a> {
 
     /// Draws a note scaling bar
     pub(super) async fn draw_note_scaling_bar(&mut self, depth: u16) {
+        if depth == self.last_note_scaling_depth {
+            return;
+        }
         let params = NoteScalingBarParams::small();
         self.draw_note_scaling_bar_core(self.last_note_scaling_depth, &params, true)
             .await;
@@ -309,7 +304,6 @@ impl<'a> InOperationMode<'a> {
         let thickness =
             max_bar_thickness - ((depth as u32 * (max_bar_thickness - min_bar_thickness)) >> 16);
         let triangle_height = (depth as u32 * (max_triangle_height - min_bar_thickness)) >> 16;
-        defmt::debug!("thickness={:#x}, height={:#x}", thickness, triangle_height);
 
         let bar_top_y = center_y - thickness as i32;
         let bar_bottom_y = center_y + thickness as i32;

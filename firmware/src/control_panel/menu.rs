@@ -9,12 +9,12 @@ pub const ENGINE_TYPE_MENU_ITEMS: [MenuItem<Option<EngineType>>; 4] = [
         selection: Some(EngineType::ParaDecays),
     },
     MenuItem {
-        name: "ADDSR",
-        selection: Some(EngineType::TwoDecays),
-    },
-    MenuItem {
         name: "ADSR",
         selection: Some(EngineType::Adsr),
+    },
+    MenuItem {
+        name: "ADDSR",
+        selection: Some(EngineType::TwoDecays),
     },
     MenuItem {
         name: "LINEAR",

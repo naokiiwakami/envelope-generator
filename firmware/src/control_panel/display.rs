@@ -1,9 +1,11 @@
 mod adsr_home;
 mod definitions;
+mod home_page_helpers;
 mod in_operation_mode;
 mod linear_home;
 mod menu_mode;
 mod para_decays_home;
+mod two_decays_home;
 
 use analog3::{
     IndicatorRequest,
