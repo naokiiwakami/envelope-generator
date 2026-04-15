@@ -236,7 +236,7 @@ impl<'a> InOperationMode<'a> {
         self.draw_note_scaling_bar_core(depth, &params, false).await;
         self.last_note_scaling_depth = depth;
 
-        let bar_length = (depth as i32 + 127) >> 8;
+        let bar_length = (depth as i32 + 127) >> 9;
         self.display
             .draw_line(
                 Point::new(LEFT, EDGE_BOTTOM - 1),
@@ -271,7 +271,7 @@ impl<'a> InOperationMode<'a> {
             )
             .await;
 
-        let bar_length = (depth as i32 + 127) >> 8;
+        let bar_length = (depth as i32 + 127) >> 9;
         self.display
             .draw_line(
                 Point::new(LEFT, EDGE_BOTTOM - 1),
@@ -304,11 +304,12 @@ impl<'a> InOperationMode<'a> {
         } = params;
         let right = left + *width as i32;
 
-        let depth = distort(depth);
+        let depth = distort2(depth);
 
         let thickness =
             max_bar_thickness - ((depth as u32 * (max_bar_thickness - min_bar_thickness)) >> 16);
         let triangle_height = (depth as u32 * (max_triangle_height - min_bar_thickness)) >> 16;
+        defmt::debug!("thickness={:#x}, height={:#x}", thickness, triangle_height);
 
         let bar_top_y = center_y - thickness as i32;
         let bar_bottom_y = center_y + thickness as i32;

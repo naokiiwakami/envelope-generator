@@ -343,6 +343,10 @@ async fn run_envelope_generator(
                 let (cv_destination_a, cv_destination_b) = load_cv_destinations(engine_type).await;
                 eg_resources.config.set_cv_destination_a(cv_destination_a);
                 eg_resources.config.set_cv_destination_b(cv_destination_b);
+                let note_scaling_depth = load_note_scaling_depth(0).await;
+                if eg_resources.config.note_scaling_depth(0) != note_scaling_depth {
+                    save_note_scaling_depths(note_scaling_depth, note_scaling_depth).await;
+                }
                 match engine_type {
                     EngineType::ParaDecays => {
                         let mut eg = EnvelopeGenerator::<ParaDecaysEngine>::new(&mut eg_resources);

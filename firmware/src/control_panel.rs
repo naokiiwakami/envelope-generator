@@ -45,10 +45,11 @@ const PARA_DECAYS_PAGES: [OperationPage; 4] = [
     OperationPage::CvAssignment,
     OperationPage::NoteScaling,
 ];
-const ADDSR_PAGES: [OperationPage; 3] = [
+const ADDSR_PAGES: [OperationPage; 4] = [
     OperationPage::Home,
     OperationPage::OutputPolarity,
     OperationPage::CvAssignment,
+    OperationPage::NoteScaling,
 ];
 const ADSR_PAGES: [OperationPage; 3] = [
     OperationPage::Home,
@@ -67,8 +68,6 @@ const ALL_PAGES: [&[OperationPage]; 4] =
 const _: () = {
     assert!(ALL_PAGES.len() == EngineType::Linear as u8 as usize + 1);
 };
-
-const NOTE_SCALER_VELOCITY_HISTORY_LEN: usize = 1;
 
 #[derive(Clone, Copy)]
 enum PolarityPhase {
@@ -94,18 +93,15 @@ enum ControlPanelActionState {
         candidates: Vec<PotKind, 5>,
         original_index: usize,
         current_index: usize,
-        iteration_count: usize,
         turn_on: bool,
+        iteration_count: usize,
         blink_remaining: i32,
         ready_to_exit: bool,
     },
     NoteScaler {
         current_depth: u16,
         last_raw: i16,
-        velocity_history: [i16; NOTE_SCALER_VELOCITY_HISTORY_LEN],
-        velocity_history_index: usize,
-        velocity_history_len: usize,
-        charge: usize,
+        iteration_count: usize,
         blink_remaining: i32,
         ready_to_exit: bool,
     },
@@ -434,8 +430,8 @@ impl ControlPanel {
             candidates,
             original_index,
             current_index: original_index,
-            iteration_count: 0,
             turn_on: false,
+            iteration_count: 0,
             blink_remaining: if cv_kind == CvKind::A { 0 } else { 14 },
             ready_to_exit: false,
         });
@@ -452,10 +448,7 @@ impl ControlPanel {
         self.action_state = Some(ControlPanelActionState::NoteScaler {
             current_depth: self.eg_config.note_scaling_depth(0),
             last_raw: self.encoder.count() as i16,
-            velocity_history: [0; NOTE_SCALER_VELOCITY_HISTORY_LEN],
-            velocity_history_index: 0,
-            velocity_history_len: 0,
-            charge: 0,
+            iteration_count: 0,
             blink_remaining: 0,
             ready_to_exit: false,
         });
@@ -472,7 +465,7 @@ impl ControlPanel {
             ControlPanelMode::PolarityTargetSelect => self.update_polarity_target_select().await,
             ControlPanelMode::PolarityChange => self.update_polarity_change().await,
             ControlPanelMode::CvAssignment => self.update_cv_assigner().await,
-            ControlPanelMode::NoteScalingAction => self.update_note_scaling_action().await,
+            ControlPanelMode::NoteScalingAction => self.update_note_scaling().await,
             _ => {}
         }
     }
@@ -712,9 +705,9 @@ impl ControlPanel {
             candidates,
             original_index,
             current_index,
-            blink_remaining,
-            iteration_count,
             turn_on,
+            iteration_count,
+            blink_remaining,
             ready_to_exit,
         ) = match self.action_state.as_mut() {
             Some(ControlPanelActionState::CvAssigner {
@@ -722,8 +715,8 @@ impl ControlPanel {
                 candidates,
                 original_index,
                 current_index,
-                iteration_count,
                 turn_on,
+                iteration_count,
                 blink_remaining,
                 ready_to_exit,
             }) => (
@@ -731,16 +724,16 @@ impl ControlPanel {
                 candidates,
                 *original_index,
                 current_index,
-                blink_remaining,
-                iteration_count,
                 turn_on,
+                iteration_count,
+                blink_remaining,
                 ready_to_exit,
             ),
             _ => return,
         };
 
         *iteration_count += 1;
-        if *blink_remaining >= 0 && *iteration_count % 6 == 0 {
+        if *blink_remaining >= 0 && *iteration_count % 4 == 0 {
             if *blink_remaining > 0 {
                 self.ind_green.toggle();
             } else {
@@ -785,11 +778,14 @@ impl ControlPanel {
             return;
         }
 
-        if *ready_to_exit && *blink_remaining == 0 {
-            self.action_state = None;
-            self.mode = ControlPanelMode::Normal;
-            self.show_cv_assignment().await;
-            self.smash_counter();
+        if *ready_to_exit {
+            // exit the mode when the final blinking is done.
+            if *blink_remaining == 0 {
+                self.action_state = None;
+                self.mode = ControlPanelMode::Normal;
+                self.show_cv_assignment().await;
+                self.smash_counter();
+            }
             return;
         }
 
@@ -823,7 +819,7 @@ impl ControlPanel {
         }
     }
 
-    async fn update_note_scaling_action(&mut self) {
+    async fn update_note_scaling(&mut self) {
         let state = match self.action_state.as_mut() {
             Some(ControlPanelActionState::NoteScaler { .. }) => self.action_state.as_mut().unwrap(),
             _ => return,
@@ -831,14 +827,12 @@ impl ControlPanel {
         if let ControlPanelActionState::NoteScaler {
             current_depth,
             last_raw,
-            velocity_history,
-            velocity_history_index,
-            velocity_history_len,
-            charge,
+            iteration_count,
             blink_remaining: blink_count,
             ready_to_exit,
         } = state
         {
+            *iteration_count += 1;
             let button_level = self.button.get_level();
             if button_level == Level::Low {
                 if self.button_pressed_at.is_none() {
@@ -846,6 +840,7 @@ impl ControlPanel {
                 }
                 if !*ready_to_exit {
                     *blink_count = 14;
+                    *iteration_count = 0;
                     self.ind_red.set_low();
                     self.ind_green.set_low();
                     *ready_to_exit = true;
@@ -861,12 +856,9 @@ impl ControlPanel {
             }
             if *ready_to_exit {
                 if *blink_count > 0 {
-                    if *charge == 0 {
+                    if *iteration_count % 4 == 0 {
                         self.ind_green.toggle();
                         *blink_count -= 1;
-                        *charge = 3;
-                    } else {
-                        *charge -= 1;
                     }
                 } else {
                     self.button_pressed_at = None;
@@ -881,33 +873,17 @@ impl ControlPanel {
             let raw = self.encoder.count() as i16;
             let delta = raw - *last_raw;
 
-            velocity_history[*velocity_history_index] = delta;
-            *velocity_history_index =
-                (*velocity_history_index + 1) % NOTE_SCALER_VELOCITY_HISTORY_LEN;
-            if *velocity_history_len < NOTE_SCALER_VELOCITY_HISTORY_LEN {
-                *velocity_history_len += 1;
-            }
-
             if delta.abs() < 4 {
                 return;
             }
 
-            *last_raw = (raw / 4) * 4;
-            // *charge = 4;
+            *last_raw = raw;
 
-            /*
-            let avg_velocity: i32 = velocity_history[..*velocity_history_len]
-                .iter()
-                .map(|&v| v as i32)
-                .sum();
-            */
-            let avg_velocity = delta;
+            debug!("delta={}", delta);
 
-            debug!("velocity={}", avg_velocity);
+            let depth_step = 0x1 << ((delta.abs() - 4).clamp(0, 8) + 4);
 
-            let depth_step = 0x1 << ((avg_velocity.abs() / 2).min(8) + 4);
-
-            let depth_delta = depth_step as i32 * avg_velocity.signum() as i32;
+            let depth_delta = depth_step as i32 * delta.signum() as i32;
             let new_depth = (*current_depth as i32 + depth_delta).clamp(0, u16::MAX as i32) as u16;
             if new_depth != *current_depth {
                 *current_depth = new_depth;
@@ -1013,7 +989,7 @@ impl ControlPanel {
         self.into_menu_mode(
             ControlPanelMode::EngineTypeMenu,
             self.engine_type_index,
-            false,
+            true,
             true,
             false,
         );
@@ -1022,7 +998,7 @@ impl ControlPanel {
 
     /// Called periodically to update engine type menu state.
     async fn update_engine_type_menu(&mut self) {
-        if self.update_menu(ENGINE_TYPE_MENU_ITEMS.len(), false, true) {
+        if self.update_menu(ENGINE_TYPE_MENU_ITEMS.len(), false, false) {
             self.display_current_engine_type_menu().await;
         }
     }
