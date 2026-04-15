@@ -6,7 +6,7 @@ use heapless::Vec;
 
 use crate::{
     definitions::PotKind,
-    envelope_generator::definitions::{DEFAULT_VOICE_IDS, OutputPolarity},
+    envelope_generator::definitions::{DEFAULT_NOTE_SCALING_DEPTH, DEFAULT_VOICE_IDS, OutputPolarity},
     input_reader::PotInfo,
 };
 
@@ -51,7 +51,7 @@ impl ConfigData {
             cv_depth_b: 0,
             out_polarity: [OutputPolarity::Positive; 2],
 
-            note_scaling_depth: [0x4000; 2], // 0.25
+            note_scaling_depth: [DEFAULT_NOTE_SCALING_DEPTH; 2], // 0.25
         }
     }
 }

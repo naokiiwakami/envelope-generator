@@ -10,6 +10,7 @@ use crate::{
 
 pub const DEFAULT_VOICE_IDS: [u16; 2] = [0x101, 0x102];
 pub const DEFAULT_ENGINE_TYPE: EngineType = EngineType::ParaDecays;
+pub const DEFAULT_NOTE_SCALING_DEPTH: u16 = 0x4000;
 
 /// The zero point should be at the center of value range if the circuit is perfect.
 pub const DEFAULT_OUT_ZERO_POINT: u16 = 0x800;
@@ -50,7 +51,10 @@ impl VoiceParams {
 /// Request for the envelope generator
 pub enum EgRequest {
     /// Notifies the EnvelopeGenerator a physical gate event.
-    GateEvent { id: GateId, event: GateEventType },
+    GateEvent {
+        id: GateId,
+        event: GateEventType,
+    },
     /// Requests to switch the engine type.
     SwitchEngine {
         engine_type: EngineType,
@@ -67,10 +71,16 @@ pub enum EgRequest {
         source: CvKind,
         destination: PotKind,
     },
+    ChangeNoteScalingDepth {
+        depth: u16,
+        save: bool,
+    },
     /// Requests to toggle the operation mode.
     /// The EnvelopeGenerator switches operation mode if the requested mode is different
     /// from the current one, otherwise switches to the Normal mode.
-    ToggleMode { mode: Mode },
+    ToggleMode {
+        mode: Mode,
+    },
     /// Requests to update output zero points.
     UpdateZeroPoints {
         value_1: u16,

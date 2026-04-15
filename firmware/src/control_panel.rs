@@ -1,9 +1,7 @@
 mod calibrator;
-mod cv_assigner;
 mod diagnoser;
 mod display;
 mod menu;
-mod polarity_changer;
 
 use analog3::rng::make_local_rng;
 use defmt::{self, debug, error};
@@ -18,11 +16,12 @@ use embassy_stm32::{
 };
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel, pubsub};
 use embassy_time::{Duration, Instant, Timer};
-use heapless::String;
+use heapless::{String, Vec};
 use ssd1306_lite::{FontSize, TextBox};
 
 use crate::{
     control_panel::menu::POLARITY_CHANGE_TARGET_ITEMS,
+    definitions::{CvKind, PotKind},
     envelope_generator::{
         ConfigReader, EG_CHANNEL_SIZE, EG_PUBS, EG_SUBS, EgEvent, EgRequest, EngineType,
         Mode as EgOperationMode, OutputPolarity, get_eg_event_subscriber, get_eg_request_sender,
@@ -30,10 +29,8 @@ use crate::{
     input_reader::PotInfo,
 };
 
-use self::polarity_changer::PolarityChanger;
 use self::{
     calibrator::Calibrator,
-    cv_assigner::CvAssigner,
     diagnoser::Diagnoser,
     display::{
         CHANNEL_LENGTH as DISPLAY_CHANNEL_LENGTH, Display, Mode as DisplayMode,
@@ -48,10 +45,11 @@ const PARA_DECAYS_PAGES: [OperationPage; 4] = [
     OperationPage::CvAssignment,
     OperationPage::NoteScaling,
 ];
-const ADDSR_PAGES: [OperationPage; 3] = [
+const ADDSR_PAGES: [OperationPage; 4] = [
     OperationPage::Home,
     OperationPage::OutputPolarity,
     OperationPage::CvAssignment,
+    OperationPage::NoteScaling,
 ];
 const ADSR_PAGES: [OperationPage; 3] = [
     OperationPage::Home,
@@ -70,6 +68,44 @@ const ALL_PAGES: [&[OperationPage]; 4] =
 const _: () = {
     assert!(ALL_PAGES.len() == EngineType::Linear as u8 as usize + 1);
 };
+
+#[derive(Clone, Copy)]
+enum PolarityPhase {
+    TargetSelect,
+    ChangePolarity,
+}
+
+enum ControlPanelActionState {
+    PolarityChanger {
+        phase: PolarityPhase,
+        current_index: usize,
+        targets: u8,
+        polarity_1: OutputPolarity,
+        polarity_2: OutputPolarity,
+        toggle_time: Instant,
+        should_draw: bool,
+        voice_1: bool,
+        voice_2: bool,
+        visible: bool,
+    },
+    CvAssigner {
+        cv_kind: CvKind,
+        candidates: Vec<PotKind, 5>,
+        original_index: usize,
+        current_index: usize,
+        turn_on: bool,
+        iteration_count: usize,
+        blink_remaining: i32,
+        ready_to_exit: bool,
+    },
+    NoteScaler {
+        current_depth: u16,
+        last_raw: i16,
+        iteration_count: usize,
+        blink_remaining: i32,
+        ready_to_exit: bool,
+    },
+}
 
 pub async fn start(
     spawner: Spawner,
@@ -96,6 +132,10 @@ async fn run_control_panel(mut control_panel: ControlPanel) {
 enum ControlPanelMode {
     Normal,
     ActionSelected,
+    PolarityTargetSelect,
+    PolarityChange,
+    CvAssignment,
+    NoteScalingAction,
     EngineTypeMenu,
     EngineTypeSelected,
     AdminMenu,
@@ -144,6 +184,7 @@ struct ControlPanel {
     page: OperationPage,
     page_index: usize,
     next_action: Option<Action>,
+    action_state: Option<ControlPanelActionState>,
 
     encoder_last_raw: i16,
     menu_item_index: usize,
@@ -174,6 +215,7 @@ impl ControlPanel {
             page: OperationPage::Home,
             page_index: 0,
             next_action: None,
+            action_state: None,
             encoder_last_raw,
             menu_item_index: 0,
             toggle_time: Instant::now(),
@@ -204,6 +246,7 @@ impl ControlPanel {
         }
     }
 
+    /// Put current counter to self.
     fn smash_counter(&mut self) {
         self.encoder_last_raw = self.encoder.count() as i16;
     }
@@ -227,8 +270,9 @@ impl ControlPanel {
 
     async fn update(&mut self) {
         let next_level = self.button.get_level();
+        let was_pressed = self.button_pressed_at.is_some();
         if next_level == Level::Low {
-            // switched on
+            // button is pressed
             match self.button_pressed_at {
                 Some(button_pressed_at) => {
                     if button_pressed_at.elapsed().as_millis() > 2000 {
@@ -237,12 +281,28 @@ impl ControlPanel {
                 }
                 None => self.on_button_pressed(),
             }
-        } else if self.button_pressed_at.is_some() {
+        }
+
+        match self.mode {
+            ControlPanelMode::Normal => {
+                if next_level != Level::Low {
+                    self.regular_update().await;
+                }
+            }
+            ControlPanelMode::EngineTypeMenu => self.update_engine_type_menu().await,
+            ControlPanelMode::AdminMenu => self.update_admin_menu().await,
+            ControlPanelMode::PolarityTargetSelect
+            | ControlPanelMode::PolarityChange
+            | ControlPanelMode::CvAssignment
+            | ControlPanelMode::NoteScalingAction => {
+                self.update_action_state().await;
+            }
+            _ => {}
+        }
+
+        if next_level == Level::High && was_pressed {
             self.button_pressed_at = None;
             self.on_button_released().await;
-        } else {
-            // normal "button off" status, do regular task for the mode
-            self.regular_update().await;
         }
     }
 
@@ -272,10 +332,6 @@ impl ControlPanel {
 
     async fn on_button_released(&mut self) {
         match self.mode {
-            ControlPanelMode::Normal => {
-                self.ind_red.set_low();
-                self.ind_green.set_low();
-            }
             ControlPanelMode::ActionSelected => match &self.next_action {
                 Some(action) => self.execute_action(*action).await,
                 None => error!("No action set up -- shouldn't happen"),
@@ -314,13 +370,577 @@ impl ControlPanel {
     async fn execute_action(&mut self, action: Action) {
         match action {
             Action::SelectEngineType => self.into_engine_type_menu_mode().await,
-            Action::SetupPolarity => {
-                let mut polarity_changer = PolarityChanger::new(self);
-                polarity_changer.execute().await;
-                self.mode = ControlPanelMode::Normal;
+            Action::SetupPolarity => self.start_polarity_change().await,
+            Action::AssignCv => self.start_cv_assigner(CvKind::A).await,
+            Action::SetNoteScaling => self.start_note_scaling().await,
+        }
+    }
+
+    async fn start_polarity_change(&mut self) {
+        self.smash_counter();
+        self.ind_red.set_low();
+        self.ind_green.set_low();
+
+        let current_index = 0;
+        let targets = POLARITY_CHANGE_TARGET_ITEMS[current_index].selection;
+        self.display_request_sender
+            .send(DisplayRequest::SetPolarityChangeTargets { targets })
+            .await;
+
+        self.action_state = Some(ControlPanelActionState::PolarityChanger {
+            phase: PolarityPhase::TargetSelect,
+            current_index,
+            targets,
+            polarity_1: self.eg_config.out_polarity(0),
+            polarity_2: self.eg_config.out_polarity(1),
+            toggle_time: Instant::now().saturating_add(Duration::from_millis(500)),
+            should_draw: false,
+            voice_1: false,
+            voice_2: false,
+            visible: true,
+        });
+        self.mode = ControlPanelMode::PolarityTargetSelect;
+    }
+
+    async fn start_cv_assigner(&mut self, cv_kind: CvKind) {
+        self.smash_counter();
+        let current_destination = if cv_kind == CvKind::A {
+            self.eg_config.cv_destination_a()
+        } else {
+            self.eg_config.cv_destination_b()
+        };
+        let other_destination = if cv_kind == CvKind::A {
+            self.eg_config.cv_destination_b()
+        } else {
+            self.eg_config.cv_destination_a()
+        };
+
+        let mut candidates: Vec<PotKind, 5> = Vec::new();
+        self.build_cv_candidates(other_destination, &mut candidates);
+        let original_index = match candidates
+            .iter()
+            .position(|&dest| dest == current_destination)
+        {
+            Some(idx) => idx,
+            None => 0,
+        };
+
+        self.action_state = Some(ControlPanelActionState::CvAssigner {
+            cv_kind,
+            candidates,
+            original_index,
+            current_index: original_index,
+            turn_on: false,
+            iteration_count: 0,
+            blink_remaining: if cv_kind == CvKind::A { 0 } else { 14 },
+            ready_to_exit: false,
+        });
+        self.ind_red.set_low();
+        self.ind_green.set_low();
+        self.mode = ControlPanelMode::CvAssignment;
+    }
+
+    async fn start_note_scaling(&mut self) {
+        self.smash_counter();
+        self.ind_red.set_high();
+        self.ind_green.set_high();
+
+        self.action_state = Some(ControlPanelActionState::NoteScaler {
+            current_depth: self.eg_config.note_scaling_depth(0),
+            last_raw: self.encoder.count() as i16,
+            iteration_count: 0,
+            blink_remaining: 0,
+            ready_to_exit: false,
+        });
+        self.display_request_sender
+            .send(DisplayRequest::UpdateNoteScaling {
+                depth: self.eg_config.note_scaling_depth(0),
+            })
+            .await;
+        self.mode = ControlPanelMode::NoteScalingAction;
+    }
+
+    async fn update_action_state(&mut self) {
+        match self.mode {
+            ControlPanelMode::PolarityTargetSelect => self.update_polarity_target_select().await,
+            ControlPanelMode::PolarityChange => self.update_polarity_change().await,
+            ControlPanelMode::CvAssignment => self.update_cv_assigner().await,
+            ControlPanelMode::NoteScalingAction => self.update_note_scaling().await,
+            _ => {}
+        }
+    }
+
+    async fn update_polarity_target_select(&mut self) {
+        let (current_index, targets, toggle_time, visible, voice_1, voice_2, phase, should_draw) =
+            match self.action_state.as_mut() {
+                Some(ControlPanelActionState::PolarityChanger {
+                    phase,
+                    current_index,
+                    targets,
+                    toggle_time,
+                    visible,
+                    voice_1,
+                    voice_2,
+                    should_draw,
+                    ..
+                }) if matches!(*phase, PolarityPhase::TargetSelect) => (
+                    current_index,
+                    targets,
+                    toggle_time,
+                    visible,
+                    voice_1,
+                    voice_2,
+                    phase,
+                    should_draw,
+                ),
+                _ => return,
+            };
+
+        let button_level = self.button.get_level();
+        if button_level == Level::Low {
+            if self.button_pressed_at.is_none() {
+                self.button_pressed_at = Some(Instant::now());
             }
-            Action::AssignCv => self.assign_cv().await,
-            Action::SetNoteScaling => {}
+            return;
+        }
+
+        if self.button_pressed_at.is_some() {
+            self.button_pressed_at = None;
+            *targets = POLARITY_CHANGE_TARGET_ITEMS[*current_index].selection;
+            self.display_request_sender
+                .send(DisplayRequest::SetPolarityChangeTargets { targets: *targets })
+                .await;
+            self.ind_red.set_low();
+            self.ind_green.set_low();
+
+            *voice_1 = (*targets & 0x1) != 0;
+            *voice_2 = (*targets & 0x2) != 0;
+            *phase = PolarityPhase::ChangePolarity;
+            *toggle_time = Instant::now().saturating_add(Duration::from_millis(500));
+            *should_draw = true;
+            *visible = true;
+
+            self.mode = ControlPanelMode::PolarityChange;
+            return;
+        }
+
+        let raw = self.encoder.count() as i16;
+        let delta = (raw - self.encoder_last_raw) / 4;
+        if delta != 0 {
+            let len = POLARITY_CHANGE_TARGET_ITEMS.len() as i32;
+            let mut next_index = *current_index as i32 + delta as i32;
+            next_index %= len;
+            if next_index < 0 {
+                next_index += len;
+            }
+            *current_index = next_index as usize;
+            *targets = POLARITY_CHANGE_TARGET_ITEMS[*current_index].selection;
+            self.display_request_sender
+                .send(DisplayRequest::SetPolarityChangeTargets { targets: *targets })
+                .await;
+            self.encoder_last_raw = raw;
+        }
+
+        if Instant::now().ge(toggle_time) {
+            if *visible {
+                self.ind_red.set_high();
+                self.ind_green.set_high();
+                self.display_request_sender
+                    .send(DisplayRequest::SetPolarityChangeTargets { targets: *targets })
+                    .await;
+            } else {
+                self.ind_red.set_low();
+                self.ind_green.set_low();
+                self.display_request_sender
+                    .send(DisplayRequest::SetPolarityChangeTargets { targets: 0 })
+                    .await;
+            }
+            *visible = !*visible;
+            *toggle_time = toggle_time.saturating_add(Duration::from_millis(500));
+        }
+    }
+
+    async fn update_polarity_change(&mut self) {
+        if !matches!(
+            self.action_state,
+            Some(ControlPanelActionState::PolarityChanger {
+                phase: PolarityPhase::ChangePolarity,
+                ..
+            })
+        ) {
+            return;
+        }
+
+        let button_level = self.button.get_level();
+        if button_level == Level::Low {
+            if self.button_pressed_at.is_none() {
+                self.button_pressed_at = Some(Instant::now());
+            }
+            return;
+        }
+
+        if self.button_pressed_at.is_some() {
+            self.button_pressed_at = None;
+            self.ind_red.set_low();
+            self.ind_green.set_low();
+
+            let (polarity_1, polarity_2) = match self.action_state.as_mut() {
+                Some(ControlPanelActionState::PolarityChanger {
+                    polarity_1,
+                    polarity_2,
+                    ..
+                }) => (*polarity_1, *polarity_2),
+                _ => return,
+            };
+
+            self.eg_request_sender
+                .send(EgRequest::ChangeOutputPolarities {
+                    polarity_1,
+                    polarity_2,
+                    send_notif: false,
+                })
+                .await;
+            self.show_polarity(polarity_1, polarity_2).await;
+            self.action_state = None;
+            self.mode = ControlPanelMode::Normal;
+            return;
+        }
+
+        let raw = self.encoder.count() as i16;
+        let delta = (raw - self.encoder_last_raw) / 4;
+        if delta != 0 {
+            let mut update = None;
+
+            {
+                if let Some(ControlPanelActionState::PolarityChanger {
+                    polarity_1,
+                    polarity_2,
+                    voice_1,
+                    voice_2,
+                    should_draw,
+                    ..
+                }) = self.action_state.as_mut()
+                {
+                    if *voice_1 {
+                        *polarity_1 = Self::next_polarity(*polarity_1, delta);
+                    }
+                    if *voice_2 {
+                        *polarity_2 = Self::next_polarity(*polarity_2, delta);
+                    }
+                    let targets = if *voice_1 { 1 } else { 0 } | if *voice_2 { 2 } else { 0 };
+                    update = Some((targets, *polarity_1, *polarity_2));
+                    *should_draw = true;
+                }
+            }
+
+            if let Some((targets, polarity_1, polarity_2)) = update {
+                self.display_request_sender
+                    .send(DisplayRequest::UpdatePolarities {
+                        targets,
+                        polarity_1,
+                        polarity_2,
+                        is_draw: true,
+                    })
+                    .await;
+                self.encoder_last_raw = raw;
+            }
+        }
+
+        if let Some(ControlPanelActionState::PolarityChanger {
+            toggle_time,
+            should_draw,
+            voice_1,
+            voice_2,
+            polarity_1,
+            polarity_2,
+            ..
+        }) = self.action_state.as_mut()
+        {
+            if Instant::now() >= *toggle_time {
+                if *should_draw {
+                    self.ind_red.set_high();
+                    self.ind_green.set_high();
+                    self.display_request_sender
+                        .send(DisplayRequest::UpdatePolarities {
+                            targets: if *voice_1 { 1 } else { 0 } | if *voice_2 { 2 } else { 0 },
+                            polarity_1: *polarity_1,
+                            polarity_2: *polarity_2,
+                            is_draw: true,
+                        })
+                        .await;
+                } else {
+                    self.ind_red.set_low();
+                    self.ind_green.set_low();
+                    self.display_request_sender
+                        .send(DisplayRequest::UpdatePolarities {
+                            targets: if *voice_1 { 1 } else { 0 } | if *voice_2 { 2 } else { 0 },
+                            polarity_1: OutputPolarity::Positive,
+                            polarity_2: OutputPolarity::Positive,
+                            is_draw: false,
+                        })
+                        .await;
+                }
+                *should_draw = !*should_draw;
+                *toggle_time = toggle_time.saturating_add(Duration::from_millis(500));
+            }
+        }
+    }
+
+    fn next_polarity(current: OutputPolarity, delta: i16) -> OutputPolarity {
+        let mut index = match current {
+            OutputPolarity::Positive => 0,
+            OutputPolarity::Negative => 1,
+        };
+        let count = 2;
+        index = ((index as i32 + delta as i32) % count + count) % count;
+        match index {
+            0 => OutputPolarity::Positive,
+            _ => OutputPolarity::Negative,
+        }
+    }
+
+    async fn update_cv_assigner(&mut self) {
+        let (
+            cv_kind,
+            candidates,
+            original_index,
+            current_index,
+            turn_on,
+            iteration_count,
+            blink_remaining,
+            ready_to_exit,
+        ) = match self.action_state.as_mut() {
+            Some(ControlPanelActionState::CvAssigner {
+                cv_kind,
+                candidates,
+                original_index,
+                current_index,
+                turn_on,
+                iteration_count,
+                blink_remaining,
+                ready_to_exit,
+            }) => (
+                *cv_kind,
+                candidates,
+                *original_index,
+                current_index,
+                turn_on,
+                iteration_count,
+                blink_remaining,
+                ready_to_exit,
+            ),
+            _ => return,
+        };
+
+        *iteration_count += 1;
+        if *blink_remaining >= 0 && *iteration_count % 4 == 0 {
+            if *blink_remaining > 0 {
+                self.ind_green.toggle();
+            } else {
+                self.ind_red.set_high();
+                self.ind_green.set_high();
+            }
+            *blink_remaining -= 1;
+        }
+
+        let button_level = self.button.get_level();
+        if button_level == Level::Low {
+            if self.button_pressed_at.is_none() {
+                self.button_pressed_at = Some(Instant::now());
+            }
+            return;
+        }
+
+        if self.button_pressed_at.is_some() {
+            self.button_pressed_at = None;
+            let new_destination = candidates[*current_index];
+            self.eg_request_sender
+                .send(EgRequest::ChangeCvDestination {
+                    source: cv_kind,
+                    destination: new_destination,
+                })
+                .await;
+            self.display_request_sender
+                .send(DisplayRequest::BlinkCvSource {
+                    source: cv_kind,
+                    turn_on: true,
+                })
+                .await;
+            self.ind_red.set_low();
+            self.ind_green.set_low();
+            if cv_kind == CvKind::A {
+                self.start_cv_assigner(CvKind::B).await;
+                return;
+            }
+            *ready_to_exit = true;
+            *blink_remaining = 14;
+            *iteration_count = 0;
+            return;
+        }
+
+        if *ready_to_exit {
+            // exit the mode when the final blinking is done.
+            if *blink_remaining == 0 {
+                self.action_state = None;
+                self.mode = ControlPanelMode::Normal;
+                self.show_cv_assignment().await;
+                self.smash_counter();
+            }
+            return;
+        }
+
+        let raw = self.encoder.count() as i16;
+        let delta = (raw - self.encoder_last_raw) / 4;
+        let len = candidates.len() as i32;
+        let mut next_index = original_index as i32 + delta as i32;
+        next_index %= len;
+        if next_index < 0 {
+            next_index += len;
+        }
+        if next_index as usize != *current_index {
+            *current_index = next_index as usize;
+            let next_destination = candidates[*current_index];
+            self.display_request_sender
+                .send(DisplayRequest::UpdateCvAssignment {
+                    source: cv_kind,
+                    destination: next_destination,
+                })
+                .await;
+        }
+
+        if *iteration_count % 25 == 0 {
+            self.display_request_sender
+                .send(DisplayRequest::BlinkCvSource {
+                    source: cv_kind,
+                    turn_on: *turn_on,
+                })
+                .await;
+            *turn_on = !*turn_on;
+        }
+    }
+
+    async fn update_note_scaling(&mut self) {
+        let state = match self.action_state.as_mut() {
+            Some(ControlPanelActionState::NoteScaler { .. }) => self.action_state.as_mut().unwrap(),
+            _ => return,
+        };
+        if let ControlPanelActionState::NoteScaler {
+            current_depth,
+            last_raw,
+            iteration_count,
+            blink_remaining: blink_count,
+            ready_to_exit,
+        } = state
+        {
+            *iteration_count += 1;
+            let button_level = self.button.get_level();
+            if button_level == Level::Low {
+                if self.button_pressed_at.is_none() {
+                    self.button_pressed_at = Some(Instant::now());
+                }
+                if !*ready_to_exit {
+                    *blink_count = 14;
+                    *iteration_count = 0;
+                    self.ind_red.set_low();
+                    self.ind_green.set_low();
+                    *ready_to_exit = true;
+                    self.eg_request_sender
+                        .send(EgRequest::ChangeNoteScalingDepth {
+                            depth: *current_depth,
+                            save: true,
+                        })
+                        .await;
+                    self.show_note_scaling().await;
+                }
+                return;
+            }
+            if *ready_to_exit {
+                if *blink_count > 0 {
+                    if *iteration_count % 4 == 0 {
+                        self.ind_green.toggle();
+                        *blink_count -= 1;
+                    }
+                } else {
+                    self.button_pressed_at = None;
+                    self.action_state = None;
+                    self.mode = ControlPanelMode::Normal;
+                    self.ind_red.set_low();
+                    self.ind_green.set_low();
+                }
+                return;
+            }
+
+            let raw = self.encoder.count() as i16;
+            let delta = raw - *last_raw;
+
+            if delta.abs() < 4 {
+                return;
+            }
+
+            *last_raw = raw;
+
+            debug!("delta={}", delta);
+
+            let depth_step = 0x1 << ((delta.abs() - 4).clamp(0, 8) + 4);
+
+            let depth_delta = depth_step as i32 * delta.signum() as i32;
+            let new_depth = (*current_depth as i32 + depth_delta).clamp(0, u16::MAX as i32) as u16;
+            if new_depth != *current_depth {
+                *current_depth = new_depth;
+
+                self.eg_request_sender
+                    .send(EgRequest::ChangeNoteScalingDepth {
+                        depth: *current_depth,
+                        save: false,
+                    })
+                    .await;
+
+                debug!("send update, depth={:#x}", *current_depth);
+                self.display_request_sender
+                    .send(DisplayRequest::UpdateNoteScaling {
+                        depth: *current_depth,
+                    })
+                    .await;
+            }
+            self.encoder_last_raw = raw;
+        }
+    }
+
+    fn build_cv_candidates(&self, skip: PotKind, candidates: &mut Vec<PotKind, 5>) {
+        let possible_pots: &[PotKind] = match self.eg_config.engine_type(0) {
+            EngineType::ParaDecays => &[
+                PotKind::Attack,
+                PotKind::Decay,
+                PotKind::Sustain,
+                PotKind::Release,
+                PotKind::Extra2,
+                PotKind::Extra1,
+            ],
+            EngineType::TwoDecays => &[
+                PotKind::Attack,
+                PotKind::Decay,
+                PotKind::Sustain,
+                PotKind::Release,
+                PotKind::Extra2,
+                PotKind::Extra1,
+            ],
+            EngineType::Adsr => &[
+                PotKind::Attack,
+                PotKind::Decay,
+                PotKind::Sustain,
+                PotKind::Release,
+            ],
+            EngineType::Linear => &[
+                PotKind::Attack,
+                PotKind::Decay,
+                PotKind::Sustain,
+                PotKind::Release,
+            ],
+        };
+        for pot in possible_pots {
+            if *pot != skip {
+                candidates.push(*pot).unwrap();
+            }
         }
     }
 
@@ -369,7 +989,7 @@ impl ControlPanel {
         self.into_menu_mode(
             ControlPanelMode::EngineTypeMenu,
             self.engine_type_index,
-            false,
+            true,
             true,
             false,
         );
@@ -378,7 +998,7 @@ impl ControlPanel {
 
     /// Called periodically to update engine type menu state.
     async fn update_engine_type_menu(&mut self) {
-        if self.update_menu(ENGINE_TYPE_MENU_ITEMS.len(), false, true) {
+        if self.update_menu(ENGINE_TYPE_MENU_ITEMS.len(), false, false) {
             self.display_current_engine_type_menu().await;
         }
     }
@@ -388,16 +1008,6 @@ impl ControlPanel {
             index: self.menu_item_index,
         };
         self.display_request_sender.send(request).await;
-    }
-
-    // CV Assignment mode /////////////////////////////////////////////////////
-
-    async fn assign_cv(&mut self) {
-        let mut cv_assigner = CvAssigner::new(self);
-        cv_assigner.execute().await;
-        self.show_cv_assignment().await;
-        self.smash_counter(); // reset the counter, otherwise the page may move
-        self.mode = ControlPanelMode::Normal;
     }
 
     // Admin mode ////////////////////////////////////////////////////////////
@@ -611,14 +1221,9 @@ impl ControlPanel {
     }
 
     async fn show_note_scaling(&mut self) {
-        self.clear_screen(false, false).await;
-        self.display_text(
-            "note scaling",
-            TextBox::center().build(),
-            FontSize::Large,
-            true,
-        )
-        .await;
+        self.display_request_sender
+            .send(DisplayRequest::ShowNoteScaling)
+            .await;
     }
 }
 

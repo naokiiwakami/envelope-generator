@@ -128,6 +128,11 @@ pub enum Request {
         source: CvKind,
         destination: PotKind,
     },
+    // Note scaling configuration
+    ShowNoteScaling,
+    UpdateNoteScaling {
+        depth: u16,
+    },
     BlinkCvSource {
         source: CvKind,
         turn_on: bool,
@@ -174,7 +179,9 @@ impl Request {
             | Self::UpdatePolarities { .. }
             | Self::ShowCvAssignment
             | Self::UpdateCvAssignment { .. }
-            | Self::BlinkCvSource { .. } => Mode::InOperation,
+            | Self::BlinkCvSource { .. }
+            | Self::ShowNoteScaling
+            | Self::UpdateNoteScaling { .. } => Mode::InOperation,
             Self::DisplayEngineTypeMenuItem { .. } => Mode::EngineTypeMenu,
             Self::DisplayAdminMenuItem { .. } => Mode::AdminMenu,
             Self::UpdatePotForDiag { .. } => Mode::PotsDiag,
@@ -200,6 +207,8 @@ impl Request {
             Self::UpdatePolarities { .. } => "UpdatePolarities",
             Self::ShowCvAssignment => "ShowCvAssignment",
             Self::UpdateCvAssignment { .. } => "UpdateCvAssignment",
+            Self::ShowNoteScaling => "ShowNoteScaling",
+            Self::UpdateNoteScaling { .. } => "UpdateNoteScaling",
             Self::BlinkCvSource { .. } => "BlinkCvSource",
             Self::DisplayEngineTypeMenuItem { .. } => "DisplayEngineTypeMenuItem",
             Self::DisplayAdminMenuItem { .. } => "DisplayAdminMenuItem",
