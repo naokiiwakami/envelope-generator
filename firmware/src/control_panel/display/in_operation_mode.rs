@@ -14,7 +14,8 @@ use crate::{
 };
 
 use super::{
-    Display, ENGINE_TYPE_MENU_ITEMS, Mode, Request, adsr_home, linear_home, para_decays_home,
+    Display, Mode, Request, adsr_home, home_page_helpers::distort2, linear_home, para_decays_home,
+    two_phases_home,
 };
 
 // CV assignment display constants
@@ -175,30 +176,21 @@ impl<'a> InOperationMode<'a> {
             EngineType::Adsr => {
                 adsr_home::show_home_page(self).await;
             }
+            EngineType::TwoPhases => {
+                two_phases_home::show_home_page(self).await;
+            }
             EngineType::Linear => {
                 linear_home::show_home_page(self).await;
             }
-            _ => self.show_default_home_page().await,
         }
-    }
-
-    async fn show_default_home_page(&mut self) {
-        self.display.clear(false, false).await;
-        let name = ENGINE_TYPE_MENU_ITEMS[(self.display.current_engine_type as u8) as usize].name;
-        let text_box = TextBox::center().build();
-        self.display
-            .driver
-            .draw_string(name, text_box, FontSize::Large)
-            .await;
-        self.display.driver.flush().await;
     }
 
     async fn update_pot(&mut self, pot_info: PotInfo) {
         match self.display.current_engine_type {
             EngineType::ParaDecays => para_decays_home::update_pot(self, pot_info).await,
             EngineType::Adsr => adsr_home::update_pot(self, pot_info).await,
+            EngineType::TwoPhases => two_phases_home::update_pot(self, pot_info).await,
             EngineType::Linear => linear_home::update_pot(self, pot_info).await,
-            _ => {}
         }
     }
 
@@ -206,6 +198,9 @@ impl<'a> InOperationMode<'a> {
 
     /// Draws a note scaling bar
     pub(super) async fn draw_note_scaling_bar(&mut self, depth: u16) {
+        if depth == self.last_note_scaling_depth {
+            return;
+        }
         let params = NoteScalingBarParams::small();
         self.draw_note_scaling_bar_core(self.last_note_scaling_depth, &params, true)
             .await;
@@ -309,7 +304,6 @@ impl<'a> InOperationMode<'a> {
         let thickness =
             max_bar_thickness - ((depth as u32 * (max_bar_thickness - min_bar_thickness)) >> 16);
         let triangle_height = (depth as u32 * (max_triangle_height - min_bar_thickness)) >> 16;
-        defmt::debug!("thickness={:#x}, height={:#x}", thickness, triangle_height);
 
         let bar_top_y = center_y - thickness as i32;
         let bar_bottom_y = center_y + thickness as i32;
@@ -754,35 +748,6 @@ impl<'a> InOperationMode<'a> {
 
     // Utils /////////////////////////////////////////////////////////////////////////////////////
 
-    #[inline]
-    pub(super) fn attack_pos(&self, attack: u16) -> i32 {
-        ((35 * (distort(attack) as i32 + 1)) >> 16) + LEFT
-    }
-
-    #[inline]
-    pub(super) fn decay_pos(&self, decay: u16, attack: i32) -> i32 {
-        ((35 * (distort(decay) as i32 + 1)) >> 16) + attack
-    }
-
-    #[inline]
-    pub(super) fn sustain_pos(&self, sustain: u16) -> i32 {
-        // sustain should not drop to the bottom as we want to show the release curve
-        // even at sustain = 0
-        BOTTOM - ((BOTTOM * ((sustain as i32 * 3) / 4 + 16384)) >> 16)
-    }
-
-    #[inline]
-    pub(super) fn release_pos(&self, release: u16) -> i32 {
-        125 - ((35 * (distort(release) as i32 + 1)) >> 16)
-    }
-
-    #[inline]
-    pub(super) fn mirroring_pos(&self, param: u16) -> i32 {
-        let param = !param as u32;
-        let pos = (param * 28) >> 16;
-        pos as i32
-    }
-
     #[inline(always)]
     pub(super) async fn draw_line(&mut self, start: (i32, i32), end: (i32, i32)) {
         self.display.driver.draw_line(start, end, self.stroke).await;
@@ -821,26 +786,6 @@ impl<'a> InOperationMode<'a> {
 }
 
 // Helpers /////////////////////////////////////////////////////////////////////
-
-#[inline]
-fn distort(input: u16) -> u16 {
-    let reverse = (!input) as u32;
-    !(((((((reverse * reverse) >> 16) * reverse) >> 16) * reverse) >> 16) as u16)
-}
-
-/*
-#[inline]
-fn distort3(input: u16) -> u16 {
-    let reverse = (!input) as u32;
-    !(((((reverse * reverse) >> 16) * reverse) >> 16) as u16)
-}
-    */
-
-#[inline]
-fn distort2(input: u16) -> u16 {
-    let reverse = (!input) as u32;
-    !(((reverse * reverse) >> 16) as u16)
-}
 
 fn path_from_a_to_dest(destination: PotKind) -> Option<&'static [(i32, i32)]> {
     match destination {

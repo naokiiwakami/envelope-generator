@@ -4,6 +4,9 @@ use crate::{definitions::PotKind, input_reader::PotInfo};
 
 use super::{
     definitions::{BOTTOM, LEFT, N_BOTTOM, RIGHT, TOP},
+    home_page_helpers::{
+        CURVE_WIDE, attack_pos, decay_pos, mirroring_pos, release_pos, sustain_pos,
+    },
     in_operation_mode::InOperationMode,
 };
 
@@ -18,12 +21,12 @@ pub async fn show_home_page<'a>(parent: &mut InOperationMode<'a>) {
     let extra_1 = parent.eg_config.extra_1(0);
     let extra_2 = parent.eg_config.extra_2(0);
 
-    parent.attack = parent.attack_pos(attack) + LEFT_MARGIN;
-    parent.decay = parent.decay_pos(decay, parent.attack);
-    parent.sustain = parent.sustain_pos(sustain);
-    parent.release = parent.release_pos(release);
-    parent.extra_1 = parent.decay_pos(extra_1, parent.attack);
-    parent.extra_2 = parent.mirroring_pos(extra_2);
+    parent.attack = attack_pos(attack, CURVE_WIDE) + LEFT_MARGIN;
+    parent.decay = decay_pos(decay, parent.attack, CURVE_WIDE);
+    parent.sustain = sustain_pos(sustain);
+    parent.release = release_pos(release, CURVE_WIDE);
+    parent.extra_1 = decay_pos(extra_1, parent.attack, CURVE_WIDE);
+    parent.extra_2 = mirroring_pos(extra_2);
 
     parent.display.clear(false, false).await;
 
@@ -112,7 +115,7 @@ pub async fn update_pot<'a>(parent: &mut InOperationMode<'a>, pot_info: PotInfo)
 
     match pot_info.kind {
         PotKind::Attack => {
-            let next_attack = parent.attack_pos(pot_info.value) + LEFT_MARGIN;
+            let next_attack = attack_pos(pot_info.value, CURVE_WIDE) + LEFT_MARGIN;
             if next_attack == parent.attack {
                 return;
             }
@@ -170,7 +173,7 @@ pub async fn update_pot<'a>(parent: &mut InOperationMode<'a>, pot_info: PotInfo)
         }
 
         PotKind::Decay => {
-            let next_decay = parent.decay_pos(pot_info.value, parent.attack);
+            let next_decay = decay_pos(pot_info.value, parent.attack, CURVE_WIDE);
             if next_decay == parent.decay {
                 return;
             }
@@ -208,7 +211,7 @@ pub async fn update_pot<'a>(parent: &mut InOperationMode<'a>, pot_info: PotInfo)
         }
 
         PotKind::Sustain => {
-            let next_sustain = parent.sustain_pos(pot_info.value);
+            let next_sustain = sustain_pos(pot_info.value);
             if next_sustain == parent.sustain {
                 return;
             }
@@ -273,7 +276,7 @@ pub async fn update_pot<'a>(parent: &mut InOperationMode<'a>, pot_info: PotInfo)
         }
 
         PotKind::Release => {
-            let next_release = parent.release_pos(pot_info.value);
+            let next_release = release_pos(pot_info.value, CURVE_WIDE);
             if next_release == parent.release {
                 return;
             }
@@ -312,7 +315,7 @@ pub async fn update_pot<'a>(parent: &mut InOperationMode<'a>, pot_info: PotInfo)
         }
 
         PotKind::Extra1 => {
-            let next_extra_1 = parent.decay_pos(pot_info.value, parent.attack);
+            let next_extra_1 = decay_pos(pot_info.value, parent.attack, CURVE_WIDE);
             if next_extra_1 == parent.extra_1 {
                 return;
             }
@@ -354,7 +357,7 @@ pub async fn update_pot<'a>(parent: &mut InOperationMode<'a>, pot_info: PotInfo)
         }
 
         PotKind::Extra2 => {
-            let next_balance_pos = parent.mirroring_pos(pot_info.value);
+            let next_balance_pos = mirroring_pos(pot_info.value);
             if next_balance_pos == parent.extra_2 {
                 return;
             }

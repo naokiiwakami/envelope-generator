@@ -4,7 +4,7 @@ mod definitions;
 mod diag_engine;
 mod linear_engine;
 mod para_decays_engine;
-mod two_decays_engine;
+mod two_phases_engine;
 mod utils;
 
 use analog3::{
@@ -36,7 +36,7 @@ use {defmt_rtt as _, panic_probe as _};
 use crate::{
     addresses::{
         ADDR_CV_DEST_A_ADSR, ADDR_CV_DEST_A_LINEAR, ADDR_CV_DEST_A_PARA_DECAYS,
-        ADDR_CV_DEST_A_TWO_DECAYS, ADDR_EG_TYPE_1, ADDR_NOTE_SCALING_DEPTH_1,
+        ADDR_CV_DEST_A_TWO_PHASES, ADDR_EG_TYPE_1, ADDR_NOTE_SCALING_DEPTH_1,
         ADDR_NOTE_SCALING_DEPTH_2, ADDR_OUT_ZERO_POINT_1, ADDR_OUT_ZERO_POINT_2,
         ADDR_OUTPUT_POLARITY_1, ADDR_VOICE_ID_1,
     },
@@ -52,7 +52,7 @@ use self::{
     diag_engine::DiagEngine,
     linear_engine::LinearEngine,
     para_decays_engine::ParaDecaysEngine,
-    two_decays_engine::TwoDecaysEngine,
+    two_phases_engine::TwoPhasesEngine,
     utils::choose_output_converter,
 };
 pub use self::{
@@ -200,7 +200,7 @@ async fn save_out_polarity(voice_index: usize, polarity: OutputPolarity) {
 async fn load_cv_destinations(engine_type: EngineType) -> (PotKind, PotKind) {
     let (address, default_a, default_b) = match engine_type {
         EngineType::Adsr => (ADDR_CV_DEST_A_ADSR, PotKind::Attack, PotKind::Decay),
-        EngineType::TwoDecays => (ADDR_CV_DEST_A_TWO_DECAYS, PotKind::Attack, PotKind::Decay),
+        EngineType::TwoPhases => (ADDR_CV_DEST_A_TWO_PHASES, PotKind::Attack, PotKind::Decay),
         EngineType::ParaDecays => (ADDR_CV_DEST_A_PARA_DECAYS, PotKind::Attack, PotKind::Decay),
         EngineType::Linear => (ADDR_CV_DEST_A_LINEAR, PotKind::Attack, PotKind::Decay),
     };
@@ -231,7 +231,7 @@ async fn load_cv_destinations(engine_type: EngineType) -> (PotKind, PotKind) {
 async fn save_cv_destination(engine_type: EngineType, cv_kind: CvKind, destination: PotKind) {
     let mut address = match engine_type {
         EngineType::Adsr => ADDR_CV_DEST_A_ADSR,
-        EngineType::TwoDecays => ADDR_CV_DEST_A_TWO_DECAYS,
+        EngineType::TwoPhases => ADDR_CV_DEST_A_TWO_PHASES,
         EngineType::ParaDecays => ADDR_CV_DEST_A_PARA_DECAYS,
         EngineType::Linear => ADDR_CV_DEST_A_LINEAR,
     };
@@ -352,8 +352,8 @@ async fn run_envelope_generator(
                         let mut eg = EnvelopeGenerator::<ParaDecaysEngine>::new(&mut eg_resources);
                         eg.run().await;
                     }
-                    EngineType::TwoDecays => {
-                        let mut eg = EnvelopeGenerator::<TwoDecaysEngine>::new(&mut eg_resources);
+                    EngineType::TwoPhases => {
+                        let mut eg = EnvelopeGenerator::<TwoPhasesEngine>::new(&mut eg_resources);
                         eg.run().await;
                     }
                     EngineType::Adsr => {

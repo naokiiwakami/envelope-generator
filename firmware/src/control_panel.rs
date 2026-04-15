@@ -916,7 +916,7 @@ impl ControlPanel {
                 PotKind::Extra2,
                 PotKind::Extra1,
             ],
-            EngineType::TwoDecays => &[
+            EngineType::TwoPhases => &[
                 PotKind::Attack,
                 PotKind::Decay,
                 PotKind::Sustain,

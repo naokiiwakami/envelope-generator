@@ -25,7 +25,7 @@ enum EnginePhase {
 }
 
 /// The fundamental envelope EG voice engine that generates traditional ADSR curve.
-pub struct TwoDecaysEngine {
+pub struct TwoPhasesEngine {
     // Parameters translated by the EG configuration.
     attack_ratio: u32,
     decay_ratio: u32,
@@ -64,7 +64,7 @@ pub struct TwoDecaysEngine {
     phase: EnginePhase,
 }
 
-impl TwoDecaysEngine {
+impl TwoPhasesEngine {
     fn update_params_for_pot(
         &mut self,
         voice_index: usize,
@@ -107,7 +107,7 @@ impl TwoDecaysEngine {
     }
 }
 
-impl Engine for TwoDecaysEngine {
+impl Engine for TwoPhasesEngine {
     fn new() -> Self {
         Self {
             attack_ratio: 0,
