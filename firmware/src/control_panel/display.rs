@@ -5,7 +5,7 @@ mod in_operation_mode;
 mod linear_home;
 mod menu_mode;
 mod para_decays_home;
-mod two_decays_home;
+mod two_phases_home;
 
 use analog3::{
     IndicatorRequest,

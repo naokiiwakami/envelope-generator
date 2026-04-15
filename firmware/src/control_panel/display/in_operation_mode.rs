@@ -15,7 +15,7 @@ use crate::{
 
 use super::{
     Display, Mode, Request, adsr_home, home_page_helpers::distort2, linear_home, para_decays_home,
-    two_decays_home,
+    two_phases_home,
 };
 
 // CV assignment display constants
@@ -176,8 +176,8 @@ impl<'a> InOperationMode<'a> {
             EngineType::Adsr => {
                 adsr_home::show_home_page(self).await;
             }
-            EngineType::TwoDecays => {
-                two_decays_home::show_home_page(self).await;
+            EngineType::TwoPhases => {
+                two_phases_home::show_home_page(self).await;
             }
             EngineType::Linear => {
                 linear_home::show_home_page(self).await;
@@ -189,7 +189,7 @@ impl<'a> InOperationMode<'a> {
         match self.display.current_engine_type {
             EngineType::ParaDecays => para_decays_home::update_pot(self, pot_info).await,
             EngineType::Adsr => adsr_home::update_pot(self, pot_info).await,
-            EngineType::TwoDecays => two_decays_home::update_pot(self, pot_info).await,
+            EngineType::TwoPhases => two_phases_home::update_pot(self, pot_info).await,
             EngineType::Linear => linear_home::update_pot(self, pot_info).await,
         }
     }

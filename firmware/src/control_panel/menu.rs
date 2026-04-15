@@ -13,8 +13,8 @@ pub const ENGINE_TYPE_MENU_ITEMS: [MenuItem<Option<EngineType>>; 4] = [
         selection: Some(EngineType::Adsr),
     },
     MenuItem {
-        name: "ADDSR",
-        selection: Some(EngineType::TwoDecays),
+        name: "TWO PHASES",
+        selection: Some(EngineType::TwoPhases),
     },
     MenuItem {
         name: "LINEAR",
