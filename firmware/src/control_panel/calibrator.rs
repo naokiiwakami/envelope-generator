@@ -1,13 +1,15 @@
 use core::ops::Add;
 
 use defmt::debug;
+use embassy_futures::yield_now;
 use embassy_time::{Instant, Timer};
 use embedded_graphics::{
     pixelcolor::BinaryColor,
     prelude::{Point, Size},
     primitives::{PrimitiveStyle, PrimitiveStyleBuilder},
 };
-use ssd1306_lite::{FontSize, TextBox};
+use heapless::format;
+use ssd1306_lite::{Alignment, FontSize, TextBox};
 
 use crate::{
     control_panel::display::Mode,
@@ -191,14 +193,33 @@ impl<'a> Calibrator<'a> {
         offset_a /= repeat as i32;
         offset_b /= repeat as i32;
         debug!("CV offsets after calib: A={}, B={}", offset_a, offset_b);
-
-        // TODO: check offsets actually
-
-        self.display_title("OK").await;
-
         self.clear_courtyard(true).await;
-
-        Timer::after_millis(2000).await;
+        let sleep_millis = if offset_a.abs() < 100 && offset_b.abs() < 100 {
+            self.display_title("OK").await;
+            2000
+        } else {
+            self.display_title("ERROR!!").await;
+            20000
+        };
+        let text_box = TextBox::builder(0, 15)
+            .width(128)
+            .height(20)
+            .align(Alignment::Center)
+            .build();
+        let text: heapless::String<32> = format!("A: {}", offset_a).unwrap();
+        self.control_panel
+            .display_text(&text.as_str(), text_box, FontSize::Medium, true)
+            .await;
+        let text_box = TextBox::builder(0, 30)
+            .width(128)
+            .height(20)
+            .align(Alignment::Center)
+            .build();
+        let text: heapless::String<32> = format!("B: {}", offset_b).unwrap();
+        self.control_panel
+            .display_text(&text.as_str(), text_box, FontSize::Medium, true)
+            .await;
+        Timer::after_millis(sleep_millis).await;
     }
 
     async fn calibrate_output(
@@ -213,7 +234,9 @@ impl<'a> Calibrator<'a> {
                 save: false,
             })
             .await;
+        yield_now().await;
 
+        self.clear_courtyard(true).await;
         self.display_title("PLUG...").await;
 
         self.control_panel
@@ -268,11 +291,11 @@ impl<'a> Calibrator<'a> {
         offset_2 /= repeat as i32;
         debug!("drift before calib: 1={}, 2={}", offset_1, offset_2);
         let scale_16_to_12 = 16; // 4 bit
-        offset_1 /= scale_16_to_12;
-        offset_2 /= scale_16_to_12;
+        offset_1 *= scale_16_to_12;
+        offset_2 *= scale_16_to_12;
 
-        let value_1 = (DEFAULT_OUT_ZERO_POINT as i32 - offset_1) as u16;
-        let value_2 = (DEFAULT_OUT_ZERO_POINT as i32 - offset_2) as u16;
+        let value_1 = (DEFAULT_OUT_ZERO_POINT as i32 + offset_1) as u16;
+        let value_2 = (DEFAULT_OUT_ZERO_POINT as i32 + offset_2) as u16;
 
         debug!("zero_points: 1={:#x}, 2={:#x}", value_1, value_2);
 
@@ -283,6 +306,7 @@ impl<'a> Calibrator<'a> {
                 save: true,
             })
             .await;
+        yield_now().await;
 
         Timer::after_millis(100).await;
 
@@ -355,10 +379,6 @@ impl<'a> Calibrator<'a> {
         offset_2 /= repeat as i32;
         debug!("drift after calib: 1={}, 2={}", offset_1, offset_2);
 
-        // TODO: check offsets actually
-
-        self.display_title("OK").await;
-
         self.draw_arrow(
             Point::new(45, 16),
             Point::new(105, 47),
@@ -379,7 +399,33 @@ impl<'a> Calibrator<'a> {
         )
         .await;
 
-        Timer::after_millis(2000).await;
+        let sleep_millis = if offset_1.abs() < 256 && offset_2.abs() < 256 {
+            self.display_title("OK").await;
+            2000
+        } else {
+            self.display_title("ERROR!!").await;
+            20000
+        };
+        let text_box = TextBox::builder(0, 15)
+            .width(128)
+            .height(20)
+            .align(Alignment::Center)
+            .build();
+        let text: heapless::String<32> = format!("A: {}", offset_1).unwrap();
+        self.control_panel
+            .display_text(&text.as_str(), text_box, FontSize::Medium, true)
+            .await;
+        let text_box = TextBox::builder(0, 30)
+            .width(128)
+            .height(20)
+            .align(Alignment::Center)
+            .build();
+        let text: heapless::String<32> = format!("B: {}", offset_2).unwrap();
+        self.control_panel
+            .display_text(&text.as_str(), text_box, FontSize::Medium, true)
+            .await;
+
+        Timer::after_millis(sleep_millis).await;
     }
 
     async fn wrap_up(&mut self) {

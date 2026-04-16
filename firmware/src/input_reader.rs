@@ -285,6 +285,7 @@ impl InputReader {
     }
 
     async fn set_cv_offsets(&mut self, offset_a: i16, offset_b: i16, save: bool) {
+        debug!("SetCvOffsets received: {:#x} {:#x}", offset_a, offset_b);
         self.cv_offset_a = offset_a;
         self.cv_offset_b = offset_b;
         if save {

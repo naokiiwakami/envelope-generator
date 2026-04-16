@@ -427,7 +427,6 @@ impl Display {
         debug!("In fundamental mode");
         while matches!(self.mode, Mode::Fundamental) {
             let request = self.fetch_request().await;
-            debug!("[Fundamental]: request: {}", request.name());
             match request {
                 Request::SwitchMode { .. }
                 | Request::Clear { .. }

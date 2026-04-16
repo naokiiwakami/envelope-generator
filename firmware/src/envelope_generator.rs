@@ -599,6 +599,7 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
                 value_2,
                 save,
             } => {
+                debug!("UpdateZeroPoints received: {:#x}, {:#x}", value_1, value_2);
                 self.voice_1.params.out_zero_point = value_1;
                 self.voice_2.params.out_zero_point = value_2;
                 if save {
