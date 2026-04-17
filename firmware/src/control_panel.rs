@@ -166,8 +166,9 @@ struct ControlPanel {
 
     // EG
     eg_request_sender: channel::Sender<'static, ThreadModeRawMutex, EgRequest, EG_CHANNEL_SIZE>,
-    eg_event_subscriber:
+    eg_event_subscriber: Option<
         pubsub::Subscriber<'static, ThreadModeRawMutex, EgEvent, EG_CHANNEL_SIZE, EG_SUBS, EG_PUBS>,
+    >,
 
     // EG state
     eg_config: ConfigReader,
@@ -203,7 +204,7 @@ impl ControlPanel {
         Self {
             display_request_sender,
             eg_request_sender: get_eg_request_sender(),
-            eg_event_subscriber: get_eg_event_subscriber(),
+            eg_event_subscriber: Some(get_eg_event_subscriber()),
             eg_config: ConfigReader::new(),
             engine_type_index: 0,
             encoder,
@@ -230,15 +231,15 @@ impl ControlPanel {
         }
         let mut last_updated = Instant::now();
         loop {
-            match select(
-                self.eg_event_subscriber.next_message_pure(),
-                Timer::after_millis(10),
-            )
-            .await
-            {
-                Either::First(event) => self.handle_eg_event(event).await,
-                Either::Second(()) => {}
-            };
+            match &mut self.eg_event_subscriber {
+                Some(subscriber) => {
+                    match select(subscriber.next_message_pure(), Timer::after_millis(10)).await {
+                        Either::First(event) => self.handle_eg_event(event).await,
+                        Either::Second(()) => {}
+                    }
+                }
+                None => Timer::after_millis(10).await,
+            }
             if last_updated.elapsed().as_millis() > 10 {
                 self.update().await;
                 last_updated = Instant::now();
@@ -1037,14 +1038,23 @@ impl ControlPanel {
         let action = &ADMIN_MENU_ITEMS[self.menu_item_index].selection;
         match action {
             AdminAction::Calibrate => {
+                // Unsubscribe from EG events while calibrator is running.
+                // Calibrator does not consume EG events during its execution.
+                // It causes EG hanging on notifying pot change.
+                self.eg_event_subscriber = None;
                 let mut calibrator = Calibrator::new(self);
                 calibrator.execute().await;
                 self.mode = ControlPanelMode::Normal;
+                // Subscribe again
+                self.eg_event_subscriber = Some(get_eg_event_subscriber());
             }
             AdminAction::Diagnose => {
+                self.eg_event_subscriber = None;
                 let mut diagnoser = Diagnoser::new(self);
                 diagnoser.execute().await;
                 self.mode = ControlPanelMode::Normal;
+                self.eg_event_subscriber = Some(get_eg_event_subscriber());
+                self.go_to_op_home().await;
             }
             AdminAction::ToggleDiagnoseMode => {
                 self.request_toggle_eg_mode(EgOperationMode::Diagnose).await;

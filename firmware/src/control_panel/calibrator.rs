@@ -291,11 +291,11 @@ impl<'a> Calibrator<'a> {
         offset_2 /= repeat as i32;
         debug!("drift before calib: 1={}, 2={}", offset_1, offset_2);
         let scale_16_to_12 = 16; // 4 bit
-        offset_1 *= scale_16_to_12;
-        offset_2 *= scale_16_to_12;
+        offset_1 /= scale_16_to_12;
+        offset_2 /= scale_16_to_12;
 
-        let value_1 = (DEFAULT_OUT_ZERO_POINT as i32 + offset_1) as u16;
-        let value_2 = (DEFAULT_OUT_ZERO_POINT as i32 + offset_2) as u16;
+        let value_1 = (DEFAULT_OUT_ZERO_POINT as i32 - offset_1) as u16;
+        let value_2 = (DEFAULT_OUT_ZERO_POINT as i32 - offset_2) as u16;
 
         debug!("zero_points: 1={:#x}, 2={:#x}", value_1, value_2);
 
