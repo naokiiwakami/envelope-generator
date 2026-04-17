@@ -58,10 +58,10 @@ pub struct InOperationMode<'a> {
     last_note_scaling_depth: u16,
 
     // frequently used styles
-    erase_area: PrimitiveStyle<BinaryColor>,
-    fill_area: PrimitiveStyle<BinaryColor>,
-    erase_stroke: PrimitiveStyle<BinaryColor>,
-    stroke: PrimitiveStyle<BinaryColor>,
+    pub(super) erase_area: PrimitiveStyle<BinaryColor>,
+    pub(super) fill_area: PrimitiveStyle<BinaryColor>,
+    pub(super) erase_stroke: PrimitiveStyle<BinaryColor>,
+    pub(super) stroke: PrimitiveStyle<BinaryColor>,
 }
 
 const _NODE_SIZE: u32 = 3;
