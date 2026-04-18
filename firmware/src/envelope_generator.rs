@@ -1,4 +1,5 @@
 mod adsr_engine;
+mod calib_engine;
 mod config;
 mod definitions;
 mod diag_engine;
@@ -47,6 +48,7 @@ use crate::{
 
 use self::{
     adsr_engine::AdsrEngine,
+    calib_engine::CalibEngine,
     config::EgConfig,
     definitions::{DEFAULT_ENGINE_TYPE, DEFAULT_VOICE_IDS, Engine, VoiceParams},
     diag_engine::DiagEngine,
@@ -58,8 +60,8 @@ use self::{
 pub use self::{
     config::ConfigReader,
     definitions::{
-        DEFAULT_OUT_ZERO_POINT, EgEvent, EgRequest, EngineType, GateEventType, GateId, Mode,
-        OutputPolarity,
+        DEFAULT_OUT_ZERO_POINT, EgEvent, EgRequest, EngineType, GateEventType, Mode,
+        OutputPolarity, VoiceId,
     },
 };
 
@@ -366,6 +368,10 @@ async fn run_envelope_generator(
                     }
                 }
             }
+            Mode::Calibration => {
+                let mut eg = EnvelopeGenerator::<CalibEngine>::new(&mut eg_resources);
+                eg.run().await;
+            }
             Mode::Diagnose => {
                 let mut eg = EnvelopeGenerator::<DiagEngine>::new(&mut eg_resources);
                 eg.run().await;
@@ -499,8 +505,8 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
         match request {
             EgRequest::GateEvent { id, event } => {
                 match id {
-                    GateId::Gate1 => self.voice_1.handle_gate_event(event),
-                    GateId::Gate2 => self.voice_2.handle_gate_event(event),
+                    VoiceId::Voice1 => self.voice_1.handle_gate_event(event),
+                    VoiceId::Voice2 => self.voice_2.handle_gate_event(event),
                 };
                 false
             }
@@ -609,6 +615,18 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
                     storage::save(ADDR_OUT_ZERO_POINT_2, Value::U16(value_2), &SIGNAL_STORAGE)
                         .await
                         .unwrap();
+                }
+                false
+            }
+            EgRequest::SetOutput {
+                voice_id,
+                value,
+                polarity,
+            } => {
+                if matches!(self.voice_1.params.operation_mode, Mode::Calibration) {
+                    // it's a misused of the parameter but we would do this for saving memory usage
+                    self.config.set_note_scaling_depth(voice_id as usize, value);
+                    self.config.set_out_polarity(voice_id as usize, polarity);
                 }
                 false
             }

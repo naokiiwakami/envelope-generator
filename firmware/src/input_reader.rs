@@ -28,7 +28,7 @@ use crate::{
     addresses::ADDR_CV_OFFSET_A,
     definitions::PotKind,
     envelope_generator::{
-        EG_CHANNEL_SIZE, EgRequest, GateEventType, GateId, get_eg_request_sender,
+        EG_CHANNEL_SIZE, EgRequest, GateEventType, VoiceId, get_eg_request_sender,
     },
 };
 
@@ -94,7 +94,7 @@ impl InputReaderInfo {
 
 pub enum InputReaderRequest {
     ReadGate {
-        gate_id: GateId,
+        voice_id: VoiceId,
     },
     SetCvOffsets {
         offset_a: i16,
@@ -120,13 +120,13 @@ pub async fn start(
         gate_src_sw_1,
         ind_analog_gate_1,
         gate_trigger_1,
-        GateId::Gate1,
+        VoiceId::Voice1,
     );
     let analog_gate_2 = PhysicalGate::new(
         gate_src_sw_2,
         ind_analog_gate_2,
         gate_trigger_2,
-        GateId::Gate2,
+        VoiceId::Voice2,
     );
     spawner.spawn(run_analog_gate(analog_gate_1).unwrap());
     spawner.spawn(run_analog_gate(analog_gate_2).unwrap());
@@ -205,7 +205,9 @@ impl InputReader {
             match select(Timer::after_millis(10), request_receiver.receive()).await {
                 Either::First(()) => {}
                 Either::Second(request) => match request {
-                    InputReaderRequest::ReadGate { gate_id } => self.read_gate_level(gate_id).await,
+                    InputReaderRequest::ReadGate { voice_id: gate_id } => {
+                        self.read_gate_level(gate_id).await
+                    }
                     InputReaderRequest::SetCvOffsets {
                         offset_a,
                         offset_b,
@@ -267,11 +269,11 @@ impl InputReader {
         )
     }
 
-    async fn read_gate_level(&mut self, gate_id: GateId) {
+    async fn read_gate_level(&mut self, gate_id: VoiceId) {
         let mut buffer = [0u16; 1];
         let channel = match gate_id {
-            GateId::Gate1 => &mut self.resources.gate_1,
-            GateId::Gate2 => &mut self.resources.gate_2,
+            VoiceId::Voice1 => &mut self.resources.gate_1,
+            VoiceId::Voice2 => &mut self.resources.gate_2,
         };
         let sequence = [(channel, SampleTime::CYCLES160_5)].into_iter();
         self.resources
@@ -279,8 +281,8 @@ impl InputReader {
             .read(self.resources.dma.reborrow(), Irqs, sequence, &mut buffer)
             .await;
         match gate_id {
-            GateId::Gate1 => SIGNAL_GATE_1_READING.signal(buffer[0]),
-            GateId::Gate2 => SIGNAL_GATE_2_READING.signal(buffer[0]),
+            VoiceId::Voice1 => SIGNAL_GATE_1_READING.signal(buffer[0]),
+            VoiceId::Voice2 => SIGNAL_GATE_2_READING.signal(buffer[0]),
         }
     }
 
@@ -337,7 +339,7 @@ struct PhysicalGate {
     ind_analog_gate: Output<'static>,
     trigger: ExtiInput<'static, Async>,
 
-    gate_id: GateId,
+    gate_id: VoiceId,
     state: PhysicalGateState,
 
     request_sender: channel::Sender<'static, ThreadModeRawMutex, EgRequest, EG_CHANNEL_SIZE>,
@@ -348,7 +350,7 @@ impl PhysicalGate {
         src_sw: Input<'static>,
         ind_analog_gate: Output<'static>,
         trigger: ExtiInput<'static, Async>,
-        gate_id: GateId,
+        gate_id: VoiceId,
     ) -> Self {
         Self {
             src_sw,
@@ -420,12 +422,12 @@ impl PhysicalGate {
         Timer::after_micros(500).await;
         sender
             .send(InputReaderRequest::ReadGate {
-                gate_id: self.gate_id.clone(),
+                voice_id: self.gate_id.clone(),
             })
             .await;
         let level: u16 = match self.gate_id {
-            GateId::Gate1 => SIGNAL_GATE_1_READING.wait().await,
-            GateId::Gate2 => SIGNAL_GATE_2_READING.wait().await,
+            VoiceId::Voice1 => SIGNAL_GATE_1_READING.wait().await,
+            VoiceId::Voice2 => SIGNAL_GATE_2_READING.wait().await,
         };
         // TODO: Calibrate and convert properly
         let velocity = 0xffff - (level << 4);

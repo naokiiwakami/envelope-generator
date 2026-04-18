@@ -19,6 +19,7 @@ pub const DEFAULT_OUT_ZERO_POINT: u16 = 0x800;
 #[derive(Clone, Copy, PartialEq, Debug, defmt::Format)]
 pub enum Mode {
     Normal,
+    Calibration,
     Diagnose,
 }
 
@@ -52,7 +53,7 @@ impl VoiceParams {
 pub enum EgRequest {
     /// Notifies the EnvelopeGenerator a physical gate event.
     GateEvent {
-        id: GateId,
+        id: VoiceId,
         event: GateEventType,
     },
     /// Requests to switch the engine type.
@@ -86,6 +87,13 @@ pub enum EgRequest {
         value_1: u16,
         value_2: u16,
         save: bool,
+    },
+    /// Set output to a certain value.
+    /// Valid only in Calibration mode.
+    SetOutput {
+        voice_id: VoiceId,
+        value: u16,
+        polarity: OutputPolarity,
     },
 }
 
@@ -136,10 +144,11 @@ impl AtomicEnumRepr for EngineType {
 }
 
 /// Gate identifiers
-#[derive(Clone, Debug, defmt::Format)]
-pub enum GateId {
-    Gate1,
-    Gate2,
+#[derive(Clone, Copy, Debug, defmt::Format)]
+#[repr(u8)]
+pub enum VoiceId {
+    Voice1 = 0,
+    Voice2 = 1,
 }
 
 /// Gate event types

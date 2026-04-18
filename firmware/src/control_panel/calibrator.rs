@@ -13,7 +13,10 @@ use ssd1306_lite::{Alignment, FontSize, TextBox};
 
 use crate::{
     control_panel::display::Mode,
-    envelope_generator::{DEFAULT_OUT_ZERO_POINT, EngineType, get_eg_request_sender},
+    envelope_generator::{
+        DEFAULT_OUT_ZERO_POINT, EgRequest, Mode as EgMode, OutputPolarity, VoiceId,
+        get_eg_request_sender,
+    },
     input_reader::{
         InputReaderInfo, InputReaderRequest, get_reader_info_receiver, get_reader_request_sender,
     },
@@ -61,10 +64,31 @@ impl<'a> Calibrator<'a> {
 
     async fn prepare(&mut self) {
         self.control_panel
-            .switch_display_mode(DisplayMode::Fundamental)
+            .eg_request_sender
+            .send(EgRequest::ToggleMode {
+                mode: EgMode::Calibration,
+            })
             .await;
         self.control_panel
-            .switch_engine_type(EngineType::Adsr)
+            .eg_request_sender
+            .send(EgRequest::SetOutput {
+                voice_id: VoiceId::Voice1,
+                value: 0,
+                polarity: OutputPolarity::Positive,
+            })
+            .await;
+
+        self.control_panel
+            .eg_request_sender
+            .send(EgRequest::SetOutput {
+                voice_id: VoiceId::Voice2,
+                value: 0,
+                polarity: OutputPolarity::Positive,
+            })
+            .await;
+
+        self.control_panel
+            .switch_display_mode(DisplayMode::Fundamental)
             .await;
         self.control_panel
             .display_request_sender
@@ -438,6 +462,14 @@ impl<'a> Calibrator<'a> {
                 true,
             )
             .await;
+
+        self.control_panel
+            .eg_request_sender
+            .send(EgRequest::ToggleMode {
+                mode: EgMode::Calibration,
+            })
+            .await;
+
         Timer::after_millis(2000).await;
         self.control_panel
             .switch_engine_type(self.control_panel.eg_config.engine_type(0))
