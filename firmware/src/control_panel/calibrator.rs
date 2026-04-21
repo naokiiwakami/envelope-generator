@@ -7,18 +7,25 @@ use embedded_graphics::{
     prelude::{Point, Size},
     primitives::{PrimitiveStyle, PrimitiveStyleBuilder},
 };
-use ssd1306_lite::{FontSize, TextBox};
+use heapless::format;
+use ssd1306_lite::{Alignment, FontSize, TextBox};
 
 use crate::{
     control_panel::display::Mode,
-    envelope_generator::{DEFAULT_OUT_ZERO_POINT, EngineType, get_eg_request_sender},
+    definitions::Reply,
+    envelope_generator::{
+        DEFAULT_OUT_ZERO_POINT, EgRequest, Mode as EgMode, VoiceId, get_eg_request_sender,
+    },
     input_reader::{
         InputReaderInfo, InputReaderRequest, get_reader_info_receiver, get_reader_request_sender,
     },
 };
-use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, watch};
+use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, signal::Signal, watch};
 
 use super::{ControlPanel, DisplayRequest, display::Mode as DisplayMode};
+
+// signal to receive nudges.
+static SIGNAL_REPLY: Signal<ThreadModeRawMutex, Reply> = Signal::new();
 
 pub struct Calibrator<'a> {
     control_panel: &'a mut ControlPanel,
@@ -33,8 +40,8 @@ const JACK_POSITIONS: [Point; 6] = [
     Point::new(110, 46), // OUT 2
 ];
 
-// const INDEX_GATE_1: usize = 0;
-// const INDEX_GATE_2: usize = 1;
+const INDEX_GATE_1: usize = 0;
+const INDEX_GATE_2: usize = 1;
 const INDEX_CV_A: usize = 2;
 const INDEX_CV_B: usize = 3;
 const INDEX_OUT_1: usize = 4;
@@ -54,15 +61,27 @@ impl<'a> Calibrator<'a> {
 
         self.calibrate_cv(&mut reader_info_receiver).await;
         self.calibrate_output(&mut reader_info_receiver).await;
+        self.calibrate_gate().await;
         self.wrap_up().await;
     }
 
     async fn prepare(&mut self) {
         self.control_panel
-            .switch_display_mode(DisplayMode::Fundamental)
+            .eg_request_sender
+            .send(EgRequest::ToggleMode {
+                mode: EgMode::Calibration,
+            })
             .await;
         self.control_panel
-            .switch_engine_type(EngineType::Adsr)
+            .eg_request_sender
+            .send(EgRequest::SetOutput {
+                value_1: 0,
+                value_2: 0,
+            })
+            .await;
+
+        self.control_panel
+            .switch_display_mode(DisplayMode::Fundamental)
             .await;
         self.control_panel
             .display_request_sender
@@ -191,14 +210,33 @@ impl<'a> Calibrator<'a> {
         offset_a /= repeat as i32;
         offset_b /= repeat as i32;
         debug!("CV offsets after calib: A={}, B={}", offset_a, offset_b);
-
-        // TODO: check offsets actually
-
-        self.display_title("OK").await;
-
         self.clear_courtyard(true).await;
-
-        Timer::after_millis(2000).await;
+        let sleep_millis = if offset_a.abs() < 100 && offset_b.abs() < 100 {
+            self.display_title("OK").await;
+            2000
+        } else {
+            self.display_title("ERROR!!").await;
+            20000
+        };
+        let text_box = TextBox::builder(0, 15)
+            .width(128)
+            .height(20)
+            .align(Alignment::Center)
+            .build();
+        let text: heapless::String<32> = format!("A: {}", offset_a).unwrap();
+        self.control_panel
+            .display_text(&text.as_str(), text_box, FontSize::Medium, true)
+            .await;
+        let text_box = TextBox::builder(0, 30)
+            .width(128)
+            .height(20)
+            .align(Alignment::Center)
+            .build();
+        let text: heapless::String<32> = format!("B: {}", offset_b).unwrap();
+        self.control_panel
+            .display_text(&text.as_str(), text_box, FontSize::Medium, true)
+            .await;
+        Timer::after_millis(sleep_millis).await;
     }
 
     async fn calibrate_output(
@@ -214,6 +252,7 @@ impl<'a> Calibrator<'a> {
             })
             .await;
 
+        self.clear_courtyard(true).await;
         self.display_title("PLUG...").await;
 
         self.control_panel
@@ -355,10 +394,6 @@ impl<'a> Calibrator<'a> {
         offset_2 /= repeat as i32;
         debug!("drift after calib: 1={}, 2={}", offset_1, offset_2);
 
-        // TODO: check offsets actually
-
-        self.display_title("OK").await;
-
         self.draw_arrow(
             Point::new(45, 16),
             Point::new(105, 47),
@@ -379,7 +414,123 @@ impl<'a> Calibrator<'a> {
         )
         .await;
 
-        Timer::after_millis(2000).await;
+        let sleep_millis = if offset_1.abs() < 256 && offset_2.abs() < 256 {
+            self.display_title("OK").await;
+            2000
+        } else {
+            self.display_title("ERROR!!").await;
+            20000
+        };
+        let text_box = TextBox::builder(0, 15)
+            .width(128)
+            .height(20)
+            .align(Alignment::Center)
+            .build();
+        let text: heapless::String<32> = format!("A: {}", offset_1).unwrap();
+        self.control_panel
+            .display_text(&text.as_str(), text_box, FontSize::Medium, true)
+            .await;
+        let text_box = TextBox::builder(0, 30)
+            .width(128)
+            .height(20)
+            .align(Alignment::Center)
+            .build();
+        let text: heapless::String<32> = format!("B: {}", offset_2).unwrap();
+        self.control_panel
+            .display_text(&text.as_str(), text_box, FontSize::Medium, true)
+            .await;
+
+        Timer::after_millis(sleep_millis).await;
+    }
+
+    async fn calibrate_gate(&mut self) {
+        let eg_request_sender = get_eg_request_sender();
+        let reader_request_sender = get_reader_request_sender();
+
+        self.clear_courtyard(true).await;
+        self.display_title("PLUG...").await;
+
+        self.control_panel
+            .display_request_sender
+            .send(DisplayRequest::DrawArc {
+                center: Point::new(64, 160),
+                radius: 145,
+                start_degree: 252,
+                end_degree: 288,
+                color: BinaryColor::On,
+                flush: true,
+            })
+            .await;
+
+        self.control_panel
+            .display_request_sender
+            .send(DisplayRequest::DrawArc {
+                center: Point::new(64, 110),
+                radius: 77,
+                start_degree: 232,
+                end_degree: 308,
+                color: BinaryColor::On,
+                flush: true,
+            })
+            .await;
+
+        self.wait_for_button_pressed().await;
+        self.display_title("FINDING TRIG PNT").await;
+
+        let repeat = 512;
+        let step = repeat / JACK_DIAMETER * 2;
+        let stroke = PrimitiveStyleBuilder::new()
+            .stroke_color(BinaryColor::On)
+            .stroke_width(1)
+            .build();
+
+        let mut done_voice_1 = false;
+        let mut done_voice_2 = false;
+        for value in 0..0x4ff {
+            eg_request_sender
+                .send(EgRequest::SetOutput {
+                    value_1: value,
+                    value_2: value,
+                })
+                .await;
+            Timer::after_micros(1000).await;
+            eg_request_sender
+                .send(EgRequest::QueryGateStatus {
+                    reply: &SIGNAL_REPLY,
+                })
+                .await;
+            if let Reply::GateStatus { voice_1, voice_2 } = SIGNAL_REPLY.wait().await {
+                if !done_voice_1 && voice_1 {
+                    debug!("Gate 1 detected, value={}", value);
+                    reader_request_sender
+                        .send(InputReaderRequest::SmashForGateOffset {
+                            voice_id: VoiceId::Voice1,
+                            reply: &SIGNAL_REPLY,
+                        })
+                        .await;
+                    done_voice_1 = true;
+                }
+                if !done_voice_2 && voice_2 {
+                    debug!("Gate 2 detected, value={}", value);
+                    reader_request_sender
+                        .send(InputReaderRequest::SmashForGateOffset {
+                            voice_id: VoiceId::Voice2,
+                            reply: &SIGNAL_REPLY,
+                        })
+                        .await;
+                    done_voice_2 = true;
+                }
+                if done_voice_1 && done_voice_2 {
+                    break;
+                }
+            }
+            if value as u32 % step == 0 {
+                let shift = value as u32 / step;
+                self.draw_jack(INDEX_GATE_1, shift, stroke, false).await;
+                self.draw_jack(INDEX_GATE_2, shift, stroke, true).await;
+            }
+        }
+        Timer::after_millis(1000).await;
     }
 
     async fn wrap_up(&mut self) {
@@ -392,6 +543,14 @@ impl<'a> Calibrator<'a> {
                 true,
             )
             .await;
+
+        self.control_panel
+            .eg_request_sender
+            .send(EgRequest::ToggleMode {
+                mode: EgMode::Calibration,
+            })
+            .await;
+
         Timer::after_millis(2000).await;
         self.control_panel
             .switch_engine_type(self.control_panel.eg_config.engine_type(0))

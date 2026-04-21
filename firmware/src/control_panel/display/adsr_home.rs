@@ -70,6 +70,9 @@ pub async fn update_pot<'a>(parent: &mut InOperationMode<'a>, pot_info: PotInfo)
                     (parent.release, parent.sustain),
                 )
                 .await;
+            parent
+                .draw_curve((parent.release, parent.sustain), (RIGHT, BOTTOM))
+                .await;
         }
         PotKind::Decay => {
             let next_decay = decay_pos(pot_info.value, parent.attack, CURVE_WIDE);
@@ -93,6 +96,9 @@ pub async fn update_pot<'a>(parent: &mut InOperationMode<'a>, pot_info: PotInfo)
                     .draw_curve((LEFT, BOTTOM), (parent.attack, TOP))
                     .await;
             }
+            parent
+                .draw_curve((parent.release, parent.sustain), (RIGHT, BOTTOM))
+                .await;
         }
         PotKind::Sustain => {
             let next_sustain = sustain_pos(pot_info.value);

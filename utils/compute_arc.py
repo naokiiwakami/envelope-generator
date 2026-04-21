@@ -92,13 +92,13 @@ def compute_arc(c0: Point, d0: float, c1: Point, d1: float, origin: Point):
 
 # Example
 if __name__ == "__main__":
-    c0 = (84, 55)
+    c0 = (9, 25)
     d0 = 20
 
-    c1 = (119, 55)
+    c1 = (119, 25)
     d1 = 20
 
-    origin = (101, 64)
+    origin = (64, 160)
 
     result = compute_arc(c0, d0, c1, d1, origin)
 

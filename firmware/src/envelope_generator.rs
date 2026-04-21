@@ -1,4 +1,5 @@
 mod adsr_engine;
+mod calib_engine;
 mod config;
 mod definitions;
 mod diag_engine;
@@ -40,13 +41,14 @@ use crate::{
         ADDR_NOTE_SCALING_DEPTH_2, ADDR_OUT_ZERO_POINT_1, ADDR_OUT_ZERO_POINT_2,
         ADDR_OUTPUT_POLARITY_1, ADDR_VOICE_ID_1,
     },
-    definitions::{CvKind, PotKind},
+    definitions::{CvKind, PotKind, Reply},
     envelope_generator::definitions::DEFAULT_NOTE_SCALING_DEPTH,
     input_reader::{InputReaderInfo, get_reader_info_receiver},
 };
 
 use self::{
     adsr_engine::AdsrEngine,
+    calib_engine::CalibEngine,
     config::EgConfig,
     definitions::{DEFAULT_ENGINE_TYPE, DEFAULT_VOICE_IDS, Engine, VoiceParams},
     diag_engine::DiagEngine,
@@ -58,8 +60,8 @@ use self::{
 pub use self::{
     config::ConfigReader,
     definitions::{
-        DEFAULT_OUT_ZERO_POINT, EgEvent, EgRequest, EngineType, GateEventType, GateId, Mode,
-        OutputPolarity,
+        DEFAULT_OUT_ZERO_POINT, EgEvent, EgRequest, EngineType, GateEventType, Mode,
+        OutputPolarity, VoiceId,
     },
 };
 
@@ -366,6 +368,10 @@ async fn run_envelope_generator(
                     }
                 }
             }
+            Mode::Calibration => {
+                let mut eg = EnvelopeGenerator::<CalibEngine>::new(&mut eg_resources);
+                eg.run().await;
+            }
             Mode::Diagnose => {
                 let mut eg = EnvelopeGenerator::<DiagEngine>::new(&mut eg_resources);
                 eg.run().await;
@@ -499,8 +505,8 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
         match request {
             EgRequest::GateEvent { id, event } => {
                 match id {
-                    GateId::Gate1 => self.voice_1.handle_gate_event(event),
-                    GateId::Gate2 => self.voice_2.handle_gate_event(event),
+                    VoiceId::Voice1 => self.voice_1.handle_gate_event(event),
+                    VoiceId::Voice2 => self.voice_2.handle_gate_event(event),
                 };
                 false
             }
@@ -599,6 +605,7 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
                 value_2,
                 save,
             } => {
+                debug!("UpdateZeroPoints received: {:#x}, {:#x}", value_1, value_2);
                 self.voice_1.params.out_zero_point = value_1;
                 self.voice_2.params.out_zero_point = value_2;
                 if save {
@@ -609,6 +616,19 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
                         .await
                         .unwrap();
                 }
+                false
+            }
+            EgRequest::SetOutput { value_1, value_2 } => {
+                self.voice_1.params.output_level = value_1;
+                self.voice_2.params.output_level = value_2;
+                self.config.set_out_polarity(0, OutputPolarity::Positive);
+                self.config.set_out_polarity(1, OutputPolarity::Positive);
+                false
+            }
+            EgRequest::QueryGateStatus { reply } => {
+                let voice_1 = self.voice_1.ind_gate.is_set_high();
+                let voice_2 = self.voice_2.ind_gate.is_set_high();
+                reply.signal(Reply::GateStatus { voice_1, voice_2 });
                 false
             }
         }
@@ -653,7 +673,7 @@ impl<'a, EngineT: Engine> EgVoice<'a, EngineT> {
 
     pub async fn handle_a3_message(&mut self, message: &A3Datagram) {
         if self.params.physical_gate_enabled {
-            // do nothing when analog gate is enabled
+            // do nothing when physical gate is enabled
             return;
         }
         let data = message.data;
@@ -690,7 +710,6 @@ impl<'a, EngineT: Engine> EgVoice<'a, EngineT> {
         match event {
             GateEventType::PhysicalGateEnabled => {
                 self.params.physical_gate_enabled = true;
-                self.ind_gate.set_high();
             }
             GateEventType::PhysicalGateDisabled => {
                 self.params.physical_gate_enabled = false;

@@ -1,9 +1,10 @@
 use defmt;
+use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, signal::Signal};
 
 use super::config::EgConfig;
 
 use crate::{
-    definitions::{AtomicEnumRepr, CvKind, PotKind},
+    definitions::{AtomicEnumRepr, CvKind, PotKind, Reply},
     envelope_generator::utils::uq0_32_to_12bit_positive,
     input_reader::{InputReaderInfo, PotInfo},
 };
@@ -19,6 +20,7 @@ pub const DEFAULT_OUT_ZERO_POINT: u16 = 0x800;
 #[derive(Clone, Copy, PartialEq, Debug, defmt::Format)]
 pub enum Mode {
     Normal,
+    Calibration,
     Diagnose,
 }
 
@@ -32,6 +34,9 @@ pub struct VoiceParams {
 
     pub physical_gate_enabled: bool,
     pub operation_mode: Mode,
+
+    // used only by CalibEngine for specifying output level externally
+    pub output_level: u16,
 }
 
 impl VoiceParams {
@@ -44,6 +49,7 @@ impl VoiceParams {
             value_to_output: &uq0_32_to_12bit_positive,
             physical_gate_enabled: false,
             operation_mode: Mode::Normal,
+            output_level: 0,
         }
     }
 }
@@ -52,7 +58,7 @@ impl VoiceParams {
 pub enum EgRequest {
     /// Notifies the EnvelopeGenerator a physical gate event.
     GateEvent {
-        id: GateId,
+        id: VoiceId,
         event: GateEventType,
     },
     /// Requests to switch the engine type.
@@ -86,6 +92,15 @@ pub enum EgRequest {
         value_1: u16,
         value_2: u16,
         save: bool,
+    },
+    /// Set output to a certain value.
+    /// Valid only in Calibration mode.
+    SetOutput {
+        value_1: u16,
+        value_2: u16,
+    },
+    QueryGateStatus {
+        reply: &'static Signal<ThreadModeRawMutex, Reply>,
     },
 }
 
@@ -136,10 +151,11 @@ impl AtomicEnumRepr for EngineType {
 }
 
 /// Gate identifiers
-#[derive(Clone, Debug, defmt::Format)]
-pub enum GateId {
-    Gate1,
-    Gate2,
+#[derive(Clone, Copy, Debug, defmt::Format)]
+#[repr(u8)]
+pub enum VoiceId {
+    Voice1 = 0,
+    Voice2 = 1,
 }
 
 /// Gate event types

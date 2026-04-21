@@ -135,7 +135,7 @@ async fn setup_peripherals(p: Peripherals) -> EgResources {
     let gate_src_sw_1 = Input::new(p.PA8, Pull::None);
     let gate_src_sw_2 = Input::new(p.PA9, Pull::None);
 
-    // analog gate trigger
+    // physical gate trigger
     let gate_trigger_1 = ExtiInput::new(p.PB2, p.EXTI2, Pull::Up, ExtiIrqsGate1);
     let gate_trigger_2 = ExtiInput::new(p.PB10, p.EXTI10, Pull::Up, ExtiIrqsGate2);
 

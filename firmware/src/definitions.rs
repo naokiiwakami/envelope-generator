@@ -69,3 +69,8 @@ impl<E: AtomicEnumRepr> AtomicEnum<E> {
         self.inner.store(value.to_u8(), Ordering::Relaxed);
     }
 }
+
+pub enum Reply {
+    Void,
+    GateStatus { voice_1: bool, voice_2: bool },
+}

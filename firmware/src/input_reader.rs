@@ -25,10 +25,10 @@ use embassy_sync::{
 use embassy_time::Timer;
 
 use crate::{
-    addresses::ADDR_CV_OFFSET_A,
-    definitions::PotKind,
+    addresses::{ADDR_CV_OFFSET_A, ADDR_GATE_TRIGGER_POINT_1},
+    definitions::{PotKind, Reply},
     envelope_generator::{
-        EG_CHANNEL_SIZE, EgRequest, GateEventType, GateId, get_eg_request_sender,
+        EG_CHANNEL_SIZE, EgRequest, GateEventType, VoiceId, get_eg_request_sender,
     },
 };
 
@@ -93,13 +93,17 @@ impl InputReaderInfo {
 }
 
 pub enum InputReaderRequest {
-    ReadGate {
-        gate_id: GateId,
+    ReadVelocity {
+        voice_id: VoiceId,
     },
     SetCvOffsets {
         offset_a: i16,
         offset_b: i16,
         save: bool,
+    },
+    SmashForGateOffset {
+        voice_id: VoiceId,
+        reply: &'static Signal<ThreadModeRawMutex, Reply>,
     },
 }
 
@@ -115,21 +119,22 @@ pub async fn start(
 ) {
     let mut input_reader = InputReader::new(resources);
     input_reader.load_cv_offsets().await;
+    input_reader.load_gate_offsets().await;
     spawner.spawn(run_input_reader(input_reader).unwrap());
-    let analog_gate_1 = PhysicalGate::new(
+    let physical_gate_1 = PhysicalGate::new(
         gate_src_sw_1,
         ind_analog_gate_1,
         gate_trigger_1,
-        GateId::Gate1,
+        VoiceId::Voice1,
     );
-    let analog_gate_2 = PhysicalGate::new(
+    let physical_gate_2 = PhysicalGate::new(
         gate_src_sw_2,
         ind_analog_gate_2,
         gate_trigger_2,
-        GateId::Gate2,
+        VoiceId::Voice2,
     );
-    spawner.spawn(run_analog_gate(analog_gate_1).unwrap());
-    spawner.spawn(run_analog_gate(analog_gate_2).unwrap());
+    spawner.spawn(run_physical_gate(physical_gate_1).unwrap());
+    spawner.spawn(run_physical_gate(physical_gate_2).unwrap());
 }
 
 #[inline]
@@ -177,7 +182,7 @@ async fn run_input_reader(mut input_reader: InputReader) {
 }
 
 struct InputReader {
-    // Peripherals
+    // peripherals
     resources: AdcResources,
 
     // pot reading
@@ -186,6 +191,9 @@ struct InputReader {
     // CV offsets
     cv_offset_a: i16,
     cv_offset_b: i16,
+
+    // gate offsets
+    gate_offset: [u16; 2],
 }
 
 impl InputReader {
@@ -195,6 +203,7 @@ impl InputReader {
             pot_index: 0,
             cv_offset_a: 0,
             cv_offset_b: 0,
+            gate_offset: [0; 2],
         }
     }
 
@@ -205,12 +214,18 @@ impl InputReader {
             match select(Timer::after_millis(10), request_receiver.receive()).await {
                 Either::First(()) => {}
                 Either::Second(request) => match request {
-                    InputReaderRequest::ReadGate { gate_id } => self.read_gate_level(gate_id).await,
+                    InputReaderRequest::ReadVelocity { voice_id } => {
+                        self.read_velocity(voice_id).await
+                    }
                     InputReaderRequest::SetCvOffsets {
                         offset_a,
                         offset_b,
                         save,
                     } => self.set_cv_offsets(offset_a, offset_b, save).await,
+                    InputReaderRequest::SmashForGateOffset { voice_id, reply } => {
+                        self.set_gate_offset(voice_id).await;
+                        reply.signal(Reply::Void);
+                    }
                 },
             }
             self.regular_reading(&mut reader_info_sender).await;
@@ -267,29 +282,50 @@ impl InputReader {
         )
     }
 
-    async fn read_gate_level(&mut self, gate_id: GateId) {
+    async fn read_velocity(&mut self, voice_id: VoiceId) {
+        let reading = self.read_gate_value(voice_id).await;
+        let offset = self.gate_offset[voice_id as usize];
+        let velocity = reading.max(offset) - offset;
+
+        match voice_id {
+            VoiceId::Voice1 => SIGNAL_GATE_1_READING.signal(velocity),
+            VoiceId::Voice2 => SIGNAL_GATE_2_READING.signal(velocity),
+        }
+    }
+
+    async fn set_cv_offsets(&mut self, offset_a: i16, offset_b: i16, save: bool) {
+        debug!("SetCvOffsets received: {:#x} {:#x}", offset_a, offset_b);
+        self.cv_offset_a = offset_a;
+        self.cv_offset_b = offset_b;
+        if save {
+            self.save_cv_offsets().await;
+        }
+    }
+
+    async fn set_gate_offset(&mut self, voice_id: VoiceId) {
+        let reading = self.read_gate_value(voice_id).await;
+        self.gate_offset[voice_id as usize] = reading.max(10) - 10;
+        debug!(
+            "gate offset {}={}",
+            voice_id as usize, self.gate_offset[voice_id as usize]
+        );
+        Self::save_gate_offset(voice_id as u16, reading).await;
+    }
+
+    async fn read_gate_value(&mut self, voice_id: VoiceId) -> u16 {
         let mut buffer = [0u16; 1];
-        let channel = match gate_id {
-            GateId::Gate1 => &mut self.resources.gate_1,
-            GateId::Gate2 => &mut self.resources.gate_2,
+        let channel = match voice_id {
+            VoiceId::Voice1 => &mut self.resources.gate_1,
+            VoiceId::Voice2 => &mut self.resources.gate_2,
         };
         let sequence = [(channel, SampleTime::CYCLES160_5)].into_iter();
         self.resources
             .adc
             .read(self.resources.dma.reborrow(), Irqs, sequence, &mut buffer)
             .await;
-        match gate_id {
-            GateId::Gate1 => SIGNAL_GATE_1_READING.signal(buffer[0]),
-            GateId::Gate2 => SIGNAL_GATE_2_READING.signal(buffer[0]),
-        }
-    }
 
-    async fn set_cv_offsets(&mut self, offset_a: i16, offset_b: i16, save: bool) {
-        self.cv_offset_a = offset_a;
-        self.cv_offset_b = offset_b;
-        if save {
-            self.save_cv_offsets().await;
-        }
+        let reading = !((buffer[0]) << 4);
+        reading
     }
 
     pub async fn load_cv_offsets(&mut self) {
@@ -325,18 +361,47 @@ impl InputReader {
         .await
         .unwrap();
     }
+
+    pub async fn load_gate_offsets(&mut self) {
+        self.gate_offset[0] = Self::load_gate_offset(0).await;
+        self.gate_offset[1] = Self::load_gate_offset(1).await;
+        debug!(
+            "loaded CV offsets: a={}, b={}",
+            self.cv_offset_a, self.cv_offset_b
+        );
+    }
+
+    async fn load_gate_offset(index: u16) -> u16 {
+        let saved_offset = load_u16(ADDR_GATE_TRIGGER_POINT_1 + index * 2, &SIGNAL_STORAGE).await;
+        if saved_offset == u16::MAX {
+            0
+        } else {
+            saved_offset
+        }
+    }
+
+    async fn save_gate_offset(index: u16, offset: u16) {
+        storage::save(
+            ADDR_GATE_TRIGGER_POINT_1 + index * 2,
+            Value::U16(offset),
+            &SIGNAL_STORAGE,
+        )
+        .await
+        .unwrap();
+    }
 }
 
 #[embassy_executor::task(pool_size = 2)]
-async fn run_analog_gate(mut analog_gate: PhysicalGate) {
+async fn run_physical_gate(mut analog_gate: PhysicalGate) {
     analog_gate.run().await;
 }
+
 struct PhysicalGate {
     src_sw: Input<'static>,
     ind_analog_gate: Output<'static>,
     trigger: ExtiInput<'static, Async>,
 
-    gate_id: GateId,
+    voice_id: VoiceId,
     state: PhysicalGateState,
 
     request_sender: channel::Sender<'static, ThreadModeRawMutex, EgRequest, EG_CHANNEL_SIZE>,
@@ -347,13 +412,13 @@ impl PhysicalGate {
         src_sw: Input<'static>,
         ind_analog_gate: Output<'static>,
         trigger: ExtiInput<'static, Async>,
-        gate_id: GateId,
+        voice_id: VoiceId,
     ) -> Self {
         Self {
             src_sw,
             ind_analog_gate,
             trigger,
-            gate_id,
+            voice_id,
             state: PhysicalGateState::Disabled,
             request_sender: get_eg_request_sender(),
         }
@@ -366,14 +431,14 @@ impl PhysicalGate {
                     Timer::after_millis(10).await;
                     if self.src_sw.is_high() {
                         debug!(
-                            "Analog gate {:?} enabled, state={:?}",
-                            self.gate_id, self.state
+                            "Physical gate {:?} enabled, state={:?}",
+                            self.voice_id, self.state
                         );
                         self.state = PhysicalGateState::GateOff;
                         self.ind_analog_gate.set_high();
                         self.request_sender
                             .send(EgRequest::GateEvent {
-                                id: self.gate_id.clone(),
+                                id: self.voice_id.clone(),
                                 event: GateEventType::PhysicalGateEnabled,
                             })
                             .await;
@@ -416,21 +481,20 @@ impl PhysicalGate {
         sender: &mut channel::Sender<'static, ThreadModeRawMutex, InputReaderRequest, 2>,
     ) {
         self.state = PhysicalGateState::GateOn;
+        debug!("gate on");
         Timer::after_micros(500).await;
         sender
-            .send(InputReaderRequest::ReadGate {
-                gate_id: self.gate_id.clone(),
+            .send(InputReaderRequest::ReadVelocity {
+                voice_id: self.voice_id.clone(),
             })
             .await;
-        let level: u16 = match self.gate_id {
-            GateId::Gate1 => SIGNAL_GATE_1_READING.wait().await,
-            GateId::Gate2 => SIGNAL_GATE_2_READING.wait().await,
+        let velocity: u16 = match self.voice_id {
+            VoiceId::Voice1 => SIGNAL_GATE_1_READING.wait().await,
+            VoiceId::Voice2 => SIGNAL_GATE_2_READING.wait().await,
         };
-        // TODO: Calibrate and convert properly
-        let velocity = 0xffff - (level << 4);
         self.request_sender
             .send(EgRequest::GateEvent {
-                id: self.gate_id.clone(),
+                id: self.voice_id.clone(),
                 event: GateEventType::GateOn { velocity },
             })
             .await;
@@ -440,30 +504,30 @@ impl PhysicalGate {
         self.state = PhysicalGateState::GateOff;
         self.request_sender
             .send(EgRequest::GateEvent {
-                id: self.gate_id.clone(),
+                id: self.voice_id.clone(),
                 event: GateEventType::GateOff,
             })
             .await;
     }
 
     async fn check_gate_switch(&mut self) {
-        // TODO: assert analog gate enabled
+        // TODO: assert physical gate enabled
         if self.src_sw.is_low() {
             debug!(
-                "Analog gate {:?} disabled, state={:?}",
-                self.gate_id, self.state
+                "Physical gate {:?} disabled, state={:?}",
+                self.voice_id, self.state
             );
             if !matches!(self.state, PhysicalGateState::GateOff) {
                 self.request_sender
                     .send(EgRequest::GateEvent {
-                        id: self.gate_id.clone(),
+                        id: self.voice_id.clone(),
                         event: GateEventType::GateOff,
                     })
                     .await;
             }
             self.request_sender
                 .send(EgRequest::GateEvent {
-                    id: self.gate_id.clone(),
+                    id: self.voice_id.clone(),
                     event: GateEventType::PhysicalGateDisabled,
                 })
                 .await;
