@@ -1,9 +1,10 @@
 use defmt;
+use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, signal::Signal};
 
 use super::config::EgConfig;
 
 use crate::{
-    definitions::{AtomicEnumRepr, CvKind, PotKind},
+    definitions::{AtomicEnumRepr, CvKind, PotKind, Reply},
     envelope_generator::utils::uq0_32_to_12bit_positive,
     input_reader::{InputReaderInfo, PotInfo},
 };
@@ -33,6 +34,9 @@ pub struct VoiceParams {
 
     pub physical_gate_enabled: bool,
     pub operation_mode: Mode,
+
+    // used only by CalibEngine for specifying output level externally
+    pub output_level: u16,
 }
 
 impl VoiceParams {
@@ -45,6 +49,7 @@ impl VoiceParams {
             value_to_output: &uq0_32_to_12bit_positive,
             physical_gate_enabled: false,
             operation_mode: Mode::Normal,
+            output_level: 0,
         }
     }
 }
@@ -91,9 +96,11 @@ pub enum EgRequest {
     /// Set output to a certain value.
     /// Valid only in Calibration mode.
     SetOutput {
-        voice_id: VoiceId,
-        value: u16,
-        polarity: OutputPolarity,
+        value_1: u16,
+        value_2: u16,
+    },
+    QueryGateStatus {
+        reply: &'static Signal<ThreadModeRawMutex, Reply>,
     },
 }
 

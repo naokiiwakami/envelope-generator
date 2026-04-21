@@ -41,7 +41,7 @@ use crate::{
         ADDR_NOTE_SCALING_DEPTH_2, ADDR_OUT_ZERO_POINT_1, ADDR_OUT_ZERO_POINT_2,
         ADDR_OUTPUT_POLARITY_1, ADDR_VOICE_ID_1,
     },
-    definitions::{CvKind, PotKind},
+    definitions::{CvKind, PotKind, Reply},
     envelope_generator::definitions::DEFAULT_NOTE_SCALING_DEPTH,
     input_reader::{InputReaderInfo, get_reader_info_receiver},
 };
@@ -618,16 +618,17 @@ impl<'a, EngineT: Engine> EnvelopeGenerator<'a, EngineT> {
                 }
                 false
             }
-            EgRequest::SetOutput {
-                voice_id,
-                value,
-                polarity,
-            } => {
-                if matches!(self.voice_1.params.operation_mode, Mode::Calibration) {
-                    // it's a misused of the parameter but we would do this for saving memory usage
-                    self.config.set_note_scaling_depth(voice_id as usize, value);
-                    self.config.set_out_polarity(voice_id as usize, polarity);
-                }
+            EgRequest::SetOutput { value_1, value_2 } => {
+                self.voice_1.params.output_level = value_1;
+                self.voice_2.params.output_level = value_2;
+                self.config.set_out_polarity(0, OutputPolarity::Positive);
+                self.config.set_out_polarity(1, OutputPolarity::Positive);
+                false
+            }
+            EgRequest::QueryGateStatus { reply } => {
+                let voice_1 = self.voice_1.ind_gate.is_set_high();
+                let voice_2 = self.voice_2.ind_gate.is_set_high();
+                reply.signal(Reply::GateStatus { voice_1, voice_2 });
                 false
             }
         }
@@ -672,7 +673,7 @@ impl<'a, EngineT: Engine> EgVoice<'a, EngineT> {
 
     pub async fn handle_a3_message(&mut self, message: &A3Datagram) {
         if self.params.physical_gate_enabled {
-            // do nothing when analog gate is enabled
+            // do nothing when physical gate is enabled
             return;
         }
         let data = message.data;
@@ -709,7 +710,6 @@ impl<'a, EngineT: Engine> EgVoice<'a, EngineT> {
         match event {
             GateEventType::PhysicalGateEnabled => {
                 self.params.physical_gate_enabled = true;
-                self.ind_gate.set_high();
             }
             GateEventType::PhysicalGateDisabled => {
                 self.params.physical_gate_enabled = false;
