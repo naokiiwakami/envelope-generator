@@ -1,7 +1,6 @@
 use core::ops::Add;
 
 use defmt::debug;
-use embassy_futures::yield_now;
 use embassy_time::{Instant, Timer};
 use embedded_graphics::{
     pixelcolor::BinaryColor,
@@ -15,8 +14,7 @@ use crate::{
     control_panel::display::Mode,
     definitions::Reply,
     envelope_generator::{
-        DEFAULT_OUT_ZERO_POINT, EgRequest, Mode as EgMode, OutputPolarity, VoiceId,
-        get_eg_request_sender,
+        DEFAULT_OUT_ZERO_POINT, EgRequest, Mode as EgMode, VoiceId, get_eg_request_sender,
     },
     input_reader::{
         InputReaderInfo, InputReaderRequest, get_reader_info_receiver, get_reader_request_sender,
@@ -63,7 +61,7 @@ impl<'a> Calibrator<'a> {
 
         self.calibrate_cv(&mut reader_info_receiver).await;
         self.calibrate_output(&mut reader_info_receiver).await;
-        self.calibrate_gate(&mut reader_info_receiver).await;
+        self.calibrate_gate().await;
         self.wrap_up().await;
     }
 
@@ -253,7 +251,6 @@ impl<'a> Calibrator<'a> {
                 save: false,
             })
             .await;
-        yield_now().await;
 
         self.clear_courtyard(true).await;
         self.display_title("PLUG...").await;
@@ -325,7 +322,6 @@ impl<'a> Calibrator<'a> {
                 save: true,
             })
             .await;
-        yield_now().await;
 
         Timer::after_millis(100).await;
 
@@ -447,10 +443,7 @@ impl<'a> Calibrator<'a> {
         Timer::after_millis(sleep_millis).await;
     }
 
-    async fn calibrate_gate(
-        &mut self,
-        reader_info_receiver: &mut watch::Receiver<'static, ThreadModeRawMutex, InputReaderInfo, 2>,
-    ) {
+    async fn calibrate_gate(&mut self) {
         let eg_request_sender = get_eg_request_sender();
         let reader_request_sender = get_reader_request_sender();
 
