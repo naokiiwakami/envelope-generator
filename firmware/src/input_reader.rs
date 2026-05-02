@@ -5,10 +5,9 @@ use analog3::{
 use defmt::{self, debug};
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
-use embassy_stm32::bind_interrupts;
 use embassy_stm32::{
     Peri,
-    adc::{Adc, AnyAdcChannel, SampleTime},
+    adc::{Adc, SampleTime},
     dma,
     exti::ExtiInput,
     flash::Error,
@@ -16,6 +15,7 @@ use embassy_stm32::{
     mode::Async,
     peripherals::*,
 };
+use embassy_stm32::{adc::AdcChannel, bind_interrupts};
 use embassy_sync::{
     blocking_mutex::raw::ThreadModeRawMutex,
     channel::{self, Channel},
@@ -52,13 +52,13 @@ pub struct AdcResources {
     pub mux_addr_1: Output<'static>,
     pub mux_addr_2: Output<'static>,
 
-    pub pots: AnyAdcChannel<'static, ADC1>,
+    pub pots: Peri<'static, PA6>,
 
-    pub gate_1: AnyAdcChannel<'static, ADC1>,
-    pub gate_2: AnyAdcChannel<'static, ADC1>,
+    pub gate_1: Peri<'static, PA3>,
+    pub gate_2: Peri<'static, PA2>,
 
-    pub cv_a: AnyAdcChannel<'static, ADC1>,
-    pub cv_b: AnyAdcChannel<'static, ADC1>,
+    pub cv_a: Peri<'static, PA0>,
+    pub cv_b: Peri<'static, PA1>,
 }
 
 #[derive(Clone)]
@@ -250,15 +250,24 @@ impl InputReader {
 
         // run ADC
         let mut buffer = [0u16; 3];
+        let mut pots = self.resources.pots.degrade_adc();
+        let mut cv_a = self.resources.cv_a.degrade_adc();
+        let mut cv_b = self.resources.cv_b.degrade_adc();
         let sequence = [
-            (&mut self.resources.pots, SampleTime::CYCLES160_5),
-            (&mut self.resources.cv_a, SampleTime::CYCLES160_5),
-            (&mut self.resources.cv_b, SampleTime::CYCLES160_5),
+            (&mut pots, SampleTime::Cycles1605),
+            (&mut cv_a, SampleTime::Cycles1605),
+            (&mut cv_b, SampleTime::Cycles1605),
         ]
         .into_iter();
         self.resources
             .adc
-            .read(self.resources.dma.reborrow(), Irqs, sequence, &mut buffer)
+            .read(
+                self.resources.dma.reborrow(),
+                Irqs,
+                sequence,
+                None,
+                &mut buffer,
+            )
             .await;
 
         // Pots pick up noise so their values do not drop to zero at the bottoms.
@@ -315,13 +324,19 @@ impl InputReader {
     async fn read_gate_value(&mut self, voice_id: VoiceId) -> u16 {
         let mut buffer = [0u16; 1];
         let channel = match voice_id {
-            VoiceId::Voice1 => &mut self.resources.gate_1,
-            VoiceId::Voice2 => &mut self.resources.gate_2,
+            VoiceId::Voice1 => &mut self.resources.gate_1.degrade_adc(),
+            VoiceId::Voice2 => &mut self.resources.gate_2.degrade_adc(),
         };
-        let sequence = [(channel, SampleTime::CYCLES160_5)].into_iter();
+        let sequence = [(channel, SampleTime::Cycles1605)].into_iter();
         self.resources
             .adc
-            .read(self.resources.dma.reborrow(), Irqs, sequence, &mut buffer)
+            .read(
+                self.resources.dma.reborrow(),
+                Irqs,
+                sequence,
+                None,
+                &mut buffer,
+            )
             .await;
 
         let reading = !((buffer[0]) << 4);

@@ -13,7 +13,7 @@ use analog3::{Analog3Config, definitions::*, rng, storage};
 use core::future::pending;
 use defmt::debug;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::{Adc, AdcChannel, SampleTime};
+use embassy_stm32::adc::{Adc, SampleTime};
 use embassy_stm32::can::{self, Can};
 use embassy_stm32::dac::Dac;
 use embassy_stm32::dma;
@@ -71,17 +71,17 @@ async fn init() -> Peripherals {
         mode: HseMode::Oscillator,
     });
     config.rcc.pll = Some(Pll {
-        source: PllSource::HSE,
-        prediv: PllPreDiv::DIV1, // M = 1
-        mul: PllMul::MUL8,       // N = 8
+        source: PllSource::Hse,
+        prediv: PllPreDiv::Div1, // M = 1
+        mul: PllMul::Mul8,       // N = 8
         divp: None,
         divq: None,
-        divr: Some(PllRDiv::DIV2), // R = 2 → 64 MHz
+        divr: Some(PllRDiv::Div2), // R = 2 → 64 MHz
     });
-    config.rcc.sys = Sysclk::PLL1_R;
+    config.rcc.sys = Sysclk::Pll1R;
 
-    config.rcc.ahb_pre = AHBPrescaler::DIV1; // 64 MHz
-    config.rcc.apb1_pre = APBPrescaler::DIV1; // G0 allows 64 MHz APB
+    config.rcc.ahb_pre = AHBPrescaler::Div1; // 64 MHz
+    config.rcc.apb1_pre = APBPrescaler::Div1; // G0 allows 64 MHz APB
 
     embassy_stm32::init(config)
 
@@ -206,7 +206,7 @@ async fn setup_peripherals(p: Peripherals) -> EgResources {
     pac::TIM2.cr1().modify(|w| w.set_arpe(true)); // Enable autoreload preload
     pac::TIM2
         .cr2()
-        .modify(|w| w.set_mms(embassy_stm32::pac::timer::vals::Mms::UPDATE)); // Output update event as trigger
+        .modify(|w| w.set_mms(embassy_stm32::pac::timer::vals::Mms::Update)); // Output update event as trigger
     pac::TIM2.dier().modify(|w| w.set_uie(true)); // Enable update interrupt
     pac::TIM2.sr().write(|w| w.set_uif(false)); // Clear update interrupt flag
 
@@ -243,13 +243,13 @@ async fn setup_peripherals(p: Peripherals) -> EgResources {
         mux_addr_1,
         mux_addr_2,
 
-        pots: p.PA6.degrade_adc(),
+        pots: p.PA6,
 
-        gate_1: p.PA3.degrade_adc(),
-        gate_2: p.PA2.degrade_adc(),
+        gate_1: p.PA3,
+        gate_2: p.PA2,
 
-        cv_a: p.PA0.degrade_adc(),
-        cv_b: p.PA1.degrade_adc(),
+        cv_a: p.PA0,
+        cv_b: p.PA1,
     };
 
     let mut qei_config = qei::Config::default();
@@ -289,9 +289,9 @@ async fn setup_peripherals(p: Peripherals) -> EgResources {
 
 fn generate_rng_initial_values(adc: &mut Adc<'static, ADC1>) -> (u16, u16, u16) {
     let mut temp_channel = adc.enable_temperature();
-    let raw1 = adc.blocking_read(&mut temp_channel, SampleTime::CYCLES39_5);
-    let raw2 = adc.blocking_read(&mut temp_channel, SampleTime::CYCLES39_5);
-    let raw3 = adc.blocking_read(&mut temp_channel, SampleTime::CYCLES39_5);
+    let raw1 = adc.blocking_read(&mut temp_channel, SampleTime::Cycles1605);
+    let raw2 = adc.blocking_read(&mut temp_channel, SampleTime::Cycles1605);
+    let raw3 = adc.blocking_read(&mut temp_channel, SampleTime::Cycles1605);
 
     debug!(
         "RNG seeding from temperature sensor: {=u16} {=u16} {=u16}",

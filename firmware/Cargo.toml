@@ -6,8 +6,7 @@ license = "MIT"
 publish = false
 
 [dependencies]
-# Change stm32c031c6 to your chip name, if necessary.
-embassy-stm32 = { git = "https://github.com/naokiiwakami/embassy.git", tag = "embassy-stm32-v0.6.0-canfd-tdc", features = [
+embassy-stm32 = { git = "https://github.com/embassy-rs/embassy.git", rev = "26ad6ec71de3d55e5cbc04a72d7174185f3e86ab", features = [
   "defmt",
   "time-driver-any",
   "stm32g0b1ce",
@@ -16,18 +15,20 @@ embassy-stm32 = { git = "https://github.com/naokiiwakami/embassy.git", tag = "em
   "exti",
   "chrono",
 ] }
-embassy-sync = { version = "0.8.0", features = ["defmt"] }
-embassy-executor = { version = "0.10.0", features = [
+embassy-sync = { git = "https://github.com/embassy-rs/embassy.git", rev = "26ad6ec71de3d55e5cbc04a72d7174185f3e86ab", features = [
+  "defmt",
+] }
+embassy-executor = { git = "https://github.com/embassy-rs/embassy.git", rev = "26ad6ec71de3d55e5cbc04a72d7174185f3e86ab", features = [
   "platform-cortex-m",
   "executor-thread",
   "defmt",
 ] }
-embassy-time = { version = "0.5.1", features = [
+embassy-time = { git = "https://github.com/embassy-rs/embassy.git", rev = "26ad6ec71de3d55e5cbc04a72d7174185f3e86ab", features = [
   "defmt",
   "defmt-timestamp-uptime",
   "tick-hz-32_768",
 ] }
-embassy-futures = "0.1.2"
+embassy-futures = { git = "https://github.com/embassy-rs/embassy.git", rev = "26ad6ec71de3d55e5cbc04a72d7174185f3e86ab" }
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"
 
@@ -41,7 +42,7 @@ embedded-can = "0.4"
 static_cell = "2.1.1"
 portable-atomic = { version = "1.13.0", features = ["critical-section"] }
 num_enum = { version = "0.7.5", default-features = false }
-analog3 = { path = "../../analog3" }
+analog3 = { path = "../../analog3", features = ["stm32g0b1ce"] }
 ssd1306-lite = { path = "../../ssd1306-lite" }
 embedded-graphics = { git = "https://github.com/naokiiwakami/embedded-graphics.git", tag = "embedded-graphics-v0.8.2-fork" }
 
